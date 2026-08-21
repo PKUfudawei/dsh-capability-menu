@@ -1,0 +1,87 @@
+# dsh-capability-menu aggregate bundle patch: mounts the meta plugins in one
+# layer, from a single installable package.
+#
+# One package, four plugin entries — each mounts a subpath of
+# `@daweifu/capability-menu` (the loader resolves package subpath exports; see
+# `@deepseek-ai/dsh-web-app/startup` for the same pattern in the harness):
+#
+#   - id: capability-menu-registry
+#     name: '@daweifu/capability-menu/registry'
+#   - id: capability-menu-search
+#     name: '@daweifu/capability-menu/search'
+#   - id: capability-menu-invoke
+#     name: '@daweifu/capability-menu/invoke'
+#   - id: capability-menu-policy
+#     name: '@daweifu/capability-menu/policy'
+#       config:
+#         tools:
+#           exposed:
+#             - execute_cmd
+#             - get_session_context
+#             - search_kb
+#             - 'mcp__gongfeng__*'
+#           progressive:
+#             - 'mcp__*'
+#             - 'server:km:*'
+#           blocked: []
+#         skills:
+#           exposed:
+#             - debugging
+#             - coding
+#         metaTools:
+#           - meta_search
+#           - meta_invoke
+#         progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
+#
+# - `capability-menu-registry` (P0): builds/indexes the capability catalog and
+#   exposes the `ctx.meta` service (search/get/getDetail/refresh). It registers
+#   no model-facing tool itself. Indexes the GLOBAL registry (no visibility
+#   filter) and additionally indexes Progressive skills from
+#   `progressiveSkillCatalog` (§7.2).
+# - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
+# - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
+#   execution of MCP tools and skill loading). Executes on the GLOBAL view
+#   (no agent) so Progressive tools stay runnable; dedups already-loaded skills.
+#   Rejects Blocked capabilities.
+# - `capability-menu-policy` (P3): Exposed/Progressive/Blocked projection
+#   strategy + 能力管理 surface. Reads explicit exposed/progressive/blocked
+#   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
+#   `system-prompt/assemble` to Exposed + meta tools only. The execution chain
+#   (`ctx.tools.execute`) is untouched, so Progressive tools remain executable
+#   via `meta_invoke`. Exposes `ctx.capabilityPolicy` with
+#   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力菜单 tab
+#   (Exposed/Progressive/Blocked rules + click-to-cycle classification +
+#   read-only list), plus skill file browsing (`getDetail`/`listSkillDir`/
+#   `readSkillFile`) via the Typert gateway.
+#
+# Default (policy present but no config): every capability is Exposed — the
+# `classify` fallback, nothing is hidden. Add explicit `progressive`/`blocked`
+# rules to pull capabilities out of the model surface. This bundle ships the
+# harness-native coding tools under `tools.exposed` so the model keeps direct
+# bash/file access.
+- insert:
+    - id: capability-menu-registry
+      name: '@daweifu/capability-menu/registry'
+    - id: capability-menu-search
+      name: '@daweifu/capability-menu/search'
+    - id: capability-menu-invoke
+      name: '@daweifu/capability-menu/invoke'
+    - id: capability-menu-policy
+      name: '@daweifu/capability-menu/policy'
+      config:
+        # Harness-native coding tools stay context-resident (Exposed) so the
+        # model can call them directly. meta_invoke only dispatches MCP `mcp__*`
+        # tools, so native tools (bash/read/write/edit/glob/grep) MUST stay
+        # Exposed — listing them Progressive/Blocked would make them neither
+        # visible nor invocable. The default (unlisted) class is Exposed; add
+        # explicit `progressive`/`blocked` rules to pull MCP servers and skills
+        # out of the model surface.
+        tools:
+          exposed:
+            - bash
+            - read
+            - write
+            - edit
+            - read_image
+            - glob
+            - grep

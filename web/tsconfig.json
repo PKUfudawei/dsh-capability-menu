@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["es2022", "dom"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "paths": {
+      "@deepseek-ai/*": ["./node_modules/@deepseek-ai/*"],
+      "@daweifu/*": ["./node_modules/@daweifu/*"]
+    }
+  },
+  "include": ["src"]
+}
