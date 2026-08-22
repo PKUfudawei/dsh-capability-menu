@@ -2,7 +2,7 @@
 
 ## 作用
 
-为 DeepSeek Harness 的 Web 设置页新增一个 tab **「能力菜单」**，展示并管理 `@daweifu/capability-menu` 的 Exposed / Progressive / Blocked 能力策略。对应主 README「能力管理（server 侧 `ctx.capabilityPolicy`）」一节：
+为 DeepSeek Harness 的 Web 设置页新增一个 tab **「能力菜单」**，展示并管理 `@daweifu/capability-menu` 的 Exposed / Progressive / Blocked 能力策略。对应主 README「能力菜单（前端管理 tab）」一节：
 
 | 界面元素 | 调用的后端（`ctx.capabilityPolicy`） |
 |---|---|
