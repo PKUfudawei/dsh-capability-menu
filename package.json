@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Unified capability management for the DeepSeek Harness: catalog (registry) + meta_search/meta_invoke + Exposed/Progressive/Blocked projection policy + 能力管理 surface, in one installable bundle.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PKUfudawei/dsh-capability-menu.git"
+  },
   "publishConfig": {
     "access": "public"
   },
