@@ -1,6 +1,6 @@
 {
   "name": "@daweifu/capability-menu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Unified capability management for the DeepSeek Harness: catalog (ctx.capability) + meta_search/meta_invoke + Exposed/Progressive/Blocked projection policy + 能力菜单 settings tab, in one installable bundle (server + browser).",
   "license": "Apache-2.0",
   "repository": {
