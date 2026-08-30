@@ -34,6 +34,11 @@ dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 
 ## 能力菜单
 
+<p align="center">
+  <img src="assets/screenshot-mcp-tools.png" alt="MCP tools tab" width="45%"/>
+  <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
+</p>
+
 安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
 - **两栏**：MCP 工具（按 server 分组、可折叠）与 Skills。
