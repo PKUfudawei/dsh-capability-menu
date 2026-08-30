@@ -80,8 +80,8 @@ const CSS = `
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
-/* 三态圆点：启用=实心、渐进=半实心、隐藏=空心。
-   色盲友好（蓝-黄轴）：冷蓝=启用、暖琥珀=渐进、中性灰=隐藏——红绿色盲下三者仍可区分。 */
+/* 三态圆点：常驻=实心、按需=半实心、禁用=空心。
+   色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用——红绿色盲下三者仍可区分。 */
 .mc-dot{width:10px;height:10px;border-radius:50%;flex:none;box-sizing:border-box}
 .mc-dot--exposed{--mc-dot:#527a9c;background:var(--mc-dot)}
 .mc-dot--progressive{--mc-dot:#a57c33;background:linear-gradient(180deg,var(--mc-dot) 0 50%,transparent 50% 100%);border:1px solid var(--mc-dot)}
