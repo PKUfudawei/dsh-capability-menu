@@ -1,9 +1,11 @@
 # dsh-capability-menu aggregate bundle patch: mounts the meta plugins in one
 # layer, from a single installable package.
 #
-# One package, four plugin entries — each mounts a subpath of
+# One package, five plugin entries — four mount a subpath of
 # `@daweifu/capability-menu` (the loader resolves package subpath exports; see
-# `@deepseek-ai/dsh-web-app/startup` for the same pattern in the harness):
+# `@deepseek-ai/dsh-web-app/startup` for the same pattern in the harness), and
+# the root entry loads the package main to mount the browser-facing gateway
+# (and thereby registers the package itself as a `dsh.client` loader entry):
 #
 #   - id: capability-menu-registry
 #     name: '@daweifu/capability-menu/registry'
@@ -85,3 +87,9 @@
             - read_image
             - glob
             - grep
+    # Root entry: loads the package main, which mounts the Typert gateway that
+    # exposes ctx.capabilityPolicy to the browser. Makes this package a loader
+    # entry itself so @deepseek-ai/dsh-client-modules discovers its `dsh.client`
+    # declaration and serves the 能力菜单 browser bundle (`./client`).
+    - id: capability-menu
+      name: '@daweifu/capability-menu'

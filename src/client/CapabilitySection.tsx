@@ -15,6 +15,7 @@
  *                       plus a directory tree / file preview
  */
 import { useState, useEffect, useCallback } from 'react'
+import type { KeyboardEvent } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, SkillFileEntry, ToolDetail } from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
@@ -258,7 +259,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     } finally {
       setBusy(false)
     }
-  }, [remote, reload, busy, state.status, state.snapshot])
+  }, [remote, reload, busy, state])
 
   return (
     <section className="mc-section">
@@ -377,7 +378,7 @@ function ReadyBody(props: {
                       tabIndex={0}
                       aria-expanded={open}
                       onClick={() => onToggleServer(server)}
-                      onKeyDown={(e: { key: string }) => {
+                      onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
                           onToggleServer(server)
@@ -419,7 +420,7 @@ function ReadyBody(props: {
                             tabIndex={0}
                             aria-label={tool.name}
                             onClick={() => void openToolDetail(tool.id)}
-                            onKeyDown={(e: { key: string }) => {
+                            onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 void openToolDetail(tool.id)
@@ -531,7 +532,7 @@ function SkillList(props: {
         const entries = unwrap(await remote.listSkillDir(id, ''), 'capabilityPolicy.listSkillDir') ?? []
         setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
       } catch (error) {
-        console.error('[capability-menu-web] listSkillDir failed:', error)
+        console.error('[capability-menu] listSkillDir failed:', error)
         setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
       }
     }
@@ -548,7 +549,7 @@ function SkillList(props: {
           const entries = unwrap(await remote.listSkillDir(id, relPath), 'capabilityPolicy.listSkillDir') ?? []
           setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
         } catch (error) {
-          console.error(`[capability-menu-web] listSkillDir ${key} failed:`, error)
+          console.error(`[capability-menu] listSkillDir ${key} failed:`, error)
           setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
         }
       }
@@ -569,7 +570,7 @@ function SkillList(props: {
     }
   }, [remote, t])
 
-  const renderEntries = (entries: SkillDirEntry[] | undefined, id: string, base: string): JSX.Element[] | undefined => {
+  const renderEntries = (entries: SkillFileEntry[] | undefined, id: string, base: string): JSX.Element[] | undefined => {
     if (entries === undefined) return undefined
     const indent = base.length === 0 ? 0 : base.split('/').length
     return entries.map(entry => {
@@ -584,7 +585,7 @@ function SkillList(props: {
               role="button"
               tabIndex={0}
               onClick={() => void toggleDir(id, relPath)}
-              onKeyDown={(e: { key: string }) => {
+              onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   void toggleDir(id, relPath)
@@ -615,7 +616,7 @@ function SkillList(props: {
           tabIndex={0}
           title={relPath}
           onClick={() => void openPreview(id, relPath)}
-          onKeyDown={(e: { key: string }) => {
+          onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               void openPreview(id, relPath)
@@ -641,7 +642,7 @@ function SkillList(props: {
               tabIndex={0}
               aria-expanded={open}
               onClick={() => void toggleSkill(skill.id)}
-              onKeyDown={(e: { key: string }) => {
+              onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   void toggleSkill(skill.id)

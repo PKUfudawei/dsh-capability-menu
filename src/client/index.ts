@@ -89,18 +89,19 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     detailNotFound: 'Tool detail not found',
   } satisfies Record<CapabilityKey, string>
 
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'capability-menu-web: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'capability-menu: dictionaries')
 
   // Mount the Host `capabilityPolicy` remote contribution so
   // `ctx.remote.capabilityPolicy` exists in this fiber. `$mount` runs the
   // contribution through an async effect that can fail silently; surface any
   // failure here instead of crashing the settings section later.
   let mountError: string | undefined
+  let disposeRemote: (() => Promise<void>) | undefined
   try {
-    await ctx.remote.$mount(TYPERT_REMOTE)
+    disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE)
   } catch (error) {
     mountError = String(error)
-    console.error('[capability-menu-web] $mount failed:', error)
+    console.error('[capability-menu] $mount failed:', error)
   }
   const t = ctx.locale.bind(NS) as CapabilitySectionInjected['t']
   const remote = (): unknown => {
@@ -110,13 +111,13 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
       // gate because the namespace is mounted by this plugin, not injected.
       return (ctx.get as (key: string) => unknown)('remote.capabilityPolicy')
     } catch (error) {
-      console.error('[capability-menu-web] ctx.get("remote.capabilityPolicy") failed:', error)
+      console.error('[capability-menu] ctx.get("remote.capabilityPolicy") failed:', error)
       return undefined
     }
   }
   const injected = (): CapabilitySectionInjected & { mountError?: string; remoteKeys?: string } => {
     const namespace = remote()
-    const remoteKeys = namespace === undefined
+    const remoteKeys = namespace == null
       ? undefined
       : Object.keys(namespace).filter(k => ['getConfig', 'updateConfig', 'classifyAll'].includes(k)).join(',')
     return {
@@ -137,6 +138,6 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
   }, CapabilitySection))
 
   return () => {
-    disposeRemote()
+    disposeRemote?.()
   }
 }

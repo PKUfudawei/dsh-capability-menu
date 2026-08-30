@@ -1,10 +1,9 @@
 /**
  * Host-side Typert gateway exposing the server-side `ctx.capabilityPolicy`
- * management surface (see `@daweifu/capability-menu` `src/policy.ts`) to the
- * browser. Built as `lib/server/remote.js` and mounted by the package root
- * entry (`src/index.ts`).
+ * management surface (see `src/policy.ts`) to the browser. Built as
+ * `lib/server/remote.js` and mounted by the package root entry (`src/index.ts`).
  *
- * Consumed by the client package under `web/src/client` via
+ * Consumed by the browser bundle under `src/client` via
  * `ctx.remote.capabilityPolicy.classifyAll()` / `getConfig()` /
  * `updateConfig()`.
  */
@@ -14,8 +13,8 @@ import type {
   CapabilityClassification,
   CapabilityPolicyService,
   Config as CapabilityPolicyConfig,
-} from '@daweifu/capability-menu/policy'
-import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '@daweifu/capability-menu/registry'
+} from '../policy.ts'
+import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install

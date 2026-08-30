@@ -17,11 +17,11 @@
 
 ## 目录
 
+- [能力菜单](#能力菜单)
 - [快速安装](#快速安装)
 - [能力模型](#能力模型)
-- [三档能力策略](#三档能力策略)
-- [配置](#配置)
-- [能力菜单](#能力菜单)
+- [暴露策略](#暴露策略)
+- [配置文件](#配置文件)
 
 ---
 
@@ -32,32 +32,37 @@ dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 - **可视化配置**：「能力菜单」设置 tab（MCP tools / Skills 两栏，分类可点击循环切换），调整即时生效。
 - **零侵入**：不改上游源码，经 Cordis 插件机制与 Harness 组合进同一运行时。
 
+## 能力菜单
+
+安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
+
+- **两栏**：MCP 工具（按 server 分组、可折叠）与 Skills。
+- **三态圆点 + 统计**：每个能力带一个分类圆点（实心 = 常驻、半实心 = 按需、空心 = 禁用），栏顶部显示各档数量统计。
+- **点击循环切换**：点击能力旁的圆点或分类计数即可循环切换分类；MCP 工具还可以点击整行查看模型侧工具定义（name / description / parameters）。
+- **Skills 目录浏览**：展开某个 skill 可浏览其文件目录，点击文件预览 SKILL.md 等正文内容。
+
 ## 快速安装
 
 前置：已安装 Node.js 与 dsh CLI（`dsh plugin` 内部会转发给 pnpm）。
 
 ### 从 npm 安装（推荐）
 
-服务端与前端两个包均已发布到 npm（`@daweifu/capability-menu` 与 `@daweifu/capability-menu-web`）：
+单包同时提供服务端插件与前端「能力菜单」tab：
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
-dsh plugin --profile web add @daweifu/capability-menu-web
 ```
 
-第一条安装服务端插件（registry / search / invoke / policy 四个 entry），第二条安装前端「能力菜单」tab。装完后在「设置 / 通用设置」下即可看到「能力菜单」。
+> `@daweifu/capability-menu-web` 已并入本包（通过 `dsh.client` 声明），无需单独安装。装完后在「设置 / 通用设置」下即可看到「能力菜单」。
 
 ### 从源码安装
 
 ```sh
 git clone https://github.com/PKUfudawei/dsh-capability-menu.git
 cd dsh-capability-menu
-pnpm install                   # 服务端包：prepare 脚本自动构建 lib/
-cd web && pnpm install         # 前端包：prepare 脚本自动构建 lib/client.js
-cd ..                          # 回到 clone 目录的上一级，让下面的相对路径指向正确
+pnpm install                   # prepare 脚本自动构建 lib/（服务端）与 lib/client.js（前端）
 
 dsh plugin --profile web add ./dsh-capability-menu
-dsh plugin --profile web add ./dsh-capability-menu/web
 ```
 
 > `dsh plugin` 会把 `./` 相对路径锚定到你执行命令的目录再转发给 pnpm；也支持绝对路径或 `file:`/`link:` 前缀。
@@ -78,13 +83,14 @@ dsh --profile web --dump-config | grep -E 'capability-menu'
   name: '@daweifu/capability-menu/invoke'
 - id: capability-menu-policy
   name: '@daweifu/capability-menu/policy'
+- id: capability-menu
+  name: '@daweifu/capability-menu'   # 根入口：挂载前端网关，供浏览器端发现
 ```
 
 ### 卸载
 
 ```sh
 dsh plugin --profile web remove @daweifu/capability-menu
-dsh plugin --profile web remove @daweifu/capability-menu-web
 ```
 
 ## 能力模型
@@ -103,7 +109,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
 
-## 三档能力策略
+## 暴露策略
 
 所有能力（Tool 与 Skill）按 **暴露程度**（模型在上下文中看到什么）与 **执行方式** 分为三档：
 
@@ -118,9 +124,9 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | **禁用** | tool | 不进 payload | `meta_search` 不返回 | `meta_invoke` 拒绝，直接调用被投影排除 |
 | | skill | 不进目录 | `meta_search` 不返回 | `meta_invoke` 拒绝 |
 
-> 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见下方配置示例）。
+> 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见下方配置文件示例）。
 
-## 配置
+## 配置文件
 
 规则写在 profile 的 `cordis.patch.yml` 里 `capability-menu-policy` 插件 entry 的 `config` 下（外层 `- insert:` / `id` / `name` 是 Cordis patch 的挂载样板，与规则无关）：
 
@@ -140,6 +146,8 @@ config:
 
 **规则优先级**（命中即停，同级内精确匹配先于通配）：`blocked` > `exposed` > `progressive`，未命中任何规则默认 Exposed；`blocked` 是最硬的控制（压过 `exposed`），meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed 且不可被 blocked。`tools.exposed` 里列原生工具名（`execute_cmd` 等）是**保活**：原生工具不进能力编目、只受投影链裁剪可见性，列在这里保持模型可见可调——一旦被 progressive/blocked 覆盖，模型就看不到也调不到。
 
+> 「能力菜单」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
+
 ### 渐进技能目录（`progressiveSkillCatalog`）
 
 按需（Progressive）技能不进固定上下文，也可能根本没注册进 `ctx.skills`。为了让它们仍可被发现，用一份独立 YAML 存 name + description + path，由 registry 索引、`meta_search` 检索；完整 SKILL.md 由 `meta_invoke` 按需加载（`ctx.skills` 未注册时按 YAML 的 `path` 读取）：
@@ -157,15 +165,6 @@ skills:
 
 - 不挂 `capability-menu-policy` → 全部工具/技能照旧可见（不投影）。
 - 挂了 policy 但没有任何规则 → 全部能力默认 Exposed（`classify` 兜底），不投影、不隐藏。需要把低频能力归档进目录时，显式配置 `progressive`（或 `blocked`）规则把它们从模型视野中移出。
-
-## 能力菜单
-
-安装 `@daweifu/capability-menu-web` 后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整上面的三档策略，改动即时生效、无需重启：
-
-- **两栏**：MCP 工具（按 server 分组、可折叠）与 Skills。
-- **三态圆点 + 统计**：每个能力带一个分类圆点（实心 = 常驻、半实心 = 按需、空心 = 禁用），栏顶部显示各档数量统计。
-- **点击循环切换**：点击能力旁的圆点或分类计数即可循环切换分类；MCP 工具还可以点击整行查看模型侧工具定义（name / description / parameters）。
-- **Skills 目录浏览**：展开某个 skill 可浏览其文件目录，点击文件预览 SKILL.md 等正文内容。
 
 ## License
 

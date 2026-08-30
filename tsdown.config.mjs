@@ -1,11 +1,13 @@
 import { defineConfig } from 'tsdown'
 
-const id = '@daweifu/capability-menu-web'
+const id = '@daweifu/capability-menu'
 
 export default defineConfig([{
   entry: { client: 'src/client/index.ts' },
   format: ['cjs'],
   outDir: 'lib',
+  // The server half (tsc) emits into the same `lib` dir; never wipe it.
+  clean: false,
   platform: 'node',
   sourcemap: false,
   // Keep the file name the package.json `exports` refer to: the browser
