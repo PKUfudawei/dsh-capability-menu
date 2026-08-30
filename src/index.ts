@@ -9,12 +9,18 @@
  *   - `search`   (P1): registers `meta_search`.
  *   - `invoke`   (P2): registers `meta_invoke`.
  *   - `policy`   (P3): Exposed/Progressive/Blocked projection policy + `ctx.capabilityPolicy`.
- * - the package root entry (`apply` below): mounts the Typert gateway that
- *   exposes `ctx.capabilityPolicy` to the browser as the `capabilityPolicy`
+ * - the package root entry (`name` + `apply` below): mounts the Typert gateway
+ *   that exposes `ctx.capabilityPolicy` to the browser as the `capabilityPolicy`
  *   remote namespace — the data source of the 能力菜单 settings tab.
  * - a browser bundle via the `./client` subpath (`src/client`), discovered by
  *   `@deepseek-ai/dsh-client-modules` from this package's `dsh.client`
  *   declaration and served as `/plugins/<id>/client.js`.
+ *
+ * NOTE: this module deliberately re-exports nothing from the subpath plugins
+ * (not even types — those live at `/registry`, `/search`, `/invoke`, `/policy`).
+ * Re-exporting would either pollute the root entry's plugin identity with the
+ * sub-plugins' `name`/`apply`/`inject`, or trigger ambiguous-type re-exports
+ * (each subpath exports its own `Config` interface).
  *
  * @module @daweifu/capability-menu
  */
@@ -22,11 +28,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { CapabilityPolicyGateway } from './server/remote.ts'
 
-export * from './registry.ts'
-export * as registry from './registry.ts'
-export * as search from './search.ts'
-export * as invoke from './invoke.ts'
-export * as policy from './policy.ts'
+/** Root plugin identity (matches the `capability-menu` patch entry id). */
+export const name = 'capability-menu'
 
 /** Root entry: mount the browser-facing capabilityPolicy gateway. */
 export function apply(ctx: Context): void {
