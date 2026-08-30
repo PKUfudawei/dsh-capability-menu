@@ -273,8 +273,8 @@ export interface CapabilityPolicyService {
   /** Replace a subset of the policy config and recompile rules immediately. */
   updateConfig(partial: Partial<Config>): void
   /**
-   * Classify every capability currently indexed by `ctx.meta` (the registry
-   * sibling). Returns an empty array when the registry is not mounted.
+   * Classify every capability currently indexed by `ctx.capability` (the
+   * registry sibling). Returns an empty array when the registry is not mounted.
    */
   classifyAll(): readonly CapabilityClassification[]
 }
@@ -300,11 +300,11 @@ export function projectAssemblyTools(
 
 /** Build the policy plugin. */
 export const name = 'capability-menu-policy'
-// The policy needs `meta` (the registry sibling) for classifyAll(); `tools` /
+// The policy needs `capability` (the registry sibling) for classifyAll(); `tools` /
 // `skills` are injected purely for startup ordering — projection itself runs on
 // the `system-prompt/assemble` chain, not through the registries. The bundle
-// mounts registry before policy, so `meta` is always available in practice.
-export const inject = ['meta', 'tools', 'skills']
+// mounts registry before policy, so `capability` is always available in practice.
+export const inject = ['capability', 'tools', 'skills']
 
 export function apply(ctx: Context, config: Config = {}): void {
   // Mutable runtime state so the management surface (能力菜单) can live-update
@@ -396,7 +396,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     classifyAll(): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management
       // surface: enumerate every indexed capability, not just the top-20.
-      return ctx.meta.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => {
+      return ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => {
         const cls = service.classifyCapability(summary.id)
         const mandatory = summary.kind === 'tool' && metaToolSet.has(summary.id)
         return {

@@ -34,7 +34,7 @@
 #         progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
 #
 # - `capability-menu-registry` (P0): builds/indexes the capability catalog and
-#   exposes the `ctx.meta` service (search/get/getDetail/refresh). It registers
+#   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers
 #   no model-facing tool itself. Indexes the GLOBAL registry (no visibility
 #   filter) and additionally indexes Progressive skills from
 #   `progressiveSkillCatalog` (§7.2).

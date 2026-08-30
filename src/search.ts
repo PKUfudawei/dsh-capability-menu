@@ -11,7 +11,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { CapabilityDetail, CapabilitySummary } from './registry.ts'
 
 export const name = 'capability-menu-search'
-export const inject = ['meta', 'tools', 'skills']
+export const inject = ['capability', 'tools', 'skills']
 
 /** Model-facing `meta_search` configuration. */
 export interface Config {
@@ -134,14 +134,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (isBlocked(id)) {
           throw new Error(`meta_search: capability "${id}" is blocked and cannot be inspected`)
         }
-        const result = await ctx.meta.getDetail(id, context)
+        const result = await ctx.capability.getDetail(id, context)
         if (result === undefined) {
           throw new Error(`meta_search: capability "${id}" is unknown or no longer available`)
         }
         return { mode: 'detail' as const, result: result as unknown as JsonValue }
       }
 
-      const results = ctx.meta.search({
+      const results = ctx.capability.search({
         query,
         kind,
         server,

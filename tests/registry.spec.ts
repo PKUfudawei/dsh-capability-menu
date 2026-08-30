@@ -72,29 +72,29 @@ describe('meta-registry', () => {
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create a new issue/ticket/bug report in a Gongfeng project')
 
     // Rebuild triggers are async for skills; await the explicit refresh.
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
-    expect(ctx.meta.size()).toBeGreaterThanOrEqual(2)
-    const byIssue = ctx.meta.search({ query: 'create_issue' })
+    expect(ctx.capability.size()).toBeGreaterThanOrEqual(2)
+    const byIssue = ctx.capability.search({ query: 'create_issue' })
     expect(byIssue.some(summary => summary.id === issue)).toBe(true)
 
-    const byKeyword = ctx.meta.search({ query: 'issue' })
+    const byKeyword = ctx.capability.search({ query: 'issue' })
     expect(byKeyword.some(summary => summary.id === issue)).toBe(true)
 
-    const byServer = ctx.meta.search({ server: 'gongfeng' })
+    const byServer = ctx.capability.search({ server: 'gongfeng' })
     expect(byServer.every(summary => summary.server === 'gongfeng')).toBe(true)
 
-    const skill = ctx.meta.search({ kind: 'skill' })
+    const skill = ctx.capability.search({ kind: 'skill' })
     expect(skill.some(summary => summary.id === 'skill:frontend-design')).toBe(true)
 
     // Detail for the MCP tool exposes parameters + output.
-    const detail = await ctx.meta.getDetail(issue, { scope: agentStub('agent') })
+    const detail = await ctx.capability.getDetail(issue, { scope: agentStub('agent') })
     expect(detail?.kind).toBe('tool')
     expect(detail?.parameters).toBeDefined()
     expect((detail?.parameters as { properties?: unknown }).properties).toHaveProperty('title')
 
     // Detail for the skill does not include the body by default.
-    const skillDetail = await ctx.meta.getDetail('skill:frontend-design')
+    const skillDetail = await ctx.capability.getDetail('skill:frontend-design')
     expect(skillDetail?.kind).toBe('skill')
     expect(skillDetail?.output).toBeUndefined()
   })
@@ -103,9 +103,9 @@ describe('meta-registry', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
     registerMcpTool(ctx, 'iwiki', 'get_document', 'Get a wiki document')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
     // The service allows any query; the meta_search tool wrapper enforces the detail/fuzzy rule.
-    const results = ctx.meta.search({ query: 'wiki' })
+    const results = ctx.capability.search({ query: 'wiki' })
     expect(results.length).toBeGreaterThan(0)
   })
 
@@ -113,8 +113,8 @@ describe('meta-registry', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
-    const before = ctx.meta.get(issue)?.stats.uses ?? 0
+    await ctx.capability.refresh()
+    const before = ctx.capability.get(issue)?.stats.uses ?? 0
 
     const exec = {
       callId: CallId('call-1'),
@@ -124,7 +124,7 @@ describe('meta-registry', () => {
     }
     const result = await ctx.tools.execute(exec)
     expect(result.isError).toBe(false)
-    const after = ctx.meta.get(issue)?.stats.uses ?? 0
+    const after = ctx.capability.get(issue)?.stats.uses ?? 0
     expect(after).toBe(before + 1)
   })
 
@@ -145,15 +145,15 @@ describe('meta-registry', () => {
       '',
     ].join('\n'))
     const ctx = await setup(home, { progressiveSkillCatalog: catalog })
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
-    const found = ctx.meta.search({ kind: 'skill', query: 'sql' })
+    const found = ctx.capability.search({ kind: 'skill', query: 'sql' })
     const sql = found.find(summary => summary.id === 'skill:sql-analytics')
     expect(sql).toBeDefined()
     expect(sql?.kind).toBe('skill')
     expect(sql?.summary).toContain('SQL analytics')
 
-    const detail = await ctx.meta.getDetail('skill:incident-runbook')
+    const detail = await ctx.capability.getDetail('skill:incident-runbook')
     expect(detail?.kind).toBe('skill')
     expect(detail?.origin.path).toBe('/srv/skills/incident-runbook')
     expect(detail?.tags).toContain('progressive-catalog')
@@ -170,19 +170,19 @@ describe('meta-registry', () => {
     await writeFile(join(skillDir, 'notes.txt'), 'plain text\n')
     await writeFile(join(skillDir, 'templates', 'a.tmpl'), 'template body\n')
     const ctx = await setup(home)
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
-    const listing = await ctx.meta.listSkillDir('skill:browse-me')
+    const listing = await ctx.capability.listSkillDir('skill:browse-me')
     const names = listing?.map(entry => `${entry.type}:${entry.name}`)
     expect(names).toContain('directory:templates')
     expect(names).toContain('file:notes.txt')
 
-    expect(await ctx.meta.readSkillFile('skill:browse-me', 'notes.txt')).toBe('plain text\n')
-    expect(await ctx.meta.readSkillFile('skill:browse-me', 'templates/a.tmpl')).toBe('template body\n')
+    expect(await ctx.capability.readSkillFile('skill:browse-me', 'notes.txt')).toBe('plain text\n')
+    expect(await ctx.capability.readSkillFile('skill:browse-me', 'templates/a.tmpl')).toBe('template body\n')
     // Directory escape is rejected.
-    expect(await ctx.meta.readSkillFile('skill:browse-me', '../outside.txt')).toBeUndefined()
+    expect(await ctx.capability.readSkillFile('skill:browse-me', '../outside.txt')).toBeUndefined()
     // A directory addressed as a file is rejected.
-    expect(await ctx.meta.readSkillFile('skill:browse-me', 'templates')).toBeUndefined()
+    expect(await ctx.capability.readSkillFile('skill:browse-me', 'templates')).toBeUndefined()
   })
 
   it('enumerates skills across agent-preset standing scopes when agentPresets exists', async () => {
@@ -205,10 +205,10 @@ describe('meta-registry', () => {
       },
     }
     ctx.provide('agentPresets', agentPresets)
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     // Global-layer skill indexed as before.
-    const globalSkill = ctx.meta.search({ kind: 'skill' })
+    const globalSkill = ctx.capability.search({ kind: 'skill' })
     expect(globalSkill.some(summary => summary.id === 'skill:global-skill')).toBe(true)
     // Broken presets are skipped; the mountable preset's scope was enumerated.
     expect(scopes.has('coding-plus')).toBe(true)

@@ -14,7 +14,7 @@ import { isModelInvocable, renderSkillContent, type SkillDefinition, type SkillR
 import { SKILL_ID_PREFIX, skillNameOf, type CapabilityRecord } from './registry.ts'
 
 export const name = 'capability-menu-invoke'
-export const inject = ['meta', 'tools', 'skills']
+export const inject = ['capability', 'tools', 'skills']
 
 /** Forwarding mode for the MCP branch. */
 export type MetaForwardMode = 'direct' | 'resolve'
@@ -214,7 +214,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (policy?.isBlockedCapability(id)) {
         throw new Error(`meta_invoke: capability "${id}" is blocked and cannot be invoked`)
       }
-      const capability = ctx.meta.get(id)
+      const capability = ctx.capability.get(id)
       if (capability === undefined) {
         throw new Error(`meta_invoke: capability "${id}" is unknown or no longer available`)
       }

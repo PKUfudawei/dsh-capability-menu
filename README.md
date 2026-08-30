@@ -15,7 +15,7 @@
 
 <br/>
 
-dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.meta`）与两个元工具（`meta_search` / `meta_invoke`）：
+dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.capability`）与两个元工具（`meta_search` / `meta_invoke`）：
 
 - **统一能力目录**：编目所有 MCP 工具与 Skill，模型通过 `meta_search` 检索、`meta_invoke` 统一执行。
 - **三档能力策略（常驻 / 按需 / 禁用）**：所有 Tool（MCP）与 Skill 按 **Exposed / Progressive / Blocked** 三级管理暴露程度和执行方式——常驻 = 高频能力随叫随到（拿 payload/目录体积换单跳可靠）；按需 = 低频能力归档进目录、用到才翻出来（省 token）；禁用 = 明确禁止。这是**你配置的驻留策略**，不是按使用次数自动统计的标签——海量 tools/skills 也不会塞满一次请求，节省 token 和上下文。

@@ -15,7 +15,7 @@ import type {
   CapabilityPolicyService,
   Config as CapabilityPolicyConfig,
 } from '@daweifu/capability-menu/policy'
-import type { CapabilityDetail, SkillDirEntry, MetaService } from '@daweifu/capability-menu/registry'
+import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '@daweifu/capability-menu/registry'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -23,14 +23,14 @@ import type { CapabilityDetail, SkillDirEntry, MetaService } from '@daweifu/capa
 declare module '@deepseek-ai/cordis' {
   interface Context {
     capabilityPolicy: CapabilityPolicyService
-    meta: MetaService
+    capability: CapabilityService
   }
 }
 
 /**
  * Host-side remote face for the 能力菜单 tab. Every method delegates to the
  * policy service installed by `@daweifu/capability-menu/policy`; the registry
- * sibling (`meta`) must be mounted for `classifyAll` to return anything.
+ * sibling (`capability`) must be mounted for `classifyAll` to return anything.
  *
  * The service registers under a distinct key (`capabilityPolicyGateway`) so it
  * does not collide with the `capabilityPolicy` service the policy plugin
@@ -39,7 +39,7 @@ declare module '@deepseek-ai/cordis' {
  * service through `this.ctx.capabilityPolicy`.
  */
 export class CapabilityPolicyGateway extends TypertRemoteService {
-  static inject = ['capabilityPolicy', 'meta']
+  static inject = ['capabilityPolicy', 'capability']
 
   constructor(ctx: Context) {
     super(ctx, 'capabilityPolicyGateway', { namespace: 'capabilityPolicy' })
@@ -57,7 +57,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     this.ctx.capabilityPolicy.updateConfig(partial)
   }
 
-  /** Classify every capability currently indexed by `ctx.meta`. */
+  /** Classify every capability currently indexed by `ctx.capability`. */
   @Remote('classifyAll')
   classifyAll(): CapabilityClassification[] {
     return [...this.ctx.capabilityPolicy.classifyAll()]
@@ -66,25 +66,25 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   /** Resolve one capability's full detail (schema, description; skill body optional). */
   @Remote('getDetail')
   async getDetail(id: string): Promise<CapabilityDetail | undefined> {
-    return this.ctx.meta.getDetail(id)
+    return this.ctx.capability.getDetail(id)
   }
 
   /** List a skill's directory children (one level deep; optional subpath). */
   @Remote('listSkillDir')
   async listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined> {
-    return this.ctx.meta.listSkillDir(id, relPath)
+    return this.ctx.capability.listSkillDir(id, relPath)
   }
 
   /** Read a text file inside a skill's directory. */
   @Remote('readSkillFile')
   async readSkillFile(id: string, relPath: string): Promise<string | undefined> {
-    return this.ctx.meta.readSkillFile(id, relPath)
+    return this.ctx.capability.readSkillFile(id, relPath)
   }
 }
 
 /** Register the remote gateway on a context. */
 export const name = 'capability-menu-remote'
-export const inject = ['capabilityPolicy', 'meta']
+export const inject = ['capabilityPolicy', 'capability']
 export function apply(ctx: Context): void {
   ctx.plugin(CapabilityPolicyGateway)
 }

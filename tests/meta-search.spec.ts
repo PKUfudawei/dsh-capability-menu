@@ -73,7 +73,7 @@ describe('capability-menu-search', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create a new issue/ticket/bug report in a Gongfeng project')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_search', { query: 'issue' })
     expect(isError).toBe(false)
@@ -86,7 +86,7 @@ describe('capability-menu-search', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_search', { id: issue })
     expect(isError).toBe(false)
@@ -100,7 +100,7 @@ describe('capability-menu-search', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { isError } = await runTool(ctx, 'meta_search', { query: 'issue', detail: true })
     expect(isError).toBe(true)
@@ -110,7 +110,7 @@ describe('capability-menu-search', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { isError } = await runTool(ctx, 'meta_search', { query: 'issue', id: issue })
     expect(isError).toBe(true)
@@ -131,7 +131,7 @@ describe('capability-menu-search', () => {
     await ctx.plugin(policy, { tools: { blocked: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaSearch, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const list = await runTool(ctx, 'meta_search', { query: 'issue' })
     expect(list.isError).toBe(false)

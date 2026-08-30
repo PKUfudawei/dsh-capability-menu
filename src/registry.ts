@@ -135,8 +135,8 @@ export interface SkillDirEntry {
   readonly type: 'file' | 'directory'
 }
 
-/** The `ctx.meta` service surface. */
-export interface MetaService {
+/** The `ctx.capability` service surface. */
+export interface CapabilityService {
   /** Enumerate the current catalog (optionally filtered). */
   search(options?: MetaSearchOptions): CapabilitySummary[]
   /** Resolve one record by id, or undefined. */
@@ -169,7 +169,7 @@ export interface MetaService {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    meta: MetaService
+    capability: CapabilityService
   }
 }
 
@@ -493,7 +493,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     for (const dispose of disposers) dispose()
   })
 
-  const service: MetaService = {
+  const service: CapabilityService = {
     search(options: MetaSearchOptions = {}): CapabilitySummary[] {
       const kind = options.kind ?? 'all'
       const server = options.server
@@ -675,7 +675,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     toolRecords.set(name, { ...record, stats: next })
   })
 
-  ctx.provide('meta', service)
+  ctx.provide('capability', service)
 }
 
 /** Derive the server namespace from an `mcp__<server>__<raw>` name. */

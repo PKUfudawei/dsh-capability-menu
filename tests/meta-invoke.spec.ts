@@ -92,7 +92,7 @@ describe('capability-menu-invoke', () => {
       received = args
       return { ok: true, id: 'issue-1' }
     })
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'hello' } })
     expect(isError).toBe(false)
@@ -110,7 +110,7 @@ describe('capability-menu-invoke', () => {
     const failing = registerMcpTool(ctx, 'gongfeng', 'boom', 'Always fails', () => {
       throw new Error('target exploded')
     })
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { isError } = await runTool(ctx, 'meta_invoke', { id: failing, args: { title: 'x' } })
     expect(isError).toBe(true)
@@ -121,7 +121,7 @@ describe('capability-menu-invoke', () => {
     // Skills must exist before the skill provider/registry load (see registry tests).
     await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Follow the design principles.')
     const ctx = await setup(home)
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' })
     expect(isError).toBe(false)
@@ -140,7 +140,7 @@ describe('capability-menu-invoke', () => {
       executed = true
       return { ok: true }
     })
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'x' } })
     expect(isError).toBe(false)
@@ -182,7 +182,7 @@ describe('capability-menu-invoke', () => {
       '',
     ].join('\n'))
     const ctx = await setup(home, {}, { progressiveSkillCatalog: catalog })
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' })
     expect(isError).toBe(false)
@@ -208,7 +208,7 @@ describe('capability-menu-invoke', () => {
     await ctx.plugin(policy, { tools: { blocked: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaInvoke, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'x' } })
     expect(isError).toBe(true)
@@ -218,7 +218,7 @@ describe('capability-menu-invoke', () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Full design instructions body here.')
     const ctx = await setup(home)
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const first = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' })
     expect(first.isError).toBe(false)

@@ -183,7 +183,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     registerTool(ctx, 'mcp__gongfeng__create_issue')
     registerTool(ctx, 'mcp__km__search')
 
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
     const classified = ctx.capabilityPolicy.classifyAll()
     const byId = new Map(classified.map(c => [c.id, c]))
     expect(byId.get('mcp__gongfeng__create_issue')?.class).toBe('exposed')
@@ -204,7 +204,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     // The registry search default is maxResults=20; classifyAll must enumerate
     // every indexed capability regardless (iWiki alone already exceeds it).
     for (let i = 0; i < 25; i += 1) registerTool(ctx, `mcp__gongfeng__tool_${i}`)
-    await ctx.meta.refresh()
+    await ctx.capability.refresh()
 
     const classified = ctx.capabilityPolicy.classifyAll()
     expect(classified.length).toBe(25)
