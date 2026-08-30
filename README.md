@@ -1,9 +1,7 @@
 <h1 align="center">dsh-capability-menu</h1>
 
 <p align="center">
-  <strong>为 DeepSeek Harness 提供统一的能力菜单管理 Tools 和 Skills 的暴露水平 (上下文占用大小) 和执行方式</strong><br>
-  海量tools/skills也不会塞满一次请求, 节省token和上下文<br>
-  MCP 工具与 Skill 按 exposed/progressive/blocked 三级管理暴露程度和执行方式
+  <strong>为 DeepSeek Harness 提供统一的能力菜单管理 Tools 和 Skills 的暴露水平 (上下文占用大小) 和执行方式</strong>
 </p>
 
 <p align="center">
@@ -17,7 +15,7 @@
 
 <br/>
 
-dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.meta`）、两个元工具（`meta_search` / `meta_invoke`），并以 **Exposed / Progressive / Blocked** 三档管理所有能力的暴露程度和执行方式。配套前端「能力菜单」管理 tab（MCP tools / Skills 两栏，分类可点击循环切换）让你在设置页直接调整这些策略。它不修改上游源码，通过 Cordis 插件机制与 Harness 组合进同一个运行时——核心的智能体、模型、工具、会话、Web UI 与插件生态都来自上游项目。
+dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.meta`）与两个元工具（`meta_search` / `meta_invoke`），并把所有 Tool（MCP）与 Skill 按 **Exposed / Progressive / Blocked** 三档管理暴露程度和执行方式：高频能力常驻上下文、低频能力归档进目录按需取用、禁用能力彻底隐藏——海量 tools/skills 也不会塞满一次请求，节省 token 和上下文。配套前端「能力菜单」管理 tab（MCP tools / Skills 两栏，分类可点击循环切换）让你在设置页直接调整这些策略。它不修改上游源码，通过 Cordis 插件机制与 Harness 组合进同一个运行时——核心的智能体、模型、工具、会话、Web UI 与插件生态都来自上游项目。
 
 ## 快速安装
 
