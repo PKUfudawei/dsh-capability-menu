@@ -53,6 +53,14 @@ function registerMcpTool(ctx: Context, server: string, raw: string, description:
   return name
 }
 
+async function writeSkill(root: string, name: string, description: string, body: string): Promise<void> {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const dir = join(root, name)
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
+}
+
 async function runTool(
   ctx: Context,
   name: string,
@@ -139,6 +147,32 @@ describe('capability-menu-search', () => {
     expect(listResult.results.some(item => item.id === issue)).toBe(false)
 
     const detail = await runTool(ctx, 'meta_search', { id: issue })
+    expect(detail.isError).toBe(true)
+  })
+
+  it('hides blocked skills from list and rejects blocked skill detail', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    await writeSkill(`${home}/.agents/skills`, 'forbidden-skill', 'Forbidden skill body', 'Body text.')
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    await ctx.plugin(registry, {})
+    await ctx.plugin(policy, { skills: { blocked: ['forbidden-skill'] } })
+    await ctx.plugin(toolMetaSearch, {})
+    await ctx.capability.refresh()
+
+    const list = await runTool(ctx, 'meta_search', { query: 'Forbidden' })
+    expect(list.isError).toBe(false)
+    const listResult = list.value as { mode: string; results: Array<{ id: string }> }
+    expect(listResult.results.some(item => item.id === 'skill:forbidden-skill')).toBe(false)
+
+    const detail = await runTool(ctx, 'meta_search', { id: 'skill:forbidden-skill' })
     expect(detail.isError).toBe(true)
   })
 })

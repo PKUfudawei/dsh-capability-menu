@@ -214,6 +214,27 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
+  it('rejects a blocked skill', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    await writeSkill(`${home}/.agents/skills`, 'forbidden-skill', 'Forbidden skill body', 'Body text.')
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    await ctx.plugin(registry, {})
+    await ctx.plugin(policy, { skills: { blocked: ['forbidden-skill'] } })
+    await ctx.plugin(toolMetaInvoke, {})
+    await ctx.capability.refresh()
+
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:forbidden-skill' })
+    expect(isError).toBe(true)
+  })
+
   it('dedups already-loaded skills and returns a short reminder on repeat', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Full design instructions body here.')
