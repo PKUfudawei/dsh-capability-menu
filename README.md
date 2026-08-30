@@ -15,11 +15,18 @@
 
 <br/>
 
-dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.meta`）与两个元工具（`meta_search` / `meta_invoke`），并把所有 Tool（MCP）与 Skill 按 **Exposed / Progressive / Blocked** 三档管理暴露程度和执行方式：高频能力常驻上下文、低频能力归档进目录按需取用、禁用能力彻底隐藏——海量 tools/skills 也不会塞满一次请求，节省 token 和上下文。配套前端「能力菜单」管理 tab（MCP tools / Skills 两栏，分类可点击循环切换）让你在设置页直接调整这些策略。它不修改上游源码，通过 Cordis 插件机制与 Harness 组合进同一个运行时——核心的智能体、模型、工具、会话、Web UI 与插件生态都来自上游项目。
+dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.meta`）与两个元工具（`meta_search` / `meta_invoke`）：
+
+- **统一能力目录**：编目所有 MCP 工具与 Skill，模型通过 `meta_search` 检索、`meta_invoke` 统一执行。
+- **三档能力策略**：所有 Tool（MCP）与 Skill 按 **Exposed / Progressive / Blocked** 三级管理暴露程度和执行方式——高频能力常驻上下文、低频能力归档按需取用、禁用能力彻底隐藏，海量 tools/skills 也不会塞满一次请求，节省 token 和上下文。
+- **可视化配置**：配套前端「能力菜单」管理 tab（MCP tools / Skills 两栏，分类可点击循环切换），在设置页直接调整策略。
+- **零侵入**：不修改上游源码，通过 Cordis 插件机制与 Harness 组合进同一个运行时——核心的智能体、模型、工具、会话、Web UI 与插件生态都来自上游项目。
 
 ## 快速安装
 
 前置：已安装 Node.js 与 dsh CLI（`dsh plugin` 内部会转发给 pnpm）。
+
+### 从 npm 安装（推荐）
 
 服务端与前端两个包均已发布到 npm（`@daweifu/capability-menu` 与 `@daweifu/capability-menu-web`）：
 
@@ -30,7 +37,22 @@ dsh plugin --profile web add @daweifu/capability-menu-web
 
 第一条安装服务端插件（registry / search / invoke / policy 四个 entry），第二条安装前端「能力菜单」tab。装完后在「设置 / 通用设置」下即可看到「能力菜单」。
 
-验证（应看到本包自己的 patch 层）：
+### 从源码安装
+
+```sh
+git clone https://github.com/PKUfudawei/dsh-capability-menu.git
+cd dsh-capability-menu
+pnpm install                   # 服务端包：prepare 脚本自动构建 lib/
+cd web && pnpm install         # 前端包：prepare 脚本自动构建 lib/client.js
+cd ..                          # 回到 clone 目录的上一级，让下面的相对路径指向正确
+
+dsh plugin --profile web add ./dsh-capability-menu
+dsh plugin --profile web add ./dsh-capability-menu/web
+```
+
+> `dsh plugin` 会把 `./` 相对路径锚定到你执行命令的目录再转发给 pnpm；也支持绝对路径或 `file:`/`link:` 前缀。
+
+### 验证安装
 
 ```sh
 dsh --profile web --dump-config | grep -E 'capability-menu'
@@ -48,7 +70,7 @@ dsh --profile web --dump-config | grep -E 'capability-menu'
   name: '@daweifu/capability-menu/policy'
 ```
 
-卸载：
+### 卸载
 
 ```sh
 dsh plugin --profile web remove @daweifu/capability-menu
@@ -57,14 +79,12 @@ dsh plugin --profile web remove @daweifu/capability-menu-web
 
 ## 能力模型
 
-Capability 是上位概念，Tool / Skill 是不同类型的 capability，不是「两种工具」：
+Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 capability。
 
 | kind | 对 Agent 提供 | action | 备注 |
 | --- | --- | --- | --- |
 | `tool` | 执行一个动作（MCP 工具） | `execute` | 由 `ctx.tools` 索引 |
 | `skill` | 某类任务的方法/流程/知识 | `load` | 由 `ctx.skills` 索引 |
-
-> `execute` / `load` 是 capability 对外声明的规范 action：tool 的 `execute` 在底层由 `ctx.tools.execute` 走完整工具管线执行；skill 的 `load` 加载方法/流程正文。当前版本（`0.1.0`）只有这两种 kind 与两种 action。
 
 模型获得两个元工具：
 
@@ -72,10 +92,6 @@ Capability 是上位概念，Tool / Skill 是不同类型的 capability，不是
 | --- | --- | --- |
 | `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
-
-> 边界：Command / Prompt / Memory 不是可发现可调用的能力，不进 registry。需要查知识/文档时直接用底层检索类 MCP 工具（如 `mcp__km__search`），它们和其他 MCP 工具一样被 `meta_search` 编目、被 `meta_invoke` 转发。
->
-> 边界：非 `mcp__` 前缀的原生工具（`bash` / `read` / `write` / `edit` / `read_image` / `glob` / `grep` 等）不进 registry——不被 `meta_search` 编目、不被 `meta_invoke` 派发、也不出现在能力管理列表中。它们只受投影链裁剪可见性；且因不可 `meta_invoke`，一旦被投影掉就真的不可调用，所以请保留在 `tools.exposed` 保活（见下方配置示例）。
 
 ## 核心：Exposed / Progressive / Blocked 三档能力策略
 
@@ -94,7 +110,7 @@ Capability 是上位概念，Tool / Skill 是不同类型的 capability，不是
 
 > **Exposed / Progressive 就是「高频 vs 低频」的具象化。** Exposed = 常驻、随叫随到的高频能力（拿 payload/目录体积换单跳可靠）；Progressive = 归档进目录、用到才翻出来的低频能力（省 token、按需取用）；Blocked = 明确禁止使用。它是**由你配置的驻留策略**（`tools.exposed`/`tools.progressive`/`tools.blocked` 规则），而不是按使用次数自动统计的标签。
 >
-> 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见「能力模型」边界说明）。
+> 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见下方配置示例）。
 
 ## 配置（在 `@daweifu/capability-menu/policy` 上）
 
