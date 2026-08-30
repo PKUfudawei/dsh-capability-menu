@@ -15,12 +15,22 @@
 
 <br/>
 
-dsh-capability-menu 是一个可独立安装的 Cordis 插件（服务端 `@daweifu/capability-menu`，前端配套 `@daweifu/capability-menu-web`），为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供统一的能力目录（`ctx.capability`）与两个元工具（`meta_search` / `meta_invoke`）：
+## 目录
 
-- **统一能力目录**：编目所有 MCP 工具与 Skill，模型通过 `meta_search` 检索、`meta_invoke` 统一执行。
-- **三档能力策略（常驻 / 按需 / 禁用）**：所有 Tool（MCP）与 Skill 按 **Exposed / Progressive / Blocked** 三级管理暴露程度和执行方式——常驻 = 高频能力随叫随到（拿 payload/目录体积换单跳可靠）；按需 = 低频能力归档进目录、用到才翻出来（省 token）；禁用 = 明确禁止。这是**你配置的驻留策略**，不是按使用次数自动统计的标签——海量 tools/skills 也不会塞满一次请求，节省 token 和上下文。
-- **可视化配置**：配套前端「能力菜单」管理 tab（MCP tools / Skills 两栏，分类可点击循环切换），在设置页直接调整策略。
-- **零侵入**：不修改上游源码，通过 Cordis 插件机制与 Harness 组合进同一个运行时——核心的智能体、模型、工具、会话、Web UI 与插件生态都来自上游项目。
+- [快速安装](#快速安装)
+- [能力模型](#能力模型)
+- [三档能力策略](#三档能力策略)
+- [配置](#配置)
+- [能力菜单](#能力菜单)
+
+---
+
+dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 Cordis 插件，为海量 MCP tools / skills 建立统一能力目录（`ctx.capability`），并以**常驻 / 按需 / 禁用**三档管理暴露程度和执行方式——随时调整 agent 的能力边界，避免海量 tools/skills 塞满一次请求、节省 token 和上下文：
+
+- **统一能力目录**：编目所有 MCP 工具与 Skill，模型经 `meta_search` 检索、`meta_invoke` 执行。
+- **三档能力策略**：常驻 = 高频能力随叫随到；按需 = 低频能力归档进目录、用到才翻出来；禁用 = 明确禁止。这是你配置的驻留策略，不是按使用次数自动统计的标签。
+- **可视化配置**：「能力菜单」设置 tab（MCP tools / Skills 两栏，分类可点击循环切换），调整即时生效。
+- **零侵入**：不改上游源码，经 Cordis 插件机制与 Harness 组合进同一运行时。
 
 ## 快速安装
 
@@ -93,7 +103,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
 
-## 核心：Exposed / Progressive / Blocked 三档能力策略
+## 三档能力策略
 
 所有能力（Tool 与 Skill）按 **暴露程度**（模型在上下文中看到什么）与 **执行方式** 分为三档：
 
@@ -101,16 +111,16 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 | 档位 | 能力 | 暴露方式（模型视野） | 发现 | 执行方式 |
 | --- | --- | --- | --- | --- |
-| **Exposed（常驻）** | tool | 完整 schema 进 `assembly.tools` → 模型请求 `tools` payload，每步可见 | 无需发现（已常驻） | 模型直接调用，运行时走完整 `ctx.tools` 管线 |
+| **常驻** | tool | 完整 schema 进 `assembly.tools` → 模型请求 `tools` payload，每步可见 | 无需发现（已常驻） | 模型直接调用，运行时走完整 `ctx.tools` 管线 |
 | | skill | 名字+描述进 `<available_skills>` 目录（正文不在目录） | 无需发现（已常驻） | `skill` 工具按需加载正文（渐进加载） |
-| **Progressive（按需）** | tool | 不进 payload（零上下文成本） | `meta_search` list 返回 name+summary | `meta_invoke` 执行（走 `ctx.tools.execute`，管线完整）；或 detail 拿 schema 后直接调 |
+| **按需** | tool | 不进 payload（零上下文成本） | `meta_search` list 返回 name+summary | `meta_invoke` 执行（走 `ctx.tools.execute`，管线完整）；或 detail 拿 schema 后直接调 |
 | | skill | 不进 `<available_skills>` 目录 | `meta_search` 检索（`progressiveSkillCatalog` 条目） | `meta_invoke` 按 `path` 加载 SKILL.md 正文 |
-| **Blocked（禁用）** | tool | 不进 payload | `meta_search` 不返回 | `meta_invoke` 拒绝，直接调用被投影排除 |
+| **禁用** | tool | 不进 payload | `meta_search` 不返回 | `meta_invoke` 拒绝，直接调用被投影排除 |
 | | skill | 不进目录 | `meta_search` 不返回 | `meta_invoke` 拒绝 |
 
 > 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见下方配置示例）。
 
-## 配置（在 `@daweifu/capability-menu/policy` 上）
+## 配置
 
 规则写在 profile 的 `cordis.patch.yml` 里 `capability-menu-policy` 插件 entry 的 `config` 下（外层 `- insert:` / `id` / `name` 是 Cordis patch 的挂载样板，与规则无关）：
 
@@ -128,13 +138,11 @@ config:
   progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
 ```
 
-**规则优先级**（命中即停）：`blocked` 精确 > `blocked` 通配 > `exposed` 精确 > `exposed` 通配 > `progressive` 精确 > `progressive` 通配 > 默认 Exposed。**blocked 压过 exposed**（控制语义）。meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed，出现在 `blocked` 里会 fail loud。
+**规则优先级**（命中即停，同级内精确匹配先于通配）：`blocked` > `exposed` > `progressive`，未命中任何规则默认 Exposed；`blocked` 是最硬的控制（压过 `exposed`），meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed 且不可被 blocked。`tools.exposed` 里列原生工具名（`execute_cmd` 等）是**保活**：原生工具不进能力编目、只受投影链裁剪可见性，列在这里保持模型可见可调——一旦被 progressive/blocked 覆盖，模型就看不到也调不到。
 
-> `tools.exposed` 里列原生工具名（`execute_cmd` 等）是**保活**语义：原生工具不进能力管理编目（能力列表里看不到它们），但投影链会裁剪其可见性，列在这里保持模型直接可见可调。不要因为「它不在能力管理里」就把它从 exposed 移除——一旦被 `progressive`/`blocked` 规则覆盖，模型既看不到也调不到。
+### 渐进技能目录（`progressiveSkillCatalog`）
 
-### Progressive skill（`progressiveSkillCatalog`）
-
-Progressive skill 的 name + description + path 汇总进独立 YAML（`progressiveSkillCatalog`），由 registry 索引、`meta_search` 检索；完整 SKILL.md 由 `meta_invoke` 按需加载（`ctx.skills` 未注册时按 YAML 的 `path` 读取），不进固定上下文：
+按需（Progressive）技能不进固定上下文，也可能根本没注册进 `ctx.skills`。为了让它们仍可被发现，用一份独立 YAML 存 name + description + path，由 registry 索引、`meta_search` 检索；完整 SKILL.md 由 `meta_invoke` 按需加载（`ctx.skills` 未注册时按 YAML 的 `path` 读取）：
 
 ```yaml
 # ~/.dsh/progressive-skills.yaml
@@ -150,7 +158,7 @@ skills:
 - 不挂 `capability-menu-policy` → 全部工具/技能照旧可见（不投影）。
 - 挂了 policy 但没有任何规则 → 全部能力默认 Exposed（`classify` 兜底），不投影、不隐藏。需要把低频能力归档进目录时，显式配置 `progressive`（或 `blocked`）规则把它们从模型视野中移出。
 
-## 能力菜单（前端管理 tab）
+## 能力菜单
 
 安装 `@daweifu/capability-menu-web` 后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整上面的三档策略，改动即时生效、无需重启：
 
