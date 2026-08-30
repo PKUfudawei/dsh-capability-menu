@@ -48,13 +48,11 @@ dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 
 ### 从 npm 安装（推荐）
 
-单包同时提供服务端插件与前端「能力菜单」tab：
+单包同时提供服务端插件与前端「能力菜单」tab，装完即可在「设置 / 通用设置」下看到：
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
 ```
-
-> `@daweifu/capability-menu-web` 已并入本包（通过 `dsh.client` 声明），无需单独安装。装完后在「设置 / 通用设置」下即可看到「能力菜单」。
 
 ### 从源码安装
 
@@ -65,8 +63,6 @@ pnpm install                   # prepare 脚本自动构建 lib/（服务端）�
 
 dsh plugin --profile web add ./dsh-capability-menu
 ```
-
-> `dsh plugin` 会把 `./` 相对路径锚定到你执行命令的目录再转发给 pnpm；也支持绝对路径或 `file:`/`link:` 前缀。
 
 ### 验证安装
 
@@ -85,7 +81,7 @@ dsh --profile web --dump-config | grep -E 'capability-menu'
 - id: capability-menu-policy
   name: '@daweifu/capability-menu/policy'
 - id: capability-menu
-  name: '@daweifu/capability-menu'   # 根入口：挂载前端网关，供浏览器端发现
+  name: '@daweifu/capability-menu'
 ```
 
 ### 卸载
