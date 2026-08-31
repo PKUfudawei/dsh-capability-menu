@@ -272,7 +272,7 @@ export interface CapabilityPolicyService {
   /** Current (resolved) policy config. */
   getConfig(): Config
   /** Replace a subset of the policy config and recompile rules immediately. */
-  updateConfig(partial: Partial<Config>): void
+  updateConfig(partial: Partial<Config>): Promise<void>
   /**
    * Classify every capability currently indexed by `ctx.capability` (the
    * registry sibling). Returns an empty array when the registry is not mounted.
@@ -307,7 +307,7 @@ export const name = 'capability-menu-policy'
 // mounts registry before policy, so `capability` is always available in practice.
 export const inject = ['capability', 'tools', 'skills']
 
-export function apply(ctx: Context, config: Config = {}): void {
+export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // Mutable runtime state so the management surface (能力菜单) can live-update
   // the policy without a reload.
   let current = { ...config }
@@ -380,7 +380,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     getConfig(): Config {
       return { ...current }
     },
-    updateConfig(partial: Partial<Config>): void {
+    async updateConfig(partial: Partial<Config>): Promise<void> {
       current = { ...current, ...partial }
       if (partial.metaTools !== undefined) {
         metaTools = [...(partial.metaTools ?? DEFAULT_META_TOOLS)]
@@ -389,9 +389,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       recompile()
       // Classification changed → the on-demand catalog on disk is stale (a
       // capability reclassified to blocked must disappear from the grep-able
-      // YAML). Rewrite it through the registry refresh; otherwise blocked
-      // capabilities would stay visible on disk past the pre-execute deny.
-      void ctx.capability.refresh()
+      // YAML). Await the registry refresh so callers get a completion signal:
+      // the disk catalog is rewritten before the call returns, closing the
+      // window where a blocked capability stayed visible on disk.
+      await ctx.capability.refresh()
     },
     classifyAll(): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management
@@ -487,12 +488,12 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.provide('capabilityPolicy', service)
 
-  // Emit the on-demand catalog right after mount. The registry's own startup
-  // path (rebuildTools + refreshSkills) bypasses refresh(), so the YAML would
-  // not exist until the first tools/skills change event; this call makes it
-  // appear before the first assemble, with policy already available to
-  // classify capabilities.
-  void ctx.capability.refresh()
+  // Emit the on-demand catalog before the plugin finishes mounting. The
+  // registry's own startup path (rebuildTools + refreshSkills) bypasses
+  // refresh(), so without this the YAML would not exist until the first
+  // tools/skills change event. Awaiting here closes the cold-start window
+  // where the first assemble could point at a file that does not exist yet.
+  await ctx.capability.refresh()
 }
 
 /**

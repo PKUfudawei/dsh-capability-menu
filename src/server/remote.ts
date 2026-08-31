@@ -50,10 +50,10 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capabilityPolicy.getConfig()
   }
 
-  /** Replace a subset of the policy config (recompile rules). */
+  /** Replace a subset of the policy config (recompile rules + rewrite catalog). */
   @Remote('updateConfig')
-  updateConfig(partial: Partial<CapabilityPolicyConfig>): void {
-    this.ctx.capabilityPolicy.updateConfig(partial)
+  async updateConfig(partial: Partial<CapabilityPolicyConfig>): Promise<void> {
+    await this.ctx.capabilityPolicy.updateConfig(partial)
   }
 
   /** Classify every capability currently indexed by `ctx.capability`. */

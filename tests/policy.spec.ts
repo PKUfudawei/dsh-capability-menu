@@ -297,7 +297,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     expect(service.getConfig().tools?.exposed).toContain('a')
     expect(service.isExposedTool('b')).toBe(false)
 
-    service.updateConfig({ tools: { exposed: ['a', 'b'] } })
+    await service.updateConfig({ tools: { exposed: ['a', 'b'] } })
     expect(service.isExposedTool('b')).toBe(true)
     expect(service.getConfig().tools?.exposed).toEqual(['a', 'b'])
   })

@@ -157,7 +157,7 @@ export interface CapabilityPolicyService {
     /** Current (resolved) policy config. */
     getConfig(): Config;
     /** Replace a subset of the policy config and recompile rules immediately. */
-    updateConfig(partial: Partial<Config>): void;
+    updateConfig(partial: Partial<Config>): Promise<void>;
     /**
      * Classify every capability currently indexed by `ctx.capability` (the
      * registry sibling). Returns an empty array when the registry is not mounted.
@@ -177,5 +177,5 @@ export declare function projectAssemblyTools(assembly: PromptAssembly, service: 
 /** Build the policy plugin. */
 export declare const name = "capability-menu-policy";
 export declare const inject: string[];
-export declare function apply(ctx: Context, config?: Config): void;
+export declare function apply(ctx: Context, config?: Config): Promise<void>;
 //# sourceMappingURL=policy.d.ts.map

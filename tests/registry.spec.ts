@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -256,11 +256,10 @@ describe('meta-registry', () => {
 
     // C2: reclassifying the Progressive capability to blocked must remove it
     // from the disk catalog — the grep-able file must not keep exposing it
-    // after the in-memory classification changed.
-    ctx.capabilityPolicy.updateConfig({ tools: { blocked: ['mcp__km__search'] } })
-    await vi.waitFor(async () => {
-      const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
-      expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
-    })
+    // after the in-memory classification changed. updateConfig is awaited, so
+    // the disk rewrite is complete by the time it returns.
+    await ctx.capabilityPolicy.updateConfig({ tools: { blocked: ['mcp__km__search'] } })
+    const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
+    expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
   })
 })
