@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -255,17 +255,35 @@ describe('capability-menu-policy plugin', () => {
 
   it('appends a catalog pointer section when a catalog file is configured', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-policy-'))
+    const { stat } = await import('node:fs/promises')
     const catalogFile = `${home}/capability-catalog.yaml`
     const ctx = await setup({ tools: { progressive: ['mcp__km__search'] } }, { catalogFile })
     registerTool(ctx, 'meta_search')
     registerTool(ctx, 'meta_invoke')
     registerTool(ctx, 'mcp__km__search')
-    await ctx.capability.refresh()
+    // C1: the on-demand catalog must exist right after policy mount, without an
+    // explicit refresh() (the registry startup path skips writeCatalog).
+    await vi.waitFor(async () => {
+      const exists = await stat(catalogFile).then(() => true, () => false)
+      expect(exists).toBe(true)
+    })
 
     const assembly = await ctx.systemPrompt.assemble()
     const pointer = assembly.sections.find(section => section.name === 'capability-menu-catalog')
     expect(pointer).toBeDefined()
     expect(pointer?.text).toContain(catalogFile)
+  })
+
+  it('does not inject a catalog pointer when nothing is Progressive', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-policy-'))
+    const catalogFile = `${home}/capability-catalog.yaml`
+    const ctx = await setup({}, { catalogFile })
+    registerTool(ctx, 'meta_search')
+    registerTool(ctx, 'meta_invoke')
+    await ctx.capability.refresh()
+
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.find(section => section.name === 'capability-menu-catalog')).toBeUndefined()
   })
 })
 

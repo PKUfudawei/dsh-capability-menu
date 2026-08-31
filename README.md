@@ -164,7 +164,7 @@ skills:
 
 ### 按需能力目录（`catalogFile`，grep 可检索）
 
-按需（Progressive）能力会物化成一个 YAML 目录文件——registry 每次刷新自动重写，默认 `~/.dsh/capability-catalog.yaml`（可用 `catalogFile` 改路径，置空字符串禁用）。这让模型能用原生 `grep`/`read` 直接检索按需能力，不必先"想到"调 `meta_search`；`meta_search` 仍保留，作为结构化 schema 入口。系统提示词会常驻一行目录路径，指引模型需要低频能力时先用 `grep` 检索该文件。
+按需（Progressive）能力会物化成一个 YAML 目录文件——registry 在工具/技能变更、分类调整（能力菜单点击或 `updateConfig`）时自动重写，默认 `~/.dsh/capability-catalog.yaml`（可用 `catalogFile` 改路径，置空字符串禁用）。这让模型能用原生 `grep`/`read` 直接检索按需能力，不必先"想到"调 `meta_search`；`meta_search` 仍保留，作为结构化 schema 入口。系统提示词会常驻一行目录路径，指引模型需要低频能力时先用 `grep` 检索该文件（没有任何按需能力时不注入，避免浪费上下文）。
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 Progressive 能力，
@@ -183,6 +183,8 @@ capabilities:
 ```
 
 > `progressiveSkillCatalog` 是**输入**（声明 progressive skill 的元数据），`catalogFile` 是**输出**（自动生成的按需目录物化，二者用途不同）。
+>
+> 目录文件默认写在宿主 `~/.dsh`，需要模型侧 `bash`/`read` 工具的沙箱能访问该路径；若沙箱隔离宿主目录，请把 `catalogFile` 显式配置到沙箱可见的路径。默认路径在多个 dsh 实例间共享（last-write-wins），多实例部署时请为每个实例配置独立的 `catalogFile`。
 
 ### 默认（不配置 policy）
 

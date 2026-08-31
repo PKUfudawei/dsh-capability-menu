@@ -166,6 +166,12 @@ export interface CapabilityService {
    */
   catalogPath(): string | undefined
   /**
+   * Number of Progressive capabilities in the latest catalog emission. Used by
+   * the policy's assemble hook to skip the catalog pointer when there is
+   * nothing Progressive to browse.
+   */
+  progressiveCount(): number
+  /**
    * Rebuild the catalog from the current tool/skill registries; resolves when
    * done. In production the registry rebuilds automatically on `tools/change`
    * / `skills/change`; this public handle is for tests and external orchestrators
@@ -281,6 +287,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   let skillRecords = new Map<string, CapabilityRecord>()
   /** The scope each indexed skill was collected from; undefined = global layer. */
   let skillScopes = new Map<string, ScopeKey | undefined>()
+  /** Progressive count of the latest catalog emission (0 until first write). */
+  let progressiveCount = 0
 
   const statsOf = (record: CapabilityRecord): CapabilityStats => record.stats
 
@@ -498,6 +506,7 @@ export function apply(ctx: Context, config: Config = {}): void {
    * classification) or the file path is disabled.
    */
   const writeCatalog = async (): Promise<void> => {
+    progressiveCount = 0
     if (catalogFile.length === 0) return
     const policy = ctx.get('capabilityPolicy')
     if (policy === undefined) return
@@ -507,10 +516,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         id: record.id,
         kind: record.kind,
         name: record.name,
-        description: record.description,
+        // Use the trimmed summary (160 chars), not the full description: the
+        // file is for grep/read discovery, and a few hundred tools would
+        // otherwise balloon to tens of KB of context.
+        description: record.summary,
         ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
         ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
       }))
+    progressiveCount = progressive.length
     try {
       await writeFile(catalogFile, yaml.dump({ capabilities: progressive }), 'utf8')
     } catch (error) {
@@ -692,6 +705,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     catalogPath(): string | undefined {
       return catalogFile.length === 0 ? undefined : catalogFile
+    },
+
+    progressiveCount(): number {
+      return progressiveCount
     },
 
     refresh(): Promise<void> {

@@ -387,6 +387,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         metaToolSet = new Set<string>(metaTools)
       }
       recompile()
+      // Classification changed → the on-demand catalog on disk is stale (a
+      // capability reclassified to blocked must disappear from the grep-able
+      // YAML). Rewrite it through the registry refresh; otherwise blocked
+      // capabilities would stay visible on disk past the pre-execute deny.
+      void ctx.capability.refresh()
     },
     classifyAll(): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management
@@ -466,7 +471,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     const resolved = await next()
     const projected = projectAssemblyTools(resolved, service)
     const catalogPath = ctx.capability.catalogPath?.()
-    if (catalogPath === undefined) return projected
+    // Skip the pointer when there is nothing Progressive to browse: an empty
+    // hint wastes ~77 tokens of context and points at an empty file.
+    if (catalogPath === undefined || (ctx.capability.progressiveCount?.() ?? 0) === 0) return projected
     const pointer = {
       name: 'capability-menu-catalog',
       text: [
@@ -479,6 +486,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   ctx.provide('capabilityPolicy', service)
+
+  // Emit the on-demand catalog right after mount. The registry's own startup
+  // path (rebuildTools + refreshSkills) bypasses refresh(), so the YAML would
+  // not exist until the first tools/skills change event; this call makes it
+  // appear before the first assemble, with policy already available to
+  // classify capabilities.
+  void ctx.capability.refresh()
 }
 
 /**

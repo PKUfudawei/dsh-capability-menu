@@ -151,6 +151,12 @@ export interface CapabilityService {
      */
     catalogPath(): string | undefined;
     /**
+     * Number of Progressive capabilities in the latest catalog emission. Used by
+     * the policy's assemble hook to skip the catalog pointer when there is
+     * nothing Progressive to browse.
+     */
+    progressiveCount(): number;
+    /**
      * Rebuild the catalog from the current tool/skill registries; resolves when
      * done. In production the registry rebuilds automatically on `tools/change`
      * / `skills/change`; this public handle is for tests and external orchestrators
