@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PKUfudawei/dsh-capability-menu.git"
+    "url": "git+https://github.com/PKUfudawei/dsh-capability-menu.git"
   },
   "publishConfig": {
     "access": "public"
