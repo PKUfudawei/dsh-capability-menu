@@ -145,6 +145,12 @@ export interface CapabilityService {
     /** Return the current number of indexed capabilities. */
     size(): number;
     /**
+     * Absolute path of the on-demand (Progressive) capability catalog YAML, when
+     * emission is enabled. The model can browse this file with grep/read instead
+     * of only reaching the catalog through `meta_search`.
+     */
+    catalogPath(): string | undefined;
+    /**
      * Rebuild the catalog from the current tool/skill registries; resolves when
      * done. In production the registry rebuilds automatically on `tools/change`
      * / `skills/change`; this public handle is for tests and external orchestrators
@@ -175,6 +181,13 @@ export interface Config {
      * SKILL.md is loaded on demand by `meta_invoke` (see the invoke package).
      */
     progressiveSkillCatalog?: string;
+    /**
+     * Optional path for the on-demand (Progressive) capability catalog emitted as
+     * a YAML file for model-side grep/read browsing. Defaults to
+     * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
+     * emission. Blocked capabilities are never written.
+     */
+    catalogFile?: string;
 }
 /** Validate and default the registry configuration. */
 export declare const Config: z<Config>;

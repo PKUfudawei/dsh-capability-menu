@@ -8,6 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
 
 /**
@@ -173,9 +174,13 @@ function ruleMatches(rule: PolicyRule, target: MatchTarget): boolean {
 
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > exposed-exact > exposed-wildcard >
- * progressive-exact > progressive-wildcard > default (exposed). `blocked`
- * is a control decision, so it beats an explicit `exposed` rule.
+ * blocked-exact > blocked-wildcard > exposed-exact > progressive-exact >
+ * exposed-wildcard > progressive-wildcard > default (exposed). `blocked` is a
+ * control decision, so it beats an explicit `exposed` rule. Within
+ * exposed/progressive an exact name beats a wildcard, so the management UI can
+ * pin a single capability to a class even when a broader wildcard rule says
+ * otherwise (e.g. `tools.exposed: ['mcp__gongfeng__*']` must not silently win
+ * over an explicit per-tool `progressive` rule).
  */
 export function classify(
   compiled: CompiledCapabilityRules,
@@ -195,11 +200,11 @@ export function classify(
   for (const rule of compiled.exposed) {
     if (!rule.wildcard && ruleMatches(rule, target)) return 'exposed'
   }
-  for (const rule of compiled.exposed) {
-    if (rule.wildcard && ruleMatches(rule, target)) return 'exposed'
-  }
   for (const rule of compiled.progressive) {
     if (!rule.wildcard && ruleMatches(rule, target)) return 'progressive'
+  }
+  for (const rule of compiled.exposed) {
+    if (rule.wildcard && ruleMatches(rule, target)) return 'exposed'
   }
   for (const rule of compiled.progressive) {
     if (rule.wildcard && ruleMatches(rule, target)) return 'progressive'
@@ -412,16 +417,100 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }
 
-  // Project the model-visible tool list. This runs on the projection chain only
-  // (system-prompt/assemble); the execution chain (ctx.tools.execute) is
-  // untouched, so Progressive tools remain executable via meta_invoke. Skills
-  // keep the dsh-native `<available_skills>` catalog, which is the Exposed
-  // surface; catalog-level skill filtering needs an upstream `dsh-tool-skill`
-  // filter hook (out of bundle scope).
+  // Blocked capabilities are a hard deny at the execution surface, not just a
+  // projection concern: a hallucinated direct call to a blocked tool (or to the
+  // `skill` loader for a blocked skill) must never reach the underlying server.
+  // Progressive tools stay executable — meta_invoke forwards through this same
+  // pipeline, so only Blocked is rejected here.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (service.isBlockedTool(exec.name)) {
+      return { kind: 'deny', reason: `capability "${exec.name}" is blocked and cannot be executed` }
+    }
+    if (exec.name === 'skill') {
+      const args = exec.arguments as { name?: unknown } | null | undefined
+      const name = typeof args?.name === 'string' ? args.name : ''
+      if (name.length > 0 && service.isBlockedSkill(name)) {
+        return { kind: 'deny', reason: `skill "${name}" is blocked and cannot be loaded` }
+      }
+    }
+    return next()
+  })
+
+  // Progressive/Blocked skills must not appear in the model-facing
+  // `<available_skills>` catalog injected by `dsh-tool-skill`. The catalog is a
+  // user-role message whose `source.kind === 'skill-catalog'`; rewrite it every
+  // pre-step to keep only Exposed skills. dsh-tool-skill republishes the full
+  // catalog earlier on the same chain, so this filter is idempotent: whatever
+  // it publishes, only the Exposed subset reaches the model.
+  ctx.on('agent/pre-step', async (_payload, next) => {
+    const decision = await next()
+    if (decision.kind !== 'enter') return decision
+    let changed = false
+    const messages = decision.messages.map(message => {
+      const source = message.source as { kind?: unknown; entries?: unknown }
+      if (source.kind !== 'skill-catalog') return message
+      const entries = Array.isArray(source.entries)
+        ? source.entries.filter((entry): entry is { name: string; description?: string } =>
+            typeof entry === 'object' && entry !== null && typeof (entry as { name?: unknown }).name === 'string')
+        : []
+      const kept = entries
+        .filter(entry => service.isExposedSkill(entry.name))
+        .map(entry => ({ name: entry.name, description: entry.description ?? '' }))
+      if (kept.length === entries.length) return message
+      changed = true
+      return {
+        ...message,
+        content: [{ type: 'text' as const, text: renderSkillCatalog(kept) }],
+        source: { ...message.source, entries: kept } as unknown as typeof message.source,
+      }
+    })
+    if (!changed) return decision
+    return { ...decision, messages }
+  })
+
+  // Project the model-visible tool list, then append a one-line pointer to the
+  // on-demand (Progressive) catalog so the model knows it exists without having
+  // to "think of" meta_search first. Skills keep the dsh-native catalog, but
+  // filtered to Exposed by the `agent/pre-step` hook above.
   ctx.on('system-prompt/assemble', async (_assembly: PromptAssembly, _context, next) => {
     const resolved = await next()
-    return projectAssemblyTools(resolved, service)
+    const projected = projectAssemblyTools(resolved, service)
+    const catalogPath = ctx.capability.catalogPath?.()
+    if (catalogPath === undefined) return projected
+    const pointer = {
+      name: 'capability-menu-catalog',
+      text: [
+        'On-demand capabilities (Progressive) are not in the exposed tool list above. Their catalog is a YAML file you can browse with grep/read:',
+        `  ${catalogPath}`,
+        'Search it (e.g. grep -n "name:" <path>) or call meta_search with an exact id for a schema, then meta_invoke to run/load the capability.',
+      ].join('\n'),
+    }
+    return { ...projected, sections: [...projected.sections, pointer] }
   })
 
   ctx.provide('capabilityPolicy', service)
+}
+
+/**
+ * Rebuild the text body of a skill-catalog user message from a filtered entry
+ * list. Mirrors the `<available_skills>` format emitted by `dsh-tool-skill` so
+ * the model sees a consistent, complete replacement catalog.
+ */
+function renderSkillCatalog(entries: ReadonlyArray<{ name: string; description?: string }>): string {
+  const guidance = entries.length === 0
+    ? ['No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.']
+    : [
+        'If the user names a skill, or the task clearly matches a skill\u2019s description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill\u2019s instructions until it has been loaded.',
+      ]
+  return [
+    '<system-reminder>',
+    'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
+    '',
+    '<available_skills>',
+    ...entries.map(entry => `- \`${escapeText(entry.name)}\`: ${escapeText(entry.description ?? '')}`),
+    '</available_skills>',
+    '',
+    ...guidance,
+    '</system-reminder>',
+  ].join('\n')
 }

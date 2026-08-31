@@ -6,6 +6,8 @@ import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as registry from '../src/registry.ts'
+import * as policy from '../src/policy.ts'
+import yaml from 'js-yaml'
 
 const testSignal = new AbortController().signal
 
@@ -213,5 +215,40 @@ describe('meta-registry', () => {
     // Broken presets are skipped; the mountable preset's scope was enumerated.
     expect(scopes.has('coding-plus')).toBe(true)
     expect(scopes.has('broken-preset')).toBe(false)
+  })
+
+  it('emits the on-demand catalog YAML with only Progressive capabilities', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const catalogFile = join(home, 'capability-catalog.yaml')
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    await ctx.plugin(registry, { catalogFile })
+    await ctx.plugin(policy, {
+      tools: {
+        exposed: ['mcp__gongfeng__create_issue'],
+        progressive: ['mcp__km__search'],
+        blocked: ['mcp__secret__read'],
+      },
+    })
+    registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    registerMcpTool(ctx, 'km', 'search', 'Search knowledge')
+    registerMcpTool(ctx, 'secret', 'read', 'Read a secret')
+    await ctx.capability.refresh()
+
+    expect(ctx.capability.catalogPath()).toBe(catalogFile)
+    const doc = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
+    const ids = doc.capabilities.map(entry => entry.id)
+    expect(ids).toContain('mcp__km__search')
+    expect(ids).not.toContain('mcp__gongfeng__create_issue')
+    expect(ids).not.toContain('mcp__secret__read')
   })
 })

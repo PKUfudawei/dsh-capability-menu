@@ -80,10 +80,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error(`forwardMode must be "direct" or "resolve", received "${String(forwardMode)}"`)
   }
 
-  // Session-level dedup for loaded skills. Re-loading an already-injected
-  // skill only returns a short reminder instead of re-injecting the full
-  // instructions, saving tokens (mirrors synapse's `_loaded_skills`).
-  const loadedSkills = new Set<string>()
+  // Per-session dedup for loaded skills. Re-loading an already-injected skill
+  // only returns a short reminder instead of re-injecting the full
+  // instructions, saving tokens (mirrors synapse's `_loaded_skills`). Keyed by
+  // the agent object so two sessions in the same process never share state; a
+  // WeakMap lets entries be collected with the agent. Without an agent context
+  // (headless dispatch) nothing is cached.
+  const loadedSkills = new WeakMap<object, Set<string>>()
 
   /**
    * Load a Progressive skill's full body. Progressive skills are indexed from
@@ -277,8 +280,20 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (capability.kind === 'skill' && id.startsWith(SKILL_ID_PREFIX)) {
         const name = skillNameOf(id)
 
+        // Per-session loaded set (see the WeakMap above); undefined when there
+        // is no agent context, in which case nothing is deduped.
+        const agent = exec.agent
+        let sessionSkills: Set<string> | undefined
+        if (agent !== undefined) {
+          sessionSkills = loadedSkills.get(agent)
+          if (sessionSkills === undefined) {
+            sessionSkills = new Set<string>()
+            loadedSkills.set(agent, sessionSkills)
+          }
+        }
+
         // Already loaded this session → return a short reminder, no re-injection.
-        if (loadedSkills.has(name)) {
+        if (sessionSkills?.has(name) === true) {
           return {
             ok: true,
             kind: 'skill' as const,
@@ -310,7 +325,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (!isModelInvocable(skill)) {
           throw new Error(`meta_invoke: skill "${name}" is not available for model invocation`)
         }
-        loadedSkills.add(name)
+        sessionSkills?.add(name)
         return {
           ok: true,
           kind: 'skill' as const,

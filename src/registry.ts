@@ -10,8 +10,9 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { dirname, resolve, sep } from 'node:path'
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join, resolve, sep } from 'node:path'
 
 /**
  * Kinds of capability the catalog can hold.
@@ -159,6 +160,12 @@ export interface CapabilityService {
   /** Return the current number of indexed capabilities. */
   size(): number
   /**
+   * Absolute path of the on-demand (Progressive) capability catalog YAML, when
+   * emission is enabled. The model can browse this file with grep/read instead
+   * of only reaching the catalog through `meta_search`.
+   */
+  catalogPath(): string | undefined
+  /**
    * Rebuild the catalog from the current tool/skill registries; resolves when
    * done. In production the registry rebuilds automatically on `tools/change`
    * / `skills/change`; this public handle is for tests and external orchestrators
@@ -191,6 +198,13 @@ export interface Config {
    * SKILL.md is loaded on demand by `meta_invoke` (see the invoke package).
    */
   progressiveSkillCatalog?: string
+  /**
+   * Optional path for the on-demand (Progressive) capability catalog emitted as
+   * a YAML file for model-side grep/read browsing. Defaults to
+   * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
+   * emission. Blocked capabilities are never written.
+   */
+  catalogFile?: string
 }
 
 /** Validate and default the registry configuration. */
@@ -202,6 +216,7 @@ export const Config: z<Config> = z.object({
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
   progressiveSkillCatalog: z.string(),
+  catalogFile: z.string(),
 })
 
 function assertPositiveInteger(name: string, value: number, min: number): void {
@@ -256,6 +271,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const detailIncludesBody = config.detailIncludesBody ?? false
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
+  const catalogFile = (config.catalogFile ?? join(homedir(), '.dsh', 'capability-catalog.yaml')).trim()
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
   assertWeight('weighting', weighting)
@@ -474,10 +490,39 @@ export function apply(ctx: Context, config: Config = {}): void {
     skillScopes = nextSkillScopes
   }
 
+  /**
+   * Emit the on-demand (Progressive) capability catalog as a YAML file the
+   * model can browse with grep/read. Only Progressive capabilities are written;
+   * Exposed ones are already in the model surface and Blocked ones must stay
+   * undiscoverable. Skips emission when the policy plugin is not mounted (no
+   * classification) or the file path is disabled.
+   */
+  const writeCatalog = async (): Promise<void> => {
+    if (catalogFile.length === 0) return
+    const policy = ctx.get('capabilityPolicy')
+    if (policy === undefined) return
+    const progressive = [...toolRecords.values(), ...skillRecords.values()]
+      .filter(record => policy.classifyCapability(record.id) === 'progressive')
+      .map(record => ({
+        id: record.id,
+        kind: record.kind,
+        name: record.name,
+        description: record.description,
+        ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
+        ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
+      }))
+    try {
+      await writeFile(catalogFile, yaml.dump({ capabilities: progressive }), 'utf8')
+    } catch (error) {
+      ctx.logger.warn(`capability-registry: on-demand catalog write failed (${catalogFile}): ${String(error)}`)
+    }
+  }
+
   /** Refresh the whole catalog: MCP tools synchronously, skills asynchronously. */
   const refresh = async (): Promise<void> => {
     rebuildTools()
     await refreshSkills()
+    await writeCatalog()
   }
 
   /** Register once; also subscribe to change events. */
@@ -643,6 +688,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     size(): number {
       return toolRecords.size + skillRecords.size
+    },
+
+    catalogPath(): string | undefined {
+      return catalogFile.length === 0 ? undefined : catalogFile
     },
 
     refresh(): Promise<void> {

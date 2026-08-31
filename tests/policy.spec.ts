@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -7,12 +8,14 @@ import { serverNameOf } from '../src/registry.ts'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
 
-async function setup(config: policy.Config = {}): Promise<Context> {
+async function setup(config: policy.Config = {}, registryConfig: registry.Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SkillRegistry)
-  await ctx.plugin(registry, {})
+  // Disable on-demand catalog emission by default so tests never write the
+  // real ~/.dsh; callers override via registryConfig when they test it.
+  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
   await ctx.plugin(policy, config)
   return ctx
 }
@@ -78,6 +81,36 @@ describe('wildcard / rule matching', () => {
     const idGlob = policy.parseRule('mcp__*')
     expect(idGlob.wildcard).toBe(true)
     expect(idGlob.target).toBe('id')
+  })
+
+  it('gives exact rules priority over wildcard rules across exposed/progressive', () => {
+    // README's example `tools.exposed: ['mcp__gongfeng__*']` must not silently
+    // override an exact per-tool progressive rule written by the UI click.
+    const rules = policy.compileSet({
+      exposed: ['mcp__gongfeng__*'],
+      progressive: ['mcp__gongfeng__create_issue'],
+    })
+    const target = { id: 'mcp__gongfeng__create_issue', server: 'gongfeng', kind: 'tool' as const, ruleKind: 'tool' as const }
+    expect(policy.classify(rules, target)).toBe('progressive')
+  })
+
+  it('gives exposed exact priority over progressive wildcard', () => {
+    const rules = policy.compileSet({
+      exposed: ['mcp__gongfeng__create_issue'],
+      progressive: ['mcp__*'],
+    })
+    const target = { id: 'mcp__gongfeng__create_issue', server: 'gongfeng', kind: 'tool' as const, ruleKind: 'tool' as const }
+    expect(policy.classify(rules, target)).toBe('exposed')
+  })
+
+  it('keeps blocked above every exact rule', () => {
+    const rules = policy.compileSet({
+      exposed: ['mcp__x__y'],
+      progressive: ['mcp__x__y'],
+      blocked: ['mcp__x__*'],
+    })
+    const target = { id: 'mcp__x__y', server: 'x', kind: 'tool' as const, ruleKind: 'tool' as const }
+    expect(policy.classify(rules, target)).toBe('blocked')
   })
 
   it('classifies skills with default exposed', () => {
@@ -153,6 +186,87 @@ describe('capability-menu-policy plugin', () => {
     expect(ctx.capabilityPolicy.isExposedSkill('coding')).toBe(true)
     expect(ctx.capabilityPolicy.classifyCapability('skill:coding')).toBe('exposed')
   })
+
+  it('denies direct execution of a blocked tool at pre-execute', async () => {
+    const ctx = await setup({ tools: { blocked: ['mcp__secret__read'] } })
+    registerTool(ctx, 'mcp__secret__read')
+    const decision = await ctx.waterfall('tools/pre-execute', {
+      callId: CallId('call-1'),
+      name: 'mcp__secret__read',
+      arguments: {},
+      signal: new AbortController().signal,
+    }, () => Promise.resolve({ kind: 'allow' }))
+    expect(decision).toEqual({ kind: 'deny', reason: 'capability "mcp__secret__read" is blocked and cannot be executed' })
+  })
+
+  it('denies the skill loader for a blocked skill at pre-execute', async () => {
+    const ctx = await setup({ skills: { blocked: ['forbidden-skill'] } })
+    const decision = await ctx.waterfall('tools/pre-execute', {
+      callId: CallId('call-1'),
+      name: 'skill',
+      arguments: { name: 'forbidden-skill' },
+      signal: new AbortController().signal,
+    }, () => Promise.resolve({ kind: 'allow' }))
+    expect(decision).toEqual({ kind: 'deny', reason: 'skill "forbidden-skill" is blocked and cannot be loaded' })
+  })
+
+  it('does not deny Progressive tools so meta_invoke can still execute them', async () => {
+    const ctx = await setup({ tools: { progressive: ['mcp__km__search'] } })
+    const decision = await ctx.waterfall('tools/pre-execute', {
+      callId: CallId('call-1'),
+      name: 'mcp__km__search',
+      arguments: {},
+      signal: new AbortController().signal,
+    }, () => Promise.resolve({ kind: 'allow' }))
+    expect(decision).toEqual({ kind: 'allow' })
+  })
+
+  it('filters the skill catalog to Exposed skills at pre-step', async () => {
+    const ctx = await setup({ skills: { exposed: ['frontend-design'], progressive: ['legacy-skill'] } })
+    const message = {
+      id: 'msg-1',
+      role: 'user',
+      content: [{ type: 'text', text: '<available_skills>...</available_skills>' }],
+      source: {
+        kind: 'skill-catalog',
+        form: 'catalog',
+        entries: [
+          { name: 'frontend-design', description: 'Design guidance' },
+          { name: 'legacy-skill', description: 'Low-frequency skill' },
+        ],
+      },
+    } as never
+    const decision = await ctx.waterfall('agent/pre-step', {
+      agent: { id: 'agent-1' } as never,
+      messages: [message],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }, () => Promise.resolve({ kind: 'enter', messages: [message] }))
+    expect(decision.kind).toBe('enter')
+    if (decision.kind !== 'enter') return
+    const [filtered] = decision.messages
+    const source = filtered.source as { kind: string; entries: Array<{ name: string }> }
+    expect(source.entries.map(entry => entry.name)).toEqual(['frontend-design'])
+    const text = (filtered.content[0] as { text: string }).text
+    expect(text).toContain('<available_skills>')
+    expect(text).not.toContain('legacy-skill')
+  })
+
+  it('appends a catalog pointer section when a catalog file is configured', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-policy-'))
+    const catalogFile = `${home}/capability-catalog.yaml`
+    const ctx = await setup({ tools: { progressive: ['mcp__km__search'] } }, { catalogFile })
+    registerTool(ctx, 'meta_search')
+    registerTool(ctx, 'meta_invoke')
+    registerTool(ctx, 'mcp__km__search')
+    await ctx.capability.refresh()
+
+    const assembly = await ctx.systemPrompt.assemble()
+    const pointer = assembly.sections.find(section => section.name === 'capability-menu-catalog')
+    expect(pointer).toBeDefined()
+    expect(pointer?.text).toContain(catalogFile)
+  })
 })
 
 describe('capability-policy management surface (能力菜单)', () => {
@@ -175,7 +289,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, {
       tools: { exposed: ['mcp__gongfeng__*'], progressive: ['mcp__*'], blocked: ['mcp__km__search'] },
     })
@@ -198,7 +312,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, {})
 
     // The registry search default is maxResults=20; classifyAll must enumerate

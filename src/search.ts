@@ -149,11 +149,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         maxResults: Math.min(requestedMax ?? maxResults, 50),
         scope,
       }).filter(result => !isBlocked(result.id))
+      const catalogPath = ctx.capability.catalogPath?.()
       return {
         mode: 'list' as const,
         total: results.length,
         results: results as unknown as JsonValue[],
-        hint: 'Call meta_search with an exact id for full schema, or meta_invoke to run/load it.',
+        hint: catalogPath !== undefined
+          ? `On-demand capabilities catalog: ${catalogPath} (YAML, grep/read searchable). Call meta_search with an exact id for full schema, or meta_invoke to run/load it.`
+          : 'Call meta_search with an exact id for full schema, or meta_invoke to run/load it.',
       }
     },
     presentCall(args) {

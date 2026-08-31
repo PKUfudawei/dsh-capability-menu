@@ -57,6 +57,7 @@ export type CapabilityKey =
   | 'notPreviewable'
   | 'previewClose'
   | 'detailNotFound'
+  | 'cycleOverridden'
 
 type ViewState =
   | { status: 'loading' }
@@ -136,6 +137,7 @@ body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-empty{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:8px}
 .mc-error{padding:12px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:13px}
 .mc-error pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.mc-notice{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
 .mc-skill{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
 .mc-skill-row{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:0 0;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .mc-skill-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -198,6 +200,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const { remote, t, mountError, remoteKeys } = props
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'tools' | 'skills'>('tools')
 
@@ -253,13 +256,19 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       }
       lists[to] = [...lists[to], ...ids]
       await remote.updateConfig({ [key]: { exposed: lists.exposed, progressive: lists.progressive, blocked: lists.blocked } })
-      await reload()
+      const next = await loadSnapshot(remote)
+      setState({ status: 'ready', snapshot: next })
+      // Detect silently-overridden changes: a broader wildcard rule (or a hard
+      // blocked rule) still wins over the exact id just pinned, so the class
+      // did not move to `to`. Surface that instead of failing silently.
+      const overridden = ids.filter(id => next.rows.find(r => r.id === id)?.class !== to)
+      setNotice(overridden.length > 0 ? t('cycleOverridden', { count: overridden.length }) : null)
     } catch (e) {
       setState({ status: 'error', message: String(e) })
     } finally {
       setBusy(false)
     }
-  }, [remote, reload, busy, state])
+  }, [remote, busy, state, t])
 
   return (
     <section className="mc-section">
@@ -270,6 +279,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
           <pre>{`mountError=${String(mountError)}\nremoteKeys=${String(remoteKeys)}`}</pre>
         </div>
       )}
+      {notice !== null && <div className="mc-notice">{notice}</div>}
       {state.status === 'ready' && <ReadyBody
         remote={remote}
         snapshot={state.snapshot}

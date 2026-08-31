@@ -31,7 +31,9 @@ async function setup(home: string, config: toolMetaInvoke.Config = {}, registryC
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  await ctx.plugin(registry, registryConfig)
+  // Disable on-demand catalog emission by default so tests never write the
+  // real ~/.dsh; callers override via registryConfig when they test it.
+  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
   await ctx.plugin(toolMetaInvoke, config)
   return ctx
 }
@@ -72,12 +74,13 @@ async function runTool(
   ctx: Context,
   name: string,
   args: Record<string, unknown>,
+  agent: unknown = agentStub('agent'),
 ): Promise<{ value: unknown; isError: boolean }> {
   const result = await ctx.tools.execute({
     callId: CallId(`call-${name}`),
     name,
     arguments: args,
-    agent: agentStub('agent'),
+    agent: agent as never,
     signal: testSignal,
   })
   return { value: result.value, isError: result.isError }
@@ -204,7 +207,7 @@ describe('capability-menu-invoke', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, { tools: { blocked: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaInvoke, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -226,7 +229,7 @@ describe('capability-menu-invoke', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, { skills: { blocked: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaInvoke, {})
     await ctx.capability.refresh()
@@ -235,21 +238,66 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
-  it('dedups already-loaded skills and returns a short reminder on repeat', async () => {
+  it('dedups already-loaded skills within one session and returns a short reminder on repeat', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Full design instructions body here.')
     const ctx = await setup(home)
     await ctx.capability.refresh()
+    // Same agent object = same session: the second load must be a short reminder.
+    const agent = agentStub('agent')
 
-    const first = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' })
+    const first = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agent)
     expect(first.isError).toBe(false)
     const firstDetail = (first.value as { detail: { content: string } }).detail
     expect(firstDetail.content).toContain('Full design instructions')
 
-    const second = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' })
+    const second = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agent)
     expect(second.isError).toBe(false)
     const secondDetail = (second.value as { detail: { content: string } }).detail
     expect(secondDetail.content).not.toContain('Full design instructions')
     expect(secondDetail.content).toContain('already loaded')
+  })
+
+  it('keeps loaded-skill dedup isolated per session in the same process', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    // Use a Progressive skill (loaded from its YAML catalog path) so both
+    // agents resolve it without depending on per-scope skill registration.
+    const progressiveRoot = join(home, 'progressive-skills')
+    await mkdir(join(progressiveRoot, 'sql-analytics'), { recursive: true })
+    await writeFile(join(progressiveRoot, 'sql-analytics', 'SKILL.md'), [
+      '---',
+      'name: sql-analytics',
+      'description: SQL analytics templates',
+      '---',
+      '',
+      'Run the aggregation query templates.',
+    ].join('\n'))
+    const catalog = join(home, 'progressive-skills.yaml')
+    await writeFile(catalog, [
+      'skills:',
+      `  - name: sql-analytics`,
+      `    description: SQL analytics query templates and methods`,
+      `    path: ${progressiveRoot}/sql-analytics`,
+      '',
+    ].join('\n'))
+    const ctx = await setup(home, {}, { progressiveSkillCatalog: catalog })
+    await ctx.capability.refresh()
+
+    const agentA = agentStub('agent-a')
+    const agentB = agentStub('agent-b')
+
+    const a1 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentA)
+    const b1 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentB)
+    const a2 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentA)
+
+    const content = (result: { value: unknown }): string => (result.value as { detail: { content: string } }).detail.content
+    // Session A loads the full body once…
+    expect(content(a1)).toContain('aggregation query templates')
+    // …session B in the same process must get the full body too (not a reminder).
+    expect(content(b1)).toContain('aggregation query templates')
+    // Re-loading in session A returns the short reminder.
+    expect(content(a2)).toContain('already loaded')
   })
 })

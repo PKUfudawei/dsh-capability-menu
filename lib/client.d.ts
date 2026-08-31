@@ -132,7 +132,7 @@ interface CapabilitySectionInjected {
   remoteKeys?: string;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'exposed' | 'progressive' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'emptyTools' | 'emptySkills' | 'toolCount' | 'exposedShort' | 'progressiveShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'exposed' | 'progressive' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'emptyTools' | 'emptySkills' | 'toolCount' | 'exposedShort' | 'progressiveShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

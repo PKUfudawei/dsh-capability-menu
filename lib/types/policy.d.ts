@@ -102,9 +102,13 @@ export interface MatchTarget {
 }
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > exposed-exact > exposed-wildcard >
- * progressive-exact > progressive-wildcard > default (exposed). `blocked`
- * is a control decision, so it beats an explicit `exposed` rule.
+ * blocked-exact > blocked-wildcard > exposed-exact > progressive-exact >
+ * exposed-wildcard > progressive-wildcard > default (exposed). `blocked` is a
+ * control decision, so it beats an explicit `exposed` rule. Within
+ * exposed/progressive an exact name beats a wildcard, so the management UI can
+ * pin a single capability to a class even when a broader wildcard rule says
+ * otherwise (e.g. `tools.exposed: ['mcp__gongfeng__*']` must not silently win
+ * over an explicit per-tool `progressive` rule).
  */
 export declare function classify(compiled: CompiledCapabilityRules, target: MatchTarget, metaTools?: ReadonlySet<string> | readonly string[]): CapabilityClass;
 /**
