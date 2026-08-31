@@ -254,10 +254,6 @@ export interface CapabilityPolicyService {
   isExposedTool(name: string): boolean
   /** True when a skill is Exposed. */
   isExposedSkill(name: string): boolean
-  /** True when a tool is Progressive. */
-  isProgressiveTool(name: string): boolean
-  /** True when a skill is Progressive. */
-  isProgressiveSkill(name: string): boolean
   /** True when a tool is Blocked. */
   isBlockedTool(name: string): boolean
   /** True when a skill is Blocked. */
@@ -362,12 +358,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     isExposedSkill(name: string): boolean {
       return service.classifySkill(name) === 'exposed'
-    },
-    isProgressiveTool(name: string): boolean {
-      return service.classifyTool(name) === 'progressive'
-    },
-    isProgressiveSkill(name: string): boolean {
-      return service.classifySkill(name) === 'progressive'
     },
     isBlockedTool(name: string): boolean {
       return service.classifyTool(name) === 'blocked'
