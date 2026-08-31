@@ -297,7 +297,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const next = new Map<string, CapabilityRecord>()
     for (const schema of ctx.tools.schemas()) {
       // 只编目 mcp__ 工具：原生工具（bash/read 等非 mcp__ 前缀）不进能力目录，
-      // 因此不被 meta_search/meta_invoke 覆盖、也不在能力管理（classifyAll）
+      // 因此不被 meta_search/meta_invoke 覆盖、也不在能力菜单（classifyAll）
       // 枚举中；它们由 dsh 原生暴露面直连，仅受投影链可见性裁剪，须在
       // tools.exposed 保活。与 invoke 的 id 前缀守卫保持一致。
       if (!schema.name.startsWith(MCP_ID_PREFIX)) continue

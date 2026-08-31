@@ -46,7 +46,7 @@
 #   (no agent) so Progressive tools stay runnable; dedups already-loaded skills.
 #   Rejects Blocked capabilities.
 # - `capability-menu-policy` (P3): Exposed/Progressive/Blocked projection
-#   strategy + 能力管理 surface. Reads explicit exposed/progressive/blocked
+#   strategy + 能力菜单 surface. Reads explicit exposed/progressive/blocked
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
 #   `system-prompt/assemble` to Exposed + meta tools only. The execution chain
 #   (`ctx.tools.execute`) is untouched, so Progressive tools remain executable
