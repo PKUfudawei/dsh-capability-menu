@@ -14,10 +14,9 @@
  *   - Skills tab      → flat skill rows with the same clickable class chip
  *                       plus a directory tree / file preview
  */
-import { useState, useEffect, useCallback } from 'react'
-import type { KeyboardEvent } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, SkillFileEntry, ToolDetail } from './store.ts'
+import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, SkillFileEntry, ToolDetail, CapabilityLocation, AddLocationPayload, McpLocationConfig } from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
@@ -58,6 +57,28 @@ export type CapabilityKey =
   | 'previewClose'
   | 'detailNotFound'
   | 'cycleOverridden'
+  | 'registered'
+  | 'registeredHint'
+  | 'addMcp'
+  | 'addSkill'
+  | 'enable'
+  | 'disable'
+  | 'enabledShort'
+  | 'disabledShort'
+  | 'remove'
+  | 'removeConfirm'
+  | 'mountFailed'
+  | 'serverName'
+  | 'transport'
+  | 'command'
+  | 'args'
+  | 'env'
+  | 'headers'
+  | 'url'
+  | 'dir'
+  | 'add'
+  | 'cancel'
+  | 'locFormError'
 
 type ViewState =
   | { status: 'loading' }
@@ -82,8 +103,8 @@ const CSS = `
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
-/* 三态圆点：常驻=实心、按需=半实心、禁用=空心。
-   色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用——红绿色盲下三者仍可区分。 */
+/* 三态圆点：启用=实心、渐进=半实心、隐藏=空心。
+   色盲友好（蓝-黄轴）：冷蓝=启用、暖琥珀=渐进、中性灰=隐藏——红绿色盲下三者仍可区分。 */
 .mc-dot{width:10px;height:10px;border-radius:50%;flex:none;box-sizing:border-box}
 .mc-dot--exposed{--mc-dot:#527a9c;background:var(--mc-dot)}
 .mc-dot--progressive{--mc-dot:#a57c33;background:linear-gradient(180deg,var(--mc-dot) 0 50%,transparent 50% 100%);border:1px solid var(--mc-dot)}
@@ -159,6 +180,38 @@ body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-preview-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .mc-preview-body{overflow:auto;padding:14px 16px;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary)}
 .mc-preview-hint{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary)}
+/* 已登记位置：启停开关 + 删除，位于每个 tab 顶部的独立块。 */
+.mc-loc{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
+.mc-loc-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
+.mc-loc-title{font-weight:600;font-size:13px;line-height:20px;flex:1 1 auto;min-width:0}
+.mc-loc-add{flex:none;padding:2px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+.mc-loc-add:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.mc-loc-hint{margin:0;padding:6px 12px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);border-bottom:1px solid var(--dsw-alias-border-l1)}
+.mc-loc-row{display:flex;align-items:center;gap:10px;padding:7px 12px;font-size:13px;line-height:20px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.mc-loc-row:last-child{border-bottom:0}
+.mc-loc-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.mc-loc-name{font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;color:var(--dsw-alias-label-primary);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-loc-meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+.mc-loc-switch{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}
+.mc-loc-switch:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
+.mc-loc-switch[data-on=true]{color:#527a9c;border-color:#527a9c66}
+body[data-ds-dark-theme] .mc-loc-switch[data-on=true]{color:#96b6d1}
+.mc-loc-remove{display:inline-flex;align-items:center;padding:1px 8px;border:1px solid transparent;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;cursor:pointer}
+.mc-loc-remove:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.mc-loc-error{margin:0;padding:6px 12px 8px;font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary);word-break:break-all;border-bottom:1px solid var(--dsw-alias-border-l1)}
+/* 添加弹窗表单。表单体可滚动（min-height:0 + overflow），头部与操作按钮固定。 */
+.mc-form{display:flex;flex-direction:column;gap:10px;padding:14px 16px;overflow:auto;min-height:0;flex:1 1 auto}
+.mc-form-row{display:flex;flex-direction:column;gap:4px}
+.mc-form-label{font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+.mc-form-input{box-sizing:border-box;width:100%;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.mc-form-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.mc-form-input--area{min-height:60px;resize:vertical;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px}
+.mc-form-actions{display:flex;justify-content:flex-end;gap:8px;padding:0 16px 14px}
+.mc-form-btn{padding:4px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
+.mc-form-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.mc-form-btn:disabled{cursor:default;opacity:.6}
+.mc-form-btn--primary{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-bg-base)}
+.mc-form-error{margin:0;padding:0 16px 10px;font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary);word-break:break-all}
 `
 if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id="${CSS_ID}"]`) === null) {
   const tag = document.createElement('style')
@@ -203,6 +256,10 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'tools' | 'skills'>('tools')
+  /** Registered locations (position references) for both tabs. */
+  const [locations, setLocations] = useState<CapabilityLocation[]>([])
+  /** Add-location dialog: which tab opened it. */
+  const [addDialog, setAddDialog] = useState<'mcp' | 'skill' | null>(null)
 
   const reload = useCallback(async () => {
     if (remote === undefined) {
@@ -210,6 +267,14 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       return
     }
     try {
+      // Locations are auxiliary: a host without the location surface (older
+      // policy build) keeps the classification list working.
+      try {
+        setLocations(unwrap(await remote.listLocations(), 'capabilityPolicy.listLocations'))
+      } catch (error) {
+        console.error('[capability-menu-web] listLocations failed:', error)
+        setLocations([])
+      }
       setState(await loadSnapshot(remote).then(snapshot => ({ status: 'ready' as const, snapshot })))
     } catch (e) {
       setState({ status: 'error', message: String(e) })
@@ -228,6 +293,46 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       return next
     })
   }, [])
+
+  /** Toggle one registered location's enable state; then refresh both views. */
+  const toggleLocation = useCallback(async (id: string, enabled: boolean) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      unwrap(await remote.setLocationEnabled(id, enabled), 'capabilityPolicy.setLocationEnabled')
+      await reload()
+    } catch (e) {
+      setState({ status: 'error', message: String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }, [remote, reload, busy])
+
+  /** Forget one registered location (two-step confirm inside the row). */
+  const removeLocation = useCallback(async (id: string) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      unwrap(await remote.removeLocation(id), 'capabilityPolicy.removeLocation')
+      await reload()
+    } catch (e) {
+      setState({ status: 'error', message: String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }, [remote, reload, busy])
+
+  /** Register a new location from the add dialog; then refresh both views. */
+  const addLocation = useCallback(async (payload: AddLocationPayload): Promise<string | undefined> => {
+    try {
+      unwrap(await remote.addLocation(payload), 'capabilityPolicy.addLocation')
+      setAddDialog(null)
+      await reload()
+      return undefined
+    } catch (e) {
+      return String(e)
+    }
+  }, [remote, reload])
 
   /** Move one or more capability ids to the next class in the click cycle. */
   const cycleClass = useCallback(async (ids: readonly string[], kind: 'tool' | 'skill') => {
@@ -286,11 +391,23 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         openServers={openServers}
         busy={busy}
         activeTab={activeTab}
+        locations={locations}
         t={t}
         onTabChange={setActiveTab}
         onToggleServer={toggleServer}
         onCycle={cycleClass}
+        onToggleLocation={toggleLocation}
+        onRemoveLocation={removeLocation}
+        onOpenAdd={setAddDialog}
       />}
+      {addDialog !== null && (
+        <AddLocationDialog
+          type={addDialog}
+          t={t}
+          onSubmit={addLocation}
+          onClose={() => setAddDialog(null)}
+        />
+      )}
     </section>
   )
 }
@@ -301,12 +418,16 @@ function ReadyBody(props: {
   openServers: ReadonlySet<string>
   busy: boolean
   activeTab: 'tools' | 'skills'
+  locations: CapabilityLocation[]
   t: CapabilitySectionInjected['t']
   onTabChange: (tab: 'tools' | 'skills') => void
   onToggleServer: (server: string) => void
   onCycle: (ids: readonly string[], kind: 'tool' | 'skill') => void
+  onToggleLocation: (id: string, enabled: boolean) => void
+  onRemoveLocation: (id: string) => void
+  onOpenAdd: (type: 'mcp' | 'skill') => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle } = props
+  const { remote, snapshot, openServers, busy, activeTab, locations, t, onTabChange, onToggleServer, onCycle, onToggleLocation, onRemoveLocation, onOpenAdd } = props
   const { servers, skills } = groupRows(snapshot.rows)
   // Per-tab statistics: MCP tools tab counts tool rows, Skills tab counts skills.
   const statRows = activeTab === 'tools' ? snapshot.rows.filter(r => r.kind === 'tool') : skills
@@ -373,6 +494,14 @@ function ReadyBody(props: {
 
       <div role="tabpanel" hidden={activeTab !== 'tools'} className="mc-panel">
         <div className="mc-panel-inner">
+          <LocationList
+            locations={locations.filter(l => l.type === 'mcp')}
+            busy={busy}
+            t={t}
+            onOpenAdd={() => onOpenAdd('mcp')}
+            onToggle={onToggleLocation}
+            onRemove={onRemoveLocation}
+          />
           {servers.length === 0 ? (
             <p className="mc-empty">{t('emptyTools')}</p>
           ) : (
@@ -388,7 +517,7 @@ function ReadyBody(props: {
                       tabIndex={0}
                       aria-expanded={open}
                       onClick={() => onToggleServer(server)}
-                      onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
+                      onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
                           onToggleServer(server)
@@ -407,7 +536,7 @@ function ReadyBody(props: {
                               className={`mc-count mc-count--${cls}`}
                               disabled={busy}
                               title={t('cycleHint')}
-                              onClick={(e: { stopPropagation(): void }) => {
+                              onClick={e => {
                                 e.stopPropagation()
                                 onCycle(tools.filter(t => t.class === cls).map(t => t.id), 'tool')
                               }}
@@ -430,7 +559,7 @@ function ReadyBody(props: {
                             tabIndex={0}
                             aria-label={tool.name}
                             onClick={() => void openToolDetail(tool.id)}
-                            onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
+                            onKeyDown={e => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 void openToolDetail(tool.id)
@@ -446,7 +575,7 @@ function ReadyBody(props: {
                                 disabled={busy || tool.mandatory}
                                 title={tool.classLabel}
                                 aria-label={tool.classLabel}
-                                onClick={(e: { stopPropagation(): void }) => {
+                                onClick={e => {
                                   e.stopPropagation()
                                   onCycle([tool.id], 'tool')
                                 }}
@@ -468,6 +597,14 @@ function ReadyBody(props: {
 
       <div role="tabpanel" hidden={activeTab !== 'skills'} className="mc-panel">
         <div className="mc-panel-inner">
+          <LocationList
+            locations={locations.filter(l => l.type === 'skill')}
+            busy={busy}
+            t={t}
+            onOpenAdd={() => onOpenAdd('skill')}
+            onToggle={onToggleLocation}
+            onRemove={onRemoveLocation}
+          />
           {skills.length === 0 ? (
             <p className="mc-empty">{t('emptySkills')}</p>
           ) : (
@@ -542,7 +679,7 @@ function SkillList(props: {
         const entries = unwrap(await remote.listSkillDir(id, ''), 'capabilityPolicy.listSkillDir') ?? []
         setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
       } catch (error) {
-        console.error('[capability-menu] listSkillDir failed:', error)
+        console.error('[capability-menu-web] listSkillDir failed:', error)
         setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
       }
     }
@@ -559,7 +696,7 @@ function SkillList(props: {
           const entries = unwrap(await remote.listSkillDir(id, relPath), 'capabilityPolicy.listSkillDir') ?? []
           setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
         } catch (error) {
-          console.error(`[capability-menu] listSkillDir ${key} failed:`, error)
+          console.error(`[capability-menu-web] listSkillDir ${key} failed:`, error)
           setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
         }
       }
@@ -595,7 +732,7 @@ function SkillList(props: {
               role="button"
               tabIndex={0}
               onClick={() => void toggleDir(id, relPath)}
-              onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
+              onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   void toggleDir(id, relPath)
@@ -626,7 +763,7 @@ function SkillList(props: {
           tabIndex={0}
           title={relPath}
           onClick={() => void openPreview(id, relPath)}
-          onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
+          onKeyDown={e => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()
               void openPreview(id, relPath)
@@ -652,7 +789,7 @@ function SkillList(props: {
               tabIndex={0}
               aria-expanded={open}
               onClick={() => void toggleSkill(skill.id)}
-              onKeyDown={(e: KeyboardEvent<HTMLElement>) => {
+              onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   void toggleSkill(skill.id)
@@ -668,7 +805,7 @@ function SkillList(props: {
                   className={`mc-count mc-count--${skill.class}`}
                   disabled={busy || skill.mandatory}
                   title={skill.classLabel}
-                  onClick={(e: { stopPropagation(): void }) => {
+                  onClick={e => {
                     e.stopPropagation()
                     onCycle([skill.id], 'skill')
                   }}
@@ -708,5 +845,260 @@ function SkillList(props: {
         </div>
       )}
     </>
+  )
+}
+
+/** Registered-location block: one row per location with enable switch + remove. */
+function LocationList(props: {
+  locations: CapabilityLocation[]
+  busy: boolean
+  t: CapabilitySectionInjected['t']
+  onOpenAdd: () => void
+  onToggle: (id: string, enabled: boolean) => void
+  onRemove: (id: string) => void
+}): JSX.Element {
+  const { locations, busy, t, onOpenAdd, onToggle, onRemove } = props
+  return (
+    <div className="mc-loc">
+      <div className="mc-loc-head">
+        <span className="mc-loc-title">{t('registered')}</span>
+        <button type="button" className="mc-loc-add" onClick={onOpenAdd}>{t('add')}</button>
+      </div>
+      {locations.length === 0 && <p className="mc-loc-hint">{t('registeredHint')}</p>}
+      {locations.map(loc => (
+        <Fragment key={loc.id}>
+          <div className="mc-loc-row">
+            <span className="mc-loc-name">{loc.name}</span>
+            <span className="mc-loc-meta">
+              <button
+                type="button"
+                className="mc-loc-switch"
+                data-on={loc.enabled}
+                disabled={busy}
+                title={loc.enabled ? t('disable') : t('enable')}
+                onClick={() => onToggle(loc.id, !loc.enabled)}
+              >
+                {loc.enabled ? t('enabledShort') : t('disabledShort')}
+              </button>
+              <button
+                type="button"
+                className="mc-loc-remove"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(t('removeConfirm'))) onRemove(loc.id)
+                }}
+              >
+                {t('remove')}
+              </button>
+            </span>
+          </div>
+          {loc.error !== undefined && <p className="mc-loc-error">{t('mountFailed')}: {loc.error}</p>}
+        </Fragment>
+      ))}
+    </div>
+  )
+}
+
+/** Parse textarea `KEY=VALUE` / `KEY:VALUE` lines into a record; drops blanks. */
+function parseKv(text: string, sep: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const at = trimmed.indexOf(sep)
+    if (at <= 0) continue
+    out[trimmed.slice(0, at).trim()] = trimmed.slice(at + sep.length).trim()
+  }
+  return out
+}
+
+/** Parse textarea lines into a string array; drops blanks. */
+function parseLines(text: string): string[] {
+  return text.split(/\r?\n/).map(s => s.trim()).filter(s => s !== '')
+}
+
+/** Add-location modal: MCP server definition (stdio/streamable-http) or skill directory. */
+function AddLocationDialog(props: {
+  type: 'mcp' | 'skill'
+  t: CapabilitySectionInjected['t']
+  onSubmit: (payload: AddLocationPayload) => Promise<string | undefined>
+  onClose: () => void
+}): JSX.Element {
+  const { type, t, onSubmit, onClose } = props
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [serverName, setServerName] = useState('')
+  const [transport, setTransport] = useState<'stdio' | 'streamable-http'>('stdio')
+  const [command, setCommand] = useState('')
+  const [argsText, setArgsText] = useState('')
+  const [envText, setEnvText] = useState('')
+  const [url, setUrl] = useState('')
+  const [headersText, setHeadersText] = useState('')
+  const [dir, setDir] = useState('')
+
+  const submit = async () => {
+    setError(undefined)
+    let payload: AddLocationPayload
+    if (type === 'mcp') {
+      if (serverName.trim() === '') {
+        setError(`${t('locFormError')}: ${t('serverName')}`)
+        return
+      }
+      if (transport === 'stdio') {
+        if (command.trim() === '') {
+          setError(`${t('locFormError')}: ${t('command')}`)
+          return
+        }
+        const mcp: McpLocationConfig = {
+          serverName: serverName.trim(),
+          transport,
+          command: command.trim(),
+          ...argsText.trim() !== '' ? { args: parseLines(argsText) } : {},
+          ...envText.trim() !== '' ? { env: parseKv(envText, '=') } : {},
+        }
+        payload = { type: 'mcp', mcp }
+      } else {
+        if (url.trim() === '') {
+          setError(`${t('locFormError')}: ${t('url')}`)
+          return
+        }
+        const mcp: McpLocationConfig = {
+          serverName: serverName.trim(),
+          transport,
+          url: url.trim(),
+          ...headersText.trim() !== '' ? { headers: parseKv(headersText, ':') } : {},
+        }
+        payload = { type: 'mcp', mcp }
+      }
+    } else {
+      if (dir.trim() === '') {
+        setError(`${t('locFormError')}: ${t('dir')}`)
+        return
+      }
+      payload = { type: 'skill', skill: { dir: dir.trim() } }
+    }
+    setBusy(true)
+    try {
+      const err = await onSubmit(payload)
+      if (err !== undefined) setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mc-preview-mask" onClick={busy ? undefined : onClose}>
+      <div className="mc-preview" onClick={e => e.stopPropagation()}>
+        <div className="mc-preview-head">
+          <span className="mc-preview-title">{type === 'mcp' ? t('addMcp') : t('addSkill')}</span>
+          <button type="button" className="mc-preview-close" disabled={busy} onClick={onClose}>
+            {t('cancel')}
+          </button>
+        </div>
+        <form className="mc-form" onSubmit={e => { e.preventDefault(); void submit() }}>
+          {type === 'mcp' && (
+            <>
+              <div className="mc-form-row">
+                <label className="mc-form-label" htmlFor="mc-add-server">{t('serverName')}</label>
+                <input
+                  id="mc-add-server"
+                  className="mc-form-input"
+                  value={serverName}
+                  onChange={e => setServerName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="mc-form-row">
+                <label className="mc-form-label" htmlFor="mc-add-transport">{t('transport')}</label>
+                <select
+                  id="mc-add-transport"
+                  className="mc-form-input"
+                  value={transport}
+                  onChange={e => setTransport(e.target.value === 'streamable-http' ? 'streamable-http' : 'stdio')}
+                >
+                  <option value="stdio">stdio</option>
+                  <option value="streamable-http">streamable-http</option>
+                </select>
+              </div>
+              {transport === 'stdio' ? (
+                <>
+                  <div className="mc-form-row">
+                    <label className="mc-form-label" htmlFor="mc-add-command">{t('command')}</label>
+                    <input
+                      id="mc-add-command"
+                      className="mc-form-input"
+                      value={command}
+                      onChange={e => setCommand(e.target.value)}
+                    />
+                  </div>
+                  <div className="mc-form-row">
+                    <label className="mc-form-label" htmlFor="mc-add-args">{t('args')}</label>
+                    <textarea
+                      id="mc-add-args"
+                      className="mc-form-input mc-form-input--area"
+                      value={argsText}
+                      onChange={e => setArgsText(e.target.value)}
+                    />
+                  </div>
+                  <div className="mc-form-row">
+                    <label className="mc-form-label" htmlFor="mc-add-env">{t('env')}</label>
+                    <textarea
+                      id="mc-add-env"
+                      className="mc-form-input mc-form-input--area"
+                      placeholder="KEY=value"
+                      value={envText}
+                      onChange={e => setEnvText(e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mc-form-row">
+                    <label className="mc-form-label" htmlFor="mc-add-url">{t('url')}</label>
+                    <input
+                      id="mc-add-url"
+                      className="mc-form-input"
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="mc-form-row">
+                    <label className="mc-form-label" htmlFor="mc-add-headers">{t('headers')}</label>
+                    <textarea
+                      id="mc-add-headers"
+                      className="mc-form-input mc-form-input--area"
+                      placeholder="Key: value"
+                      value={headersText}
+                      onChange={e => setHeadersText(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {type === 'skill' && (
+            <div className="mc-form-row">
+              <label className="mc-form-label" htmlFor="mc-add-dir">{t('dir')}</label>
+              <input
+                id="mc-add-dir"
+                className="mc-form-input"
+                value={dir}
+                onChange={e => setDir(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+        </form>
+        {error !== undefined && <p className="mc-form-error">{error}</p>}
+        <div className="mc-form-actions">
+          <button type="button" className="mc-form-btn" disabled={busy} onClick={onClose}>
+            {t('cancel')}
+          </button>
+          <button type="button" className="mc-form-btn mc-form-btn--primary" disabled={busy} onClick={() => void submit()}>
+            {t('add')}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

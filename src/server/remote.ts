@@ -1,20 +1,23 @@
 /**
  * Host-side Typert gateway exposing the server-side `ctx.capabilityPolicy`
- * management surface (see `src/policy.ts`) to the browser. Built as
- * `lib/server/remote.js` and mounted by the package root entry (`src/index.ts`).
+ * management surface (see `@daweifu/capability-menu` `src/policy.ts`) to the
+ * browser. Built as `lib/server/remote.js` and mounted by the package root
+ * entry (`src/index.ts`).
  *
- * Consumed by the browser bundle under `src/client` via
+ * Consumed by the client package under `web/src/client` via
  * `ctx.remote.capabilityPolicy.classifyAll()` / `getConfig()` /
  * `updateConfig()`.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type {
+  AddLocationPayload,
   CapabilityClassification,
+  CapabilityLocation,
   CapabilityPolicyService,
   Config as CapabilityPolicyConfig,
-} from '../policy.ts'
-import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
+} from '@daweifu/capability-menu/policy'
+import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '@daweifu/capability-menu/registry'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -78,6 +81,30 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('readSkillFile')
   async readSkillFile(id: string, relPath: string): Promise<string | undefined> {
     return this.ctx.capability.readSkillFile(id, relPath)
+  }
+
+  /** List registered MCP/skill locations with enable state and mount errors. */
+  @Remote('listLocations')
+  async listLocations(): Promise<CapabilityLocation[]> {
+    return [...await this.ctx.capabilityPolicy.listLocations()]
+  }
+
+  /** Register a location by position reference; mounts it when enabled. */
+  @Remote('addLocation')
+  async addLocation(payload: AddLocationPayload): Promise<CapabilityLocation> {
+    return await this.ctx.capabilityPolicy.addLocation(payload)
+  }
+
+  /** Unmount (when live) and forget one registered location. */
+  @Remote('removeLocation')
+  async removeLocation(id: string): Promise<void> {
+    await this.ctx.capabilityPolicy.removeLocation(id)
+  }
+
+  /** Enable mounts, disable unmounts; persisted either way. */
+  @Remote('setLocationEnabled')
+  async setLocationEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.ctx.capabilityPolicy.setLocationEnabled(id, enabled)
   }
 }
 

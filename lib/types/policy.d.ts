@@ -65,6 +65,11 @@ export interface Config {
      * `@daweifu/capability-menu-registry` `progressiveSkillCatalog`).
      */
     progressiveSkillCatalog?: string;
+    /**
+     * Location-registry persistence file; defaults to
+     * `$DSH_HOME/capability-locations.yaml` (or `~/.dsh/…`).
+     */
+    locationsFile?: string;
 }
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;
@@ -163,6 +168,56 @@ export interface CapabilityPolicyService {
      * registry sibling). Returns an empty array when the registry is not mounted.
      */
     classifyAll(): readonly CapabilityClassification[];
+    /**
+     * List registered locations: MCP servers and skill directories known by
+     * position, each with its enable state and (for MCP) the last mount error.
+     */
+    listLocations(): Promise<CapabilityLocation[]>;
+    /**
+     * Register a new location and mount it when it starts enabled. MCP configs
+     * are validated through the `dsh-mcp-client` schema; skill dirs must be
+     * absolute and contain `SKILL.md`. Definitions are never copied — only the
+     * location reference and enable flag persist.
+     */
+    addLocation(payload: AddLocationPayload): Promise<CapabilityLocation>;
+    /** Unmount (when live) and forget one registered location. */
+    removeLocation(id: string): Promise<void>;
+    /** Enable mounts, disable unmounts; persisted either way. */
+    setLocationEnabled(id: string, enabled: boolean): Promise<void>;
+}
+/** MCP server definition for a registered location (mcp-client config shape). */
+export interface McpLocationConfig {
+    readonly serverName: string;
+    readonly transport: 'stdio' | 'streamable-http';
+    readonly command?: string;
+    readonly args?: readonly string[];
+    readonly env?: Readonly<Record<string, string>>;
+    readonly cwd?: string;
+    readonly url?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+}
+/** Skill directory definition for a registered location. */
+export interface SkillLocationConfig {
+    /** Absolute path of a directory containing `SKILL.md`. */
+    readonly dir: string;
+}
+/** One registered location as surfaced to the management UI. */
+export interface CapabilityLocation {
+    readonly id: string;
+    readonly type: 'mcp' | 'skill';
+    /** serverName for MCP, directory basename for skills. */
+    readonly name: string;
+    readonly enabled: boolean;
+    /** Last mount failure message; present only after a failed MCP mount. */
+    readonly error?: string;
+    readonly mcp?: McpLocationConfig;
+    readonly skill?: SkillLocationConfig;
+}
+/** Payload accepted by {@link CapabilityPolicyService.addLocation}. */
+export interface AddLocationPayload {
+    readonly type: 'mcp' | 'skill';
+    readonly mcp?: McpLocationConfig;
+    readonly skill?: SkillLocationConfig;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

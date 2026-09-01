@@ -6,8 +6,15 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import * as dshLlm from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+
+// The call-id brand was renamed across dsh releases: `ToolCallId` in
+// dsh-llm ≤0.1.0-rc.x and ≥0.1.2-alpha, `CallId` in 0.1.1-rc.x. A static
+// named import would throw SyntaxError at load on the mismatched version,
+// so resolve whichever brand the resolved dsh-llm copy provides.
+const CallId = ((dshLlm as { CallId?: unknown }).CallId
+  ?? (dshLlm as { ToolCallId?: unknown }).ToolCallId) as typeof dshLlm.CallId
 import type { ToolRunContext, JsonValue } from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, renderSkillContent, type SkillDefinition, type SkillResourceBase, type SkillSource } from '@deepseek-ai/dsh-skill'

@@ -2,7 +2,7 @@
  * ⚠️ VERIFIED AGAINST REAL rc.8 TYPERT PROTOCOL.
  *
  * Client-side Typert remote contribution for the `capabilityPolicy` Host
- * gateway (`src/server/remote.ts`). Mirrors the generated shape that
+ * gateway (`web/src/server/remote.ts`). Mirrors the generated shape that
  * `@deepseek-ai/dsh-typert-generator` emits (see
  * `@deepseek-ai/dsh-host-plugin-inventory/lib/typert.remote-client.js`): it
  * augments `@deepseek-ai/dsh-typert-protocol` with the `capabilityPolicy`
@@ -92,6 +92,99 @@ const toolDetail$schema = z.object({
   }).readonly(),
 })
 
+const config$schema = z.object({
+  tools: z
+    .object({
+      exposed: z.array(z.string()).optional().readonly(),
+      progressive: z.array(z.string()).optional().readonly(),
+      blocked: z.array(z.string()).optional().readonly(),
+    })
+    .optional()
+    .readonly(),
+  skills: z
+    .object({
+      exposed: z.array(z.string()).optional().readonly(),
+      progressive: z.array(z.string()).optional().readonly(),
+      blocked: z.array(z.string()).optional().readonly(),
+    })
+    .optional()
+    .readonly(),
+  metaTools: z.array(z.string()).optional().readonly(),
+  progressiveSkillCatalog: z.string().optional().readonly(),
+  locationsFile: z.string().optional().readonly(),
+})
+
+/** MCP server definition for a registered location (mcp-client config shape). */
+export interface McpLocationConfig {
+  readonly serverName: string
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** Skill directory definition for a registered location. */
+export interface SkillLocationConfig {
+  readonly dir: string
+}
+
+/** One registered location as surfaced by the management UI. */
+export interface CapabilityLocation {
+  readonly id: string
+  readonly type: 'mcp' | 'skill'
+  readonly name: string
+  readonly enabled: boolean
+  readonly error?: string
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
+}
+
+/** Payload accepted by `addLocation`. */
+export interface AddLocationPayload {
+  readonly type: 'mcp' | 'skill'
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
+}
+
+const mcpLocation$schema = z.object({
+  serverName: z.string().readonly(),
+  transport: z.union([z.literal('stdio'), z.literal('streamable-http')]).readonly(),
+  command: z.string().optional().readonly(),
+  args: z.array(z.string()).optional().readonly(),
+  env: z.record(z.string(), z.string()).optional().readonly(),
+  cwd: z.string().optional().readonly(),
+  url: z.string().optional().readonly(),
+  headers: z.record(z.string(), z.string()).optional().readonly(),
+})
+
+const skillLocation$schema = z.object({
+  dir: z.string().readonly(),
+})
+
+const capabilityLocation$schema = z.object({
+  id: z.string().readonly(),
+  type: z.union([z.literal('mcp'), z.literal('skill')]).readonly(),
+  name: z.string().readonly(),
+  enabled: z.boolean().readonly(),
+  error: z.string().optional().readonly(),
+  mcp: mcpLocation$schema.optional().readonly(),
+  skill: skillLocation$schema.optional().readonly(),
+})
+
+const addLocationPayload$schema = z.union([
+  z.object({
+    type: z.literal('mcp'),
+    mcp: mcpLocation$schema,
+  }),
+  z.object({
+    type: z.literal('skill'),
+    skill: skillLocation$schema,
+  }),
+])
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
@@ -100,6 +193,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    listLocations: () => Promise<RemoteResult<CapabilityLocation[]>>
+    addLocation: (payload: AddLocationPayload) => Promise<RemoteResult<CapabilityLocation | undefined>>
+    removeLocation: (id: string) => Promise<RemoteResult<void>>
+    setLocationEnabled: (id: string, enabled: boolean) => Promise<RemoteResult<void>>
   }
   interface TypertRemoteMap {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
@@ -108,6 +205,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    'capabilityPolicy/listLocations': () => Promise<RemoteResult<CapabilityLocation[]>>
+    'capabilityPolicy/addLocation': (payload: AddLocationPayload) => Promise<RemoteResult<CapabilityLocation | undefined>>
+    'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<void>>
+    'capabilityPolicy/setLocationEnabled': (id: string, enabled: boolean) => Promise<RemoteResult<void>>
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379
@@ -115,20 +216,20 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 }
 
 export const TYPERT_REMOTE: TypertRemoteContribution = {
-  package: '@daweifu/capability-menu',
+  package: '@daweifu/capability-menu-web',
   descriptors: [
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/getConfig',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/getConfig',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'getConfig',
       invocation: { kind: 'direct' },
       parameters: [],
       result: { mode: 'strict', typeSymbol: 'Record<string, unknown>', schema: z.record(z.string(), z.unknown()) },
-      sourceLocation: { file: 'src/server/remote.ts', line: 47, column: 3 },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 47, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/updateConfig',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/updateConfig',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'updateConfig',
@@ -137,20 +238,20 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'partial', wire: 'partial', source: 'json', codec: { mode: 'strict', typeSymbol: 'Record<string, unknown>', schema: z.record(z.string(), z.unknown()) } },
       ],
       result: { mode: 'strict', typeSymbol: 'void', schema: z.undefined() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 53, column: 3 },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 53, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/classifyAll',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/classifyAll',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'classifyAll',
       invocation: { kind: 'direct' },
       parameters: [],
-      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#CapabilityRow', schema: z.array(capabilityRow$schema) },
-      sourceLocation: { file: 'src/server/remote.ts', line: 59, column: 3 },
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#CapabilityRow', schema: z.array(capabilityRow$schema) },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 59, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/listSkillDir',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/listSkillDir',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'listSkillDir',
@@ -159,11 +260,11 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
         { name: 'relPath', wire: 'relPath', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() } },
       ],
-      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#SkillFileEntry[]', schema: z.array(skillFileEntry$schema).optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 78, column: 3 },
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#SkillFileEntry[]', schema: z.array(skillFileEntry$schema).optional() },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 78, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/readSkillFile',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/readSkillFile',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'readSkillFile',
@@ -173,10 +274,10 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'relPath', wire: 'relPath', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
       ],
       result: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 84, column: 3 },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 84, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/getDetail',
+      id: '@daweifu/capability-menu-web#capabilityPolicy/getDetail',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'getDetail',
@@ -184,8 +285,55 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [
         { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
       ],
-      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#ToolDetail', schema: toolDetail$schema.optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 70, column: 3 },
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#ToolDetail', schema: toolDetail$schema.optional() },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 70, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu-web#capabilityPolicy/listLocations',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'listLocations',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#CapabilityLocation[]', schema: z.array(capabilityLocation$schema) },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 87, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu-web#capabilityPolicy/addLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'addLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'payload', wire: 'payload', source: 'json', codec: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#AddLocationPayload', schema: addLocationPayload$schema } },
+      ],
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu-web#CapabilityLocation', schema: capabilityLocation$schema.optional() },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 93, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu-web#capabilityPolicy/removeLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'removeLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'void', schema: z.undefined() },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 99, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu-web#capabilityPolicy/setLocationEnabled',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'setLocationEnabled',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'enabled', wire: 'enabled', source: 'json', codec: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'void', schema: z.undefined() },
+      sourceLocation: { file: 'web/src/server/remote.ts', line: 105, column: 3 },
     },
   ],
 }

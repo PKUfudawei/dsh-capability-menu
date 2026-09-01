@@ -1,6 +1,10 @@
 import { defineConfig } from 'tsdown'
 
-const id = '@daweifu/capability-menu'
+// The browser half is installed in this profile as `@daweifu/capability-menu-web`
+// (the pre-0.1.1 two-package layout the patch layer still mounts), so the
+// ModuleLoader registration id must match that plugin id — otherwise the bundle
+// loads without registering and the settings tab never appears.
+const id = '@daweifu/capability-menu-web'
 
 export default defineConfig([{
   entry: { client: 'src/client/index.ts' },
