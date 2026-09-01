@@ -52,6 +52,42 @@ export interface ToolDetail {
   }
 }
 
+/** MCP server definition for a registered location (mcp-client config shape). */
+export interface McpLocationConfig {
+  readonly serverName: string
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** Skill directory definition for a registered location. */
+export interface SkillLocationConfig {
+  readonly dir: string
+}
+
+/** One registered location (position reference + enable state) as surfaced by the server. */
+export interface CapabilityLocation {
+  readonly id: string
+  readonly type: 'mcp' | 'skill'
+  readonly name: string
+  readonly enabled: boolean
+  /** Last mount failure message; present only after a failed MCP mount. */
+  readonly error?: string
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
+}
+
+/** Payload accepted by `addLocation`. */
+export interface AddLocationPayload {
+  readonly type: 'mcp' | 'skill'
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
+}
+
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 export interface CapabilityPolicyRemote {
   getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
@@ -60,6 +96,10 @@ export interface CapabilityPolicyRemote {
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
+  listLocations(): Promise<{ ok: true; value: CapabilityLocation[] } | { ok: false; error: { code: string; message: string } }>
+  addLocation(payload: AddLocationPayload): Promise<{ ok: true; value: CapabilityLocation | undefined } | { ok: false; error: { code: string; message: string } }>
+  removeLocation(id: string): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
+  setLocationEnabled(id: string, enabled: boolean): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */
