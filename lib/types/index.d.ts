@@ -1,32 +1,16 @@
 /**
- * @daweifu/capability-menu — consolidated plugin package (server + browser).
+ * Host loader entry for the browser implementation exported from `./client`.
  *
- * One installable source package exposing:
+ * The cordis loader imports a plugin entry's package root (`main` / exports["."])
+ * in the Node host process. The browser half must therefore be exposed only via
+ * the `./client` subpath (which `@deepseek-ai/dsh-client-modules` scans and
+ * serves as `/plugins/<id>/client.js`).
  *
- * - four cordis plugin factories via subpath exports (`/registry`, `/search`,
- *   `/invoke`, `/policy`), mounted by the bundle patch as separate entries:
- *   - `registry` (P0): capability catalog + `ctx.capability` service (no model tool).
- *   - `search`   (P1): registers `meta_search`.
- *   - `invoke`   (P2): registers `meta_invoke`.
- *   - `policy`   (P3): Exposed/Progressive/Blocked projection policy + `ctx.capabilityPolicy`.
- * - the package root entry (`name` + `apply` below): mounts the Typert gateway
- *   that exposes `ctx.capabilityPolicy` to the browser as the `capabilityPolicy`
- *   remote namespace — the data source of the 能力菜单 settings tab.
- * - a browser bundle via the `./client` subpath (`src/client`), discovered by
- *   `@deepseek-ai/dsh-client-modules` from this package's `dsh.client`
- *   declaration and served as `/plugins/<id>/client.js`.
- *
- * NOTE: this module deliberately re-exports nothing from the subpath plugins
- * (not even types — those live at `/registry`, `/search`, `/invoke`, `/policy`).
- * Re-exporting would either pollute the root entry's plugin identity with the
- * sub-plugins' `name`/`apply`/`inject`, or trigger ambiguous-type re-exports
- * (each subpath exports its own `Config` interface).
- *
- * @module @daweifu/capability-menu
+ * The root entry mounts the Typert gateway that exposes the server-side
+ * `ctx.capabilityPolicy` service (provided by `@daweifu/capability-menu`) to
+ * the browser as the `capabilityPolicy` remote namespace — the data source of
+ * the 能力菜单 tab.
  */
 import type { Context } from '@deepseek-ai/cordis';
-/** Root plugin identity (matches the `capability-menu` patch entry id). */
-export declare const name = "capability-menu";
-/** Root entry: mount the browser-facing capabilityPolicy gateway. */
 export declare function apply(ctx: Context): void;
 //# sourceMappingURL=index.d.ts.map

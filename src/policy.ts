@@ -9,6 +9,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
+import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
+import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem'
+import yaml from 'js-yaml'
+import { readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, join } from 'node:path'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
 
 /**
@@ -71,6 +77,11 @@ export interface Config {
    * `@daweifu/capability-menu-registry` `progressiveSkillCatalog`).
    */
   progressiveSkillCatalog?: string
+  /**
+   * Location-registry persistence file; defaults to
+   * `$DSH_HOME/capability-locations.yaml` (or `~/.dsh/…`).
+   */
+  locationsFile?: string
 }
 
 /** Validate and default the policy configuration. */
@@ -88,6 +99,7 @@ export const Config: z<Config> = z.object({
   metaTools: z.array(z.string()).default(['meta_search', 'meta_invoke']),
   // schemastery object properties are optional-by-default; no `.optional()` needed.
   progressiveSkillCatalog: z.string(),
+  locationsFile: z.string(),
 })
 
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
@@ -278,6 +290,62 @@ export interface CapabilityPolicyService {
    * registry sibling). Returns an empty array when the registry is not mounted.
    */
   classifyAll(): readonly CapabilityClassification[]
+
+  // ---- Location registry (global add/remove by position reference) ----
+  /**
+   * List registered locations: MCP servers and skill directories known by
+   * position, each with its enable state and (for MCP) the last mount error.
+   */
+  listLocations(): Promise<CapabilityLocation[]>
+  /**
+   * Register a new location and mount it when it starts enabled. MCP configs
+   * are validated through the `dsh-mcp-client` schema; skill dirs must be
+   * absolute and contain `SKILL.md`. Definitions are never copied — only the
+   * location reference and enable flag persist.
+   */
+  addLocation(payload: AddLocationPayload): Promise<CapabilityLocation>
+  /** Unmount (when live) and forget one registered location. */
+  removeLocation(id: string): Promise<void>
+  /** Enable mounts, disable unmounts; persisted either way. */
+  setLocationEnabled(id: string, enabled: boolean): Promise<void>
+}
+
+/** MCP server definition for a registered location (mcp-client config shape). */
+export interface McpLocationConfig {
+  readonly serverName: string
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** Skill directory definition for a registered location. */
+export interface SkillLocationConfig {
+  /** Absolute path of a directory containing `SKILL.md`. */
+  readonly dir: string
+}
+
+/** One registered location as surfaced to the management UI. */
+export interface CapabilityLocation {
+  readonly id: string
+  readonly type: 'mcp' | 'skill'
+  /** serverName for MCP, directory basename for skills. */
+  readonly name: string
+  readonly enabled: boolean
+  /** Last mount failure message; present only after a failed MCP mount. */
+  readonly error?: string
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
+}
+
+/** Payload accepted by {@link CapabilityPolicyService.addLocation}. */
+export interface AddLocationPayload {
+  readonly type: 'mcp' | 'skill'
+  readonly mcp?: McpLocationConfig
+  readonly skill?: SkillLocationConfig
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -340,6 +408,136 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }
   }
   recompile()
+
+  // ---- Location registry: global add/remove of MCP servers and skill
+  // directories by position reference. Entries persist to a YAML file
+  // (default `$DSH_HOME/capability-locations.yaml`) and hold only the
+  // location plus an enable flag — definitions stay where they are.
+  // Mounting an MCP entry loads an equivalent `dsh-mcp-client` instance at
+  // runtime (dispose unregisters its tools); skill entries feed one shared
+  // FileSystemSkillProvider with only the registered dirs, so registered
+  // skills are visible to every agent session while preset-level discovery
+  // keeps working unchanged. Orthogonal to the three-class policy above.
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const locationsFile = config.locationsFile ?? join(dshHome, 'capability-locations.yaml')
+  /** Live mcp-client fibers by location id (mounted + enabled entries only). */
+  const mcpFibers = new Map<string, { dispose: () => Promise<void> | void }>()
+  /** Last mount error per MCP location id; cleared on a successful mount. */
+  const mcpErrors = new Map<string, string>()
+  /** Disposer of the shared skill provider; undefined when no skill entry is enabled. */
+  let skillProviderDispose: (() => void) | undefined
+
+  type LocationEntry =
+    | { id: string; type: 'mcp'; enabled: boolean; mcp: McpLocationConfig }
+    | { id: string; type: 'skill'; enabled: boolean; skill: SkillLocationConfig }
+  let entries: LocationEntry[] = []
+
+  const projectLocation = (entry: LocationEntry): CapabilityLocation => ({
+    id: entry.id,
+    type: entry.type,
+    enabled: entry.enabled,
+    name: entry.type === 'mcp' ? entry.mcp.serverName : basename(entry.skill.dir),
+    ...(mcpErrors.get(entry.id) !== undefined ? { error: mcpErrors.get(entry.id) } : {}),
+    ...(entry.type === 'mcp' ? { mcp: entry.mcp } : { skill: { dir: entry.skill.dir } }),
+  })
+
+  const persistLocations = async (): Promise<void> => {
+    const text = yaml.dump({ locations: entries })
+    const tmp = `${locationsFile}.tmp`
+    await writeFile(tmp, text, 'utf8')
+    await rename(tmp, locationsFile)
+  }
+
+  /** Normalize one YAML entry: schema-check MCP via mcp-client Config, require an absolute skill dir. */
+  const normalizeEntry = (raw: unknown): LocationEntry => {
+    if (raw === null || typeof raw !== 'object') throw new Error('location entry must be an object')
+    const record = raw as Record<string, unknown>
+    if (typeof record.id !== 'string' || record.id.length === 0) {
+      throw new Error('location entry requires a string "id"')
+    }
+    if (record.type === 'skill') {
+      const skill = record.skill as { dir?: unknown } | null | undefined
+      if (skill === null || typeof skill !== 'object' || typeof skill.dir !== 'string') {
+        throw new Error(`skill location "${record.id}" requires "skill.dir"`)
+      }
+      if (!isAbsolute(skill.dir)) {
+        throw new Error(`skill location "${record.id}" dir must be absolute, got "${skill.dir}"`)
+      }
+      return { id: record.id, type: 'skill', enabled: record.enabled !== false, skill: { dir: skill.dir } }
+    }
+    if (record.type === 'mcp') {
+      if (record.mcp === null || typeof record.mcp !== 'object') {
+        throw new Error(`mcp location "${record.id}" requires an "mcp" object`)
+      }
+      const mcp = (mcpClient.Config as unknown as (input: unknown) => McpLocationConfig)(record.mcp)
+      return { id: record.id, type: 'mcp', enabled: record.enabled !== false, mcp }
+    }
+    throw new Error(`location "${record.id}" has unknown type ${JSON.stringify(record.type)}`)
+  }
+
+  const loadLocationsFile = async (): Promise<LocationEntry[]> => {
+    let text: string
+    try {
+      text = await readFile(locationsFile, 'utf8')
+    } catch (error) {
+      if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'ENOENT') return []
+      throw error
+    }
+    const doc = yaml.load(text) as { locations?: unknown } | null | undefined
+    const list = doc === null || doc === undefined ? undefined : doc.locations
+    if (list !== undefined && !Array.isArray(list)) {
+      throw new Error(`locations file "${locationsFile}" must contain a "locations" array`)
+    }
+    return (list ?? []).map(normalizeEntry)
+  }
+
+  const mountMcp = async (entry: LocationEntry & { type: 'mcp' }): Promise<void> => {
+    const fiber = ctx.plugin(
+      { name: mcpClient.name, inject: [...mcpClient.inject], apply: mcpClient.apply },
+      entry.mcp as never,
+    )
+    try {
+      await Promise.resolve(fiber)
+      mcpFibers.set(entry.id, fiber)
+      mcpErrors.delete(entry.id)
+    } catch (error) {
+      // A rejected activation has already been rolled back by cordis;
+      // disposal here only clears a half-mounted fiber.
+      try {
+        await fiber.dispose()
+      } catch {
+        // The fiber rejected before any effect registered — nothing else can fail here.
+      }
+      mcpErrors.set(entry.id, String(error))
+      console.error(`[capability-menu-policy] mount MCP location "${entry.id}" failed:`, error)
+    }
+  }
+
+  const unmountMcp = async (entry: LocationEntry): Promise<void> => {
+    const fiber = mcpFibers.get(entry.id)
+    if (fiber === undefined) return
+    mcpFibers.delete(entry.id)
+    await fiber.dispose()
+  }
+
+  const rebuildSkillProvider = (): void => {
+    if (skillProviderDispose !== undefined) {
+      skillProviderDispose()
+      skillProviderDispose = undefined
+    }
+    const dirs = entries
+      .filter((e): e is LocationEntry & { type: 'skill' } => e.type === 'skill' && e.enabled)
+      .map(e => e.skill.dir)
+    if (dirs.length === 0) return
+    skillProviderDispose = ctx.skills.registerProvider(
+      (control) =>
+        new FileSystemSkillProvider(ctx, control, {
+          providerName: 'capability-locations',
+          includeDefaultRoots: false,
+          customSkillDirs: dirs,
+        }),
+    )
+  }
 
   const service: CapabilityPolicyService = {
     classifyTool(name: string): CapabilityClass {
@@ -410,6 +608,74 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           mandatory,
         }
       })
+    },
+
+    // ---- Location registry management surface (add / remove / enable) ----
+    async listLocations(): Promise<CapabilityLocation[]> {
+      return entries.map(projectLocation)
+    },
+    async addLocation(payload: AddLocationPayload): Promise<CapabilityLocation> {
+      if (payload === null || typeof payload !== 'object') {
+        throw new Error('addLocation: payload must be an object')
+      }
+      let entry: LocationEntry
+      if (payload.type === 'skill') {
+        const dir = payload.skill?.dir
+        if (typeof dir !== 'string' || dir.length === 0) {
+          throw new Error('addLocation: skill location requires "skill.dir"')
+        }
+        if (!isAbsolute(dir)) {
+          throw new Error(`addLocation: skill dir must be an absolute path, got "${dir}"`)
+        }
+        const md = await stat(join(dir, 'SKILL.md')).catch(() => undefined)
+        if (md === undefined || !md.isFile()) throw new Error(`addLocation: no SKILL.md under "${dir}"`)
+        entry = { id: `skill-${basename(dir)}`, type: 'skill', enabled: true, skill: { dir } }
+      } else if (payload.type === 'mcp') {
+        if (payload.mcp === null || typeof payload.mcp !== 'object') {
+          throw new Error('addLocation: mcp location requires an "mcp" object')
+        }
+        const mcp = (mcpClient.Config as unknown as (input: unknown) => McpLocationConfig)(payload.mcp)
+        // Fail before persisting: mcp-client would reject the mount with
+        // a serverName reservation error anyway.
+        if (entries.some(e => e.type === 'mcp' && e.mcp.serverName === mcp.serverName)) {
+          throw new Error(`addLocation: MCP serverName "${mcp.serverName}" is already registered`)
+        }
+        entry = { id: `mcp-${mcp.serverName}`, type: 'mcp', enabled: true, mcp }
+      } else {
+        throw new Error(`addLocation: unknown type ${JSON.stringify((payload as { type?: unknown }).type)}`)
+      }
+      if (entries.some(e => e.id === entry.id)) {
+        let n = 2
+        while (entries.some(e => e.id === `${entry.id}-${n}`)) n++
+        entry = { ...entry, id: `${entry.id}-${n}` } as LocationEntry
+      }
+      entries = [...entries, entry]
+      await persistLocations()
+      if (entry.type === 'mcp') await mountMcp(entry)
+      else rebuildSkillProvider()
+      return projectLocation(entry)
+    },
+    async removeLocation(id: string): Promise<void> {
+      const entry = entries.find(e => e.id === id)
+      if (entry === undefined) throw new Error(`removeLocation: unknown id "${id}"`)
+      if (entry.type === 'mcp') await unmountMcp(entry)
+      entries = entries.filter(e => e.id !== id)
+      mcpErrors.delete(id)
+      if (entry.type === 'skill') rebuildSkillProvider()
+      await persistLocations()
+    },
+    async setLocationEnabled(id: string, enabled: boolean): Promise<void> {
+      const index = entries.findIndex(e => e.id === id)
+      if (index === -1) throw new Error(`setLocationEnabled: unknown id "${id}"`)
+      const entry = { ...entries[index], enabled }
+      entries = [...entries.slice(0, index), entry, ...entries.slice(index + 1)]
+      if (entry.type === 'mcp') {
+        if (enabled) await mountMcp(entry)
+        else await unmountMcp(entry)
+      } else {
+        rebuildSkillProvider()
+      }
+      await persistLocations()
     },
   }
 
@@ -487,6 +753,23 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
 
   ctx.provide('capabilityPolicy', service)
+
+  // Re-mount persisted locations after (re)start: each enabled MCP entry gets
+  // a fresh mcp-client fiber; skill dirs feed the shared provider. A broken
+  // locations file (or one failing mount) degrades to a logged error — the
+  // three-class policy above keeps working either way.
+  void (async () => {
+    try {
+      entries = await loadLocationsFile()
+    } catch (error) {
+      console.error(`[capability-menu-policy] cannot read locations file "${locationsFile}":`, error)
+      return
+    }
+    for (const entry of entries) {
+      if (entry.type === 'mcp' && entry.enabled) await mountMcp(entry)
+    }
+    rebuildSkillProvider()
+  })()
 
   // Emit the on-demand catalog before the plugin finishes mounting. The
   // registry's own startup path (rebuildTools + refreshSkills) bypasses
