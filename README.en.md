@@ -129,7 +129,10 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | **Disabled** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
 | | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
 
-> The tool tiers in the table above cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers just like MCP tools). **An On-demand built-in tool leaves the model's resident view**: the model reaches it via `meta_search` and executes it with `meta_invoke` (a two-hop call) — so keep high-frequency core tools Resident. The `meta_search`/`meta_invoke` tools themselves and the reserved Code Mode transport `run_code` never enter the capability catalog; they are always Resident and cannot be cycled in the Capability Management.
+> **Scope & reserved tools**:
+> - The tool tiers cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers exactly like MCP tools). **Do not name a real MCP server `built-in`.**
+> - `meta_search`/`meta_invoke` are this plugin's control plane: always Resident, cannot be disabled (a rule that disables one fails at startup). `run_code` is the reserved Code Mode transport: it never enters the catalog, does not appear in Capability Management, and should not get tier rules.
+> - **Keep high-frequency core tools Resident**: an On-demand built-in tool leaves the model's resident view and needs a `meta_search` → `meta_invoke` two-hop call.
 
 ## Configuration
 
@@ -176,9 +179,7 @@ config:
 | default | no rule matched | — | resident |
 
 Key points:
-- `meta_search`/`meta_invoke` are always resident and cannot be disabled.
 - **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Management writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
-- Native tools are cataloged exactly like MCP tools (under the `built-in` server); unlisted native tools default to Resident. Once overridden by `on-demand`/`disabled` a native tool leaves the model's resident view — when On-demand it stays reachable via `meta_search` → `meta_invoke`. **Do not name a real MCP server `built-in`.**
 
 > Changes made in the Capability Management tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 
@@ -186,11 +187,9 @@ Key points:
 
 On-demand capabilities are materialized into **one auto-generated YAML file** the model can browse:
 
-**tools/skills change or classification change → the registry rewrites `catalogFile` → the model `grep`s/`read`s it (or calls `meta_search`) for an id + kind → `meta_invoke(id, kind)` runs/loads it**
-
-- Defaults to `~/.dsh/capability-catalog.yaml` (`catalogFile` configurable; empty string disables). When nothing is On-demand, the catalog pointer is not injected (saving context).
-- A skill must first be **registered in `ctx.skills`** (a skill provider — e.g. its SKILL.md under a user/project skills root or `customSkillDirs`) and then switched to On-demand; there is **no separate user-maintained input file**.
-- Two discovery paths for the model: `grep` the catalog file / `meta_search` (structured schema); then call `meta_invoke` with the **`kind` reported by the same entry** to load/run it. Skill ids are the bare name (e.g. `frontend-design`) and `kind` distinguishes tools from skills. Bodies load via `ctx.skills` for skills and `ctx.tools.execute` for tools.
+- The file location is the `config.catalogFile` of the **registry entry** (`capability-menu-registry`): it defaults to `~/.dsh/capability-catalog.yaml` and an empty string disables emission. The registry rewrites it automatically on any tool/skill or classification change. When nothing is On-demand, the catalog pointer is not injected (saving context).
+- A skill must first be **registered in `ctx.skills`** (a skill provider — e.g. its SKILL.md under a user/project skills root or `customSkillDirs`) to show up automatically; there is **no separate user-maintained input file**.
+- The model browses the file with `grep`/`read` (or calls `meta_search`) to get an entry's id and `kind`, then calls `meta_invoke(id, kind)` to run/load it. Skill ids are the bare name (e.g. `frontend-design`); `kind` distinguishes tools from skills.
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand

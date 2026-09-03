@@ -16,23 +16,10 @@
 #   - id: capability-menu-policy
 #     name: '@daweifu/capability-menu/policy'
 #       config:
-#         tools:
-#           resident:
-#             - execute_cmd
-#             - get_session_context
-#             - search_kb
-#             - 'mcp__gongfeng__*'
-#           on-demand:
-#             - 'mcp__*'
-#             - 'server:km:*'
-#           disabled: []
-#         skills:
-#           resident:
-#             - debugging
-#             - coding
-#         metaTools:
-#           - meta_search
-#           - meta_invoke
+#         # Rule syntax — tier keys `resident` / `on-demand` / `disabled`
+#         # (exact names, `*` globs, or `server:<name>:*`), plus `metaTools` —
+#         # and the priority order are documented in the README「配置文件」
+#         # section; the shipped defaults live in the insert block below.
 #
 # - `capability-menu-registry` (P0): builds/indexes the capability catalog and
 #   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers

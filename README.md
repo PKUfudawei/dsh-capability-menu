@@ -129,7 +129,10 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | **禁用** | tool | 不进 payload | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；模型幻觉直调也在 `tools/pre-execute` 被硬拒绝 |
 | | skill | 不进 `<available_skills>` 目录 | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；`skill` 工具在 `tools/pre-execute` 硬拒绝 |
 
-> tool 档位同时覆盖 `mcp__` 编目工具与内置原生工具（原生工具统一以 `built-in` 为 server 归组、同样三档可管）。**On-demand 的内置工具会退出模型常驻视野**，需要时经 `meta_search` 发现、`meta_invoke` 派发（两跳调用）——因此不建议把高频核心工具设为按需。`meta_search`/`meta_invoke` 自身与 Code Mode 保留传输层 `run_code` 不进能力目录，恒常驻、不可在「能力管理」切换。
+> **覆盖与保留**：
+> - `tool` 档同时覆盖 `mcp__` 编目工具与内置原生工具——原生工具统一以保留的 `built-in` server 归组，与 MCP 工具一样三档可管。**请勿把真实 MCP server 命名为 `built-in`。**
+> - `meta_search`/`meta_invoke` 是本插件的控制面：恒常驻、不可被禁用（在规则里禁用它们会在启动时报错）。`run_code` 是 Code Mode 保留传输层：不进目录、不在「能力管理」出现，请勿为它配置三档规则。
+> - **不建议把高频核心工具设为按需**：按需的内置工具会退出模型常驻视野，使用时需要 `meta_search` → `meta_invoke` 两跳调用。
 
 ## 配置文件
 
@@ -176,21 +179,17 @@ config:
 | 默认 | 未命中任何规则 | — | 常驻 |
 
 要点：
-- `meta_search`/`meta_invoke` 恒常驻，不可被禁用（Disabled）。
-- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级覆盖，界面提示「分类未生效」。
-- 原生工具与 MCP 工具一样进编目（归 `built-in` server），未列出默认常驻；被 `on-demand`/`disabled` 覆盖后退出常驻视野，按需时仍可 `meta_search` → `meta_invoke` 两跳调用。**勿把真实 MCP server 命名为 `built-in`。**
+- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入一条精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级规则覆盖，界面提示「分类未生效」。
 
 > 「能力管理」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 
 ### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 
-On-demand 能力自动物化成**一个 YAML 文件**给模型检索，链路：
+On-demand 能力自动物化成**一个 YAML 文件**给模型检索：
 
-**工具/技能变更或分类调整 → registry 自动重写 `catalogFile` → 模型 `grep`/`read`（或 `meta_search`）找到 id 与 kind → `meta_invoke(id, kind)` 执行/加载**
-
-- 默认 `~/.dsh/capability-catalog.yaml`（`catalogFile` 可改，置空禁用）；没有任何按需能力时不注入目录指引，省上下文。
-- 技能必须**已注册进 `ctx.skills`**（SKILL.md 放用户/项目技能根或挂 `customSkillDirs`）再切按需，即自动出现；无独立手写输入清单。
-- 模型侧两路发现：`grep` 目录文件 / `meta_search`（结构化 schema）；再以**同一条目返回的 `kind`** 调 `meta_invoke` 加载/执行。技能 id 即裸名（`frontend-design`），tool/skill 由 `kind` 区分；工具经 `ctx.tools.execute`，技能经 `ctx.skills`。
+- 文件位置在 **registry entry（`capability-menu-registry`）** 的 `config.catalogFile`，默认 `~/.dsh/capability-catalog.yaml`，置空禁用；工具/技能变更或分类调整后自动重写。没有任何按需能力时不注入目录指引，省上下文。
+- 技能必须**已注册进 `ctx.skills`**（SKILL.md 放用户/项目技能根或挂 `customSkillDirs`）才会自动出现；无独立手写输入清单。
+- 模型用 `grep`/`read` 浏览该文件（或调 `meta_search`）拿到条目的 id 与 `kind`，再调 `meta_invoke(id, kind)` 执行/加载。技能 id 即裸名（`frontend-design`），tool/skill 由 `kind` 区分。
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
