@@ -121,11 +121,9 @@ describe('wildcard / rule matching', () => {
     expect(policy.classify(rules, target('forbidden'), new Set())).toBe('resident')
   })
 
-  it('classifies a skill disabled by an exact rule (bare name and legacy `skill:` spelling)', () => {
+  it('classifies a skill disabled by an exact rule', () => {
     const target = { id: 'forbidden', name: 'forbidden', kind: 'skill' as const, ruleKind: 'skill' as const }
     expect(policy.classify(policy.compileSet({ disabled: ['forbidden'] }), target)).toBe('disabled')
-    // Legacy configs that still spell skill rules with a `skill:` prefix keep matching.
-    expect(policy.classify(policy.compileSet({ disabled: ['skill:forbidden'] }), target)).toBe('disabled')
   })
 })
 

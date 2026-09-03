@@ -166,18 +166,13 @@ export interface CapabilityPolicyService {
     /** True when a skill is Disabled. */
     isDisabledSkill(name: string): boolean;
     /**
-     * True when a capability (by id, with optional `kind` disambiguation) is
-     * Disabled. Without `kind`, a legacy `skill:`-prefixed id is treated as a
-     * skill.
+     * True when a capability (by id and `kind`) is Disabled. `kind` disambiguates
+     * a bare name shared by a tool and a skill.
      */
     isDisabledCapability(id: string, kind?: CapabilityKind): boolean;
     /** Tool names that are always kept Resident. */
     metaTools(): readonly string[];
-    /**
-     * Resolve a capability's id to a class. Pass `kind` when the caller knows it
-     * (ids are bare names now); a legacy `skill:`-prefixed id is treated as a
-     * skill when `kind` is omitted.
-     */
+    /** Resolve a capability's id to a class; pass `kind` to disambiguate a bare name. */
     classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass;
     /** Rules resident for the registry/other consumers. */
     toolRules(): CompiledCapabilityRules;

@@ -225,10 +225,4 @@ export declare const inject: string[];
 export declare function apply(ctx: Context, config?: Config): void;
 /** Derive the server namespace from an `mcp__<server>__<raw>` name. */
 export declare function serverNameOf(publicName: string): string;
-/**
- * Normalize a skill reference to its bare name. Skill capability ids ARE the
- * bare name now (kind disambiguates); the legacy `skill:`/`skill__` prefixes
- * are still stripped defensively so old stored ids keep resolving.
- */
-export declare function skillNameOf(id: string): string;
 //# sourceMappingURL=registry.d.ts.map

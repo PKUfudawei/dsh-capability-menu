@@ -172,10 +172,9 @@ config:
 | 默认 | 未命中任何规则 | — | 常驻 |
 
 要点：
-- `meta_search`/`meta_invoke` 恒常驻，不可被 disabled。
+- `meta_search`/`meta_invoke` 恒常驻，不可被禁用（Disabled）。
 - **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级覆盖，界面提示「分类未生效」。
 - 原生工具与 MCP 工具一样进编目（归 `built-in` server），未列出默认常驻；被 `on-demand`/`disabled` 覆盖后退出常驻视野，按需时仍可 `meta_search` → `meta_invoke` 两跳调用。**勿把真实 MCP server 命名为 `built-in`。**
-- 已部署 profile 若仍用旧键 `exposed`/`progressive`/`blocked`，启动时会自动映射为 `resident`/`on-demand`/`disabled` 并告警提示；可用 `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` 一次性改写为持久化新键。
 
 > 「能力管理」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 
@@ -187,7 +186,7 @@ On-demand 能力自动物化成**一个 YAML 文件**给模型检索，链路：
 
 - 默认 `~/.dsh/capability-catalog.yaml`（`catalogFile` 可改，置空禁用）；没有任何按需能力时不注入目录指引，省上下文。
 - 技能必须**已注册进 `ctx.skills`**（SKILL.md 放用户/项目技能根或挂 `customSkillDirs`）再切按需，即自动出现；无独立手写输入清单。
-- 模型侧两路发现：`grep` 目录文件 / `meta_search`（结构化 schema）；再以**同一条目返回的 `kind`** 调 `meta_invoke` 加载/执行——技能 id 即裸名（`frontend-design`），不再带 `skill:` 前缀，tool/skill 由 `kind` 区分；工具经 `ctx.tools.execute`，技能经 `ctx.skills`。
+- 模型侧两路发现：`grep` 目录文件 / `meta_search`（结构化 schema）；再以**同一条目返回的 `kind`** 调 `meta_invoke` 加载/执行。技能 id 即裸名（`frontend-design`），tool/skill 由 `kind` 区分；工具经 `ctx.tools.execute`，技能经 `ctx.skills`。
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
@@ -201,7 +200,7 @@ capabilities:
   - id: legacy_skill
     kind: skill
     name: legacy_skill
-    description: 旧版迁移技能，低频使用
+    description: 处理旧工程的低频技能
     whenToUse: 处理旧工程时使用
 ```
 

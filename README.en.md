@@ -175,7 +175,6 @@ Key points:
 - `meta_search`/`meta_invoke` are always resident and cannot be disabled.
 - **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Management writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
 - Native tools are cataloged exactly like MCP tools (under the `built-in` server); unlisted native tools default to Resident. Once overridden by `on-demand`/`disabled` a native tool leaves the model's resident view — when On-demand it stays reachable via `meta_search` → `meta_invoke`. **Do not name a real MCP server `built-in`.**
-- Profiles still declaring the legacy keys `exposed`/`progressive`/`blocked` are auto-mapped to `resident`/`on-demand`/`disabled` at startup (with a warning); run `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` to persist the new spelling.
 
 > Changes made in the Capability Management tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 
@@ -187,7 +186,7 @@ On-demand capabilities are materialized into **one auto-generated YAML file** th
 
 - Defaults to `~/.dsh/capability-catalog.yaml` (`catalogFile` configurable; empty string disables). When nothing is On-demand, the catalog pointer is not injected (saving context).
 - A skill must first be **registered in `ctx.skills`** (a skill provider — e.g. its SKILL.md under a user/project skills root or `customSkillDirs`) and then switched to On-demand; there is **no separate user-maintained input file**.
-- Two discovery paths for the model: `grep` the catalog file / `meta_search` (structured schema); then call `meta_invoke` with the **`kind` reported by the same entry** to load/run it — skill ids are the bare name (e.g. `frontend-design`) with no `skill:` prefix, and `kind` distinguishes tools from skills. Bodies load via `ctx.skills` for skills and `ctx.tools.execute` for tools.
+- Two discovery paths for the model: `grep` the catalog file / `meta_search` (structured schema); then call `meta_invoke` with the **`kind` reported by the same entry** to load/run it. Skill ids are the bare name (e.g. `frontend-design`) and `kind` distinguishes tools from skills. Bodies load via `ctx.skills` for skills and `ctx.tools.execute` for tools.
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand
@@ -203,7 +202,7 @@ capabilities:
   - id: legacy_skill
     kind: skill
     name: legacy_skill
-    description: A legacy migration skill, used infrequently
+    description: A low-frequency skill for working on legacy code
     whenToUse: Use when working on legacy projects
 ```
 

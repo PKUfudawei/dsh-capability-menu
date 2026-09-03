@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Migrate legacy rule keys in a dsh profile patch.
+ * Migrate a dsh profile patch to the current capability-policy rule spelling.
  *
- * The Resident/On-demand/Disabled tier keys used to be spelled
- * `exposed`/`progressive` (and the disabled tier `blocked`); they are now
- * `resident`/`on-demand`/`disabled`. This script rewrites the rule keys inside
- * the `capability-menu-policy` entry's `config` (tools.* and skills.*) of a
- * profile's `cordis.patch.yml`, preserving all other formatting and comments.
- * The policy also auto-maps the legacy keys at runtime, so this is only needed
- * to persist the new spelling.
+ * Rewrites, inside the `capability-menu-policy` entry's `config` (tools.* and
+ * skills.*) of a profile's `cordis.patch.yml`:
+ * - legacy tier keys: `exposed` → `resident`, `progressive` → `on-demand`,
+ *   `blocked` → `disabled`;
+ * - legacy skill rule prefixes in `skills.*` lists: `skill:` / `skill__` are
+ *   dropped (skill ids are bare names now).
+ *
+ * Formatting and comments are preserved.
  *
  * Usage:
  *   node scripts/migrate-capability-keys.mjs <profile-cordis-patch.yml> [--dry-run]
@@ -64,19 +65,30 @@ if (configIndex === -1) {
   process.exit(1)
 }
 
-// Rewrite deeper-indented legacy rule keys (`exposed:`/`progressive:`/`blocked:`)
-// until the config block ends.
+// Rewrite deeper-indented legacy tier keys and skill rule prefixes until the
+// config block ends.
 let changed = 0
+let currentKind = ''
 for (let i = configIndex + 1; i < lines.length; i += 1) {
   const line = lines[i]
   const indent = /^\s*/.exec(line)?.[0] ?? ''
   if (!line.trim() || line.trimStart().startsWith('#')) continue
   // A shallower non-blank line ends the config block (next plugin entry or root key).
   if (indent.length <= configIndent.length) break
-  const replaced = KEY_RENAME.reduce(
+  const trimmed = line.trimStart()
+  // Track the top-level config key (`tools:` / `skills:` / `metaTools:`) so
+  // skill-prefix stripping only applies inside `skills:*` rule lists.
+  const keyMatch = /^([\w-]+):$/.exec(trimmed)
+  if (indent.length === configIndent.length + 2 && keyMatch) currentKind = keyMatch[1]
+
+  let replaced = KEY_RENAME.reduce(
     (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
     line,
   )
+  if (currentKind === 'skills' && trimmed.startsWith('- ')) {
+    const item = /^(\s*-\s+)(['"]?)(skill:|skill__)(.*)$/.exec(replaced)
+    if (item) replaced = `${item[1]}${item[2]}${item[4]}`
+  }
   if (replaced !== line) {
     if (dryRun) console.log(`- ${line}\n+ ${replaced}`)
     lines[i] = replaced
@@ -85,10 +97,10 @@ for (let i = configIndex + 1; i < lines.length; i += 1) {
 }
 
 if (changed === 0) {
-  console.log(`migrate-capability-keys: no legacy keys found in ${file} (already migrated?)`)
+  console.log('migrate-capability-keys: nothing to migrate (already current spelling?)')
 } else if (!dryRun) {
   await writeFile(file, lines.join('\n'), 'utf8')
-  console.log(`migrate-capability-keys: migrated ${changed} rule key(s) in ${file}`)
+  console.log(`migrate-capability-keys: migrated ${changed} rule key(s)/prefix(es) in ${file}`)
 } else {
-  console.log(`migrate-capability-keys: dry-run — ${changed} rule key(s) would change in ${file}`)
+  console.log(`migrate-capability-keys: dry-run — ${changed} rule key(s)/prefix(es) would change in ${file}`)
 }

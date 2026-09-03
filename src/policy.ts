@@ -9,7 +9,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
-import { serverNameOf, skillNameOf, type CapabilityKind } from './registry.ts'
+import { serverNameOf, type CapabilityKind } from './registry.ts'
 
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
@@ -200,12 +200,8 @@ function ruleMatches(rule: PolicyRule, target: MatchTarget): boolean {
     if (!rule.wildcard) {
       // An exact rule matches the full id OR the bare name (e.g. `debugging`
       // matches a skill named `debugging`, `bash` matches the harness-native
-      // tool `bash` whose public name is its bare name). Legacy skill rules
-      // still spelled with a `skill:`/`skill__` prefix also match the bare name.
-      const legacySkill = target.ruleKind === 'skill'
-        ? rule.pattern === `skill:${target.name}` || rule.pattern === `skill__${target.name}`
-        : false
-      return rule.pattern === target.id || rule.pattern === target.name || legacySkill
+      // tool `bash` whose public name is its bare name).
+      return rule.pattern === target.id || rule.pattern === target.name
     }
     return compileGlob(rule.pattern).test(target.id)
   }
@@ -304,18 +300,13 @@ export interface CapabilityPolicyService {
   /** True when a skill is Disabled. */
   isDisabledSkill(name: string): boolean
   /**
-   * True when a capability (by id, with optional `kind` disambiguation) is
-   * Disabled. Without `kind`, a legacy `skill:`-prefixed id is treated as a
-   * skill.
+   * True when a capability (by id and `kind`) is Disabled. `kind` disambiguates
+   * a bare name shared by a tool and a skill.
    */
   isDisabledCapability(id: string, kind?: CapabilityKind): boolean
   /** Tool names that are always kept Resident. */
   metaTools(): readonly string[]
-  /**
-   * Resolve a capability's id to a class. Pass `kind` when the caller knows it
-   * (ids are bare names now); a legacy `skill:`-prefixed id is treated as a
-   * skill when `kind` is omitted.
-   */
+  /** Resolve a capability's id to a class; pass `kind` to disambiguate a bare name. */
   classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass
   /** Rules resident for the registry/other consumers. */
   toolRules(): CompiledCapabilityRules
@@ -415,10 +406,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return classify(skillCompiled, { id: name, name, kind: 'skill', ruleKind: 'skill' }, new Set())
     },
     classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass {
-      if (kind === 'skill' || id.startsWith('skill:') || id.startsWith('skill__')) {
-        return service.classifySkill(skillNameOf(id))
-      }
-      return service.classifyTool(id)
+      // `kind` disambiguates a bare name shared by a tool and a skill.
+      return kind === 'skill' ? service.classifySkill(id) : service.classifyTool(id)
     },
     isResidentTool(name: string): boolean {
       return service.classifyTool(name) === 'resident'

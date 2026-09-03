@@ -333,7 +333,7 @@ export function apply(ctx: Context, config: Config = {}): void {
    * bundle skills, the SKILL.md parent for flat files) — never from caller input.
    */
   const skillRootOf = async (id: string): Promise<string | undefined> => {
-    const name = skillNameOf(id)
+    const name = id
     const scope = skillScopes.get(name)
     const lookup = scope === undefined ? {} : { scope }
     const definition = await ctx.skills.get(name, lookup).catch(() => undefined)
@@ -753,13 +753,3 @@ export function serverNameOf(publicName: string): string {
   return index === -1 ? rest : rest.slice(0, index)
 }
 
-/**
- * Normalize a skill reference to its bare name. Skill capability ids ARE the
- * bare name now (kind disambiguates); the legacy `skill:`/`skill__` prefixes
- * are still stripped defensively so old stored ids keep resolving.
- */
-export function skillNameOf(id: string): string {
-  return id.startsWith('skill:') ? id.slice('skill:'.length)
-    : id.startsWith('skill__') ? id.slice('skill__'.length)
-      : id
-}
