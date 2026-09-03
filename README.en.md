@@ -1,7 +1,7 @@
 <h1 align="center">dsh-capability-menu</h1>
 
 <p align="center">
-  <strong>One unified capability menu for DeepSeek Harness: manage the exposure level (context footprint) and execution of Tools and Skills</strong>
+  <strong>One unified capability management surface for DeepSeek Harness: control the exposure level (context footprint) and execution of Tools and Skills</strong>
 </p>
 
 <p align="center">
@@ -48,14 +48,14 @@ The model gets two meta tools:
 | `meta_search` | search the capability catalog (Tool / Skill), list/detail dual mode | `@daweifu/capability-menu/search` |
 | `meta_invoke` | unified execution surface: really executes Tools (full `ctx.tools` pipeline) + loads Skills | `@daweifu/capability-menu/invoke` |
 
-### Capability Menu
+### Capability Management
 
 <p align="center">
   <img src="assets/screenshot-mcp-tools.png" alt="Tools tab" width="45%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
 </p>
 
-Once installed, a Capability Menu tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
+Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
 
 - **Tools / Skills tabs**: the top tab bar shows `Tools` and `Skills`; its right side holds the per-class counts and the "View capability catalog" button. The Tools tab groups every tool by server (collapsible). MCP tools hang under their own server (`gongfeng`/`km`…); harness-native tools from the agent presets (`bash`/`read`/`write`/`glob`/`grep`…) hang under the reserved "System built-in" group (server key `built-in`). Click a row to view the model-facing tool definition — name / description / parameters.
 - **Skills tab**: split into "Global skills" / "Project skills" sub-tabs (both always visible; the empty side shows an empty-state hint), and the per-class counts at the top follow the active sub-tab. Click a skill row to expand its directory tree; click a file to preview its content (e.g. the SKILL.md).
@@ -68,7 +68,7 @@ Prerequisites: Node.js and the dsh CLI installed (`dsh plugin` forwards to pnpm 
 
 ### Install from npm (recommended)
 
-A single package ships both the server-side plugin and the front-end Capability Menu tab; once installed it shows up under Settings → General Settings:
+A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings:
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
@@ -125,7 +125,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | **Blocked** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
 | | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
 
-> The tool tiers in the table above cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers just like MCP tools). **An On-demand built-in tool leaves the model's resident view**: the model reaches it via `meta_search` and executes it with `meta_invoke` (a two-hop call) — so keep high-frequency core tools Resident. The `meta_search`/`meta_invoke` tools themselves and the reserved Code Mode transport `run_code` never enter the capability catalog; they are always Resident and cannot be cycled in the Capability Menu.
+> The tool tiers in the table above cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers just like MCP tools). **An On-demand built-in tool leaves the model's resident view**: the model reaches it via `meta_search` and executes it with `meta_invoke` (a two-hop call) — so keep high-frequency core tools Resident. The `meta_search`/`meta_invoke` tools themselves and the reserved Code Mode transport `run_code` never enter the capability catalog; they are always Resident and cannot be cycled in the Capability Management.
 
 ## Configuration
 
@@ -166,18 +166,18 @@ config:
 | 1 | `blocked` exact | `blocked: [forbidden_skill]` | hardest deny, overrides everything |
 | 2 | `blocked` wildcard | `blocked: ['mcp__secret__*']` | block a whole group |
 | 3 | `resident` exact | `resident: [bash]` | keep one capability resident |
-| 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Menu click writes) |
+| 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Management click writes) |
 | 5 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` | keep a whole group resident |
 | 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
 | default | no rule matched | — | resident |
 
 Key points:
 - `meta_search`/`meta_invoke` are always resident and cannot be blocked.
-- **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Menu writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
+- **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Management writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
 - Native tools are cataloged exactly like MCP tools (under the `built-in` server); unlisted native tools default to Resident. Once overridden by `on-demand`/`blocked` a native tool leaves the model's resident view — when On-demand it stays reachable via `meta_search` → `meta_invoke`. **Do not name a real MCP server `built-in`.**
 - Profiles still declaring the legacy keys `exposed`/`progressive` are auto-mapped to `resident`/`on-demand` at startup (with a warning); run `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` to persist the new spelling.
 
-> Changes made in the Capability Menu tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
+> Changes made in the Capability Management tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 
 ### On-demand capability catalog (`catalogFile`, the single materialized catalog, searchable with `grep`)
 

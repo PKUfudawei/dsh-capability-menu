@@ -11,7 +11,7 @@
  *   - `policy`   (P3): Resident/On-demand/Blocked projection policy + `ctx.capabilityPolicy`.
  * - the package root entry (`name` + `apply` below): mounts the Typert gateway
  *   that exposes `ctx.capabilityPolicy` to the browser as the `capabilityPolicy`
- *   remote namespace — the data source of the 能力菜单 settings tab.
+ *   remote namespace — the data source of the 能力管理 settings tab.
  * - a browser bundle via the `./client` subpath (`src/client`), discovered by
  *   `@deepseek-ai/dsh-client-modules` from this package's `dsh.client`
  *   declaration and served as `/plugins/<id>/client.js`.

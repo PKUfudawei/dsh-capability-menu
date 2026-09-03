@@ -313,7 +313,7 @@ describe('capability-menu-policy plugin', () => {
   })
 })
 
-describe('capability-policy management surface (能力菜单)', () => {
+describe('capability-policy management surface (能力管理)', () => {
   it('live-updates config via getConfig/updateConfig', async () => {
     const ctx = await setup({ tools: { resident: ['a'], 'on-demand': ['b'] } })
     registerTool(ctx, 'a')

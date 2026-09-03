@@ -298,7 +298,7 @@ export interface CapabilityPolicyService {
   toolRules(): CompiledCapabilityRules
   skillRules(): CompiledCapabilityRules
 
-  // — management surface (能力菜单) —
+  // — management surface (能力管理) —
   /** Current (resolved) policy config. */
   getConfig(): Config
   /** Replace a subset of the policy config and recompile rules immediately. */
@@ -350,7 +350,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     ctx.logger.warn('capability-policy: legacy rule keys `exposed`/`progressive` were auto-mapped to `resident`/`on-demand`; edit the profile patch to persist the new keys')
   }
 
-  // Mutable runtime state so the management surface (能力菜单) can live-update
+  // Mutable runtime state so the management surface (能力管理) can live-update
   // the policy without a reload.
   let current = normalized
   let metaTools = [...(normalized.metaTools ?? DEFAULT_META_TOOLS)]

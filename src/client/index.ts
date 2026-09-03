@@ -1,7 +1,7 @@
 /**
  * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
  *
- * Client (browser) registration of the 能力菜单 settings tab. Follows the real
+ * Client (browser) registration of the 能力管理 settings tab. Follows the real
  * dsh client pattern (`dsh-client-ui-settings-plugin-inventory`): inject the
  * remote face, mount the generated `capabilityPolicy` Typert contribution, and
  * register a `settings.section` (order 12, between `models`=10 and `plugins`=15)
@@ -23,7 +23,7 @@ const NS = 'settings.capability'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** 能力菜单 tab copy. */
+    /** 能力管理 tab copy. */
     'settings.capability': Record<CapabilityKey, string>
   }
 }
@@ -34,11 +34,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  which resolves the mounted namespace service without the inject gate. */
 export const inject = ['slots', 'locale', 'remote']
 
-/** Register the 能力菜单 section once `settings.section` is on the ledger. */
+/** Register the 能力管理 section once `settings.section` is on the ledger. */
 export async function apply(ctx: ClientContext): Promise<() => void> {
   const zh = {
-    nav: '能力菜单',
-    title: '能力菜单',
+    nav: '能力管理',
+    title: '能力管理',
     desc: '管理工具与技能的 常驻 / 按需 / 禁用 三档分类。',
     resident: 'Resident（常驻上下文）',
     'on-demand': 'On-demand（按需发现）',
@@ -75,8 +75,8 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     catalogUnreadable: '按需能力目录文件读取失败',
   } satisfies Record<CapabilityKey, string>
   const en = {
-    nav: 'Capability Menu',
-    title: 'Capability Menu',
+    nav: 'Capability Management',
+    title: 'Capability Management',
     desc: 'Manage the Resident / On-demand / Blocked classification of tools and skills.',
     resident: 'Resident',
     'on-demand': 'On-demand',

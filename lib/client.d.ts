@@ -7,7 +7,7 @@ import { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
 /**
  * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
  *
- * Types + small helpers for the 能力菜单 (Capability Menu) settings
+ * Types + small helpers for the 能力管理 (Capability Management) settings
  * section. The component reads/writes the Host `ctx.capabilityPolicy` through
  * the generated `remote.capabilityPolicy` face (see `./remote.ts`), mirroring
  * how `dsh-client-ui-settings-plugin-inventory` consumes
@@ -163,7 +163,7 @@ type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'bloc
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** 能力菜单 tab copy. */
+    /** 能力管理 tab copy. */
     'settings.capability': Record<CapabilityKey, string>;
   }
 }
@@ -172,7 +172,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  ("waiting for service"). Access it via `ctx.get('remote.capabilityPolicy')`,
  *  which resolves the mounted namespace service without the inject gate. */
 declare const inject: string[];
-/** Register the 能力菜单 section once `settings.section` is on the ledger. */
+/** Register the 能力管理 section once `settings.section` is on the ledger. */
 declare function apply(ctx: ClientContext): Promise<() => void>;
 //#endregion
 export { type CapabilityKey, type CapabilityPolicyRemote, type CapabilityRow, type CapabilitySectionInjected, type CapabilitySectionProps, type CapabilitySnapshot, apply, inject };

@@ -47,12 +47,12 @@
 #   view (no agent) so On-demand tools stay runnable; dedups already-loaded skills.
 #   Rejects Blocked capabilities.
 # - `capability-menu-policy` (P3): Resident/On-demand/Blocked projection
-#   strategy + 能力菜单 surface. Reads explicit resident/on-demand/blocked
+#   strategy + 能力管理 surface. Reads explicit resident/on-demand/blocked
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
 #   `system-prompt/assemble` to Resident + meta tools only. The execution chain
 #   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` with
-#   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力菜单 tab
+#   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力管理 tab
 #   (Resident/On-demand/Blocked rules + click-to-cycle classification +
 #   read-only list), plus skill file browsing (`getDetail`/`listSkillDir`/
 #   `readSkillFile`) via the Typert gateway.
@@ -90,6 +90,6 @@
     # Root entry: loads the package main, which mounts the Typert gateway that
     # exposes ctx.capabilityPolicy to the browser. Makes this package a loader
     # entry itself so @deepseek-ai/dsh-client-modules discovers its `dsh.client`
-    # declaration and serves the 能力菜单 browser bundle (`./client`).
+    # declaration and serves the 能力管理 browser bundle (`./client`).
     - id: capability-menu
       name: '@daweifu/capability-menu'

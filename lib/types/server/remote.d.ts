@@ -30,7 +30,7 @@ export interface CatalogDocs {
     readonly catalogMissing?: 'disabled' | 'read-failed';
 }
 /**
- * Host-side remote face for the 能力菜单 tab. Every method delegates to the
+ * Host-side remote face for the 能力管理 tab. Every method delegates to the
  * policy service installed by `@daweifu/capability-menu/policy`; the registry
  * sibling (`capability`) must be mounted for `classifyAll` to return anything.
  *

@@ -1,7 +1,7 @@
 <h1 align="center">dsh-capability-menu</h1>
 
 <p align="center">
-  <strong>为 DeepSeek Harness 提供统一的能力菜单管理 Tools 和 Skills 的暴露水平 (上下文占用大小) 和执行方式</strong>
+  <strong>为 DeepSeek Harness 统一管理 Tools 和 Skills 的暴露水平（上下文占用大小）与执行方式</strong>
 </p>
 
 <p align="center">
@@ -48,14 +48,14 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
 
-### 能力菜单
+### 能力管理
 
 <p align="center">
   <img src="assets/screenshot-mcp-tools.png" alt="工具 tab" width="45%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
 </p>
 
-安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
+安装后，「设置 / 通用设置」下出现「能力管理」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
 - **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计和「查看能力目录」按钮。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
 - **Skills 页签**：内部再分「全局技能 / 项目技能」两个子页签（始终显示，空的一侧显示空态提示），顶部数量统计跟随当前子页签。点击技能行展开目录树，点文件预览 SKILL.md 等正文。
@@ -68,7 +68,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 ### 从 npm 安装（推荐）
 
-单包同时提供服务端插件与前端「能力菜单」tab，装完即可在「设置 / 通用设置」下看到：
+单包同时提供服务端插件与前端「能力管理」tab，装完即可在「设置 / 通用设置」下看到：
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
@@ -125,7 +125,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | **禁用** | tool | 不进 payload | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；模型幻觉直调也在 `tools/pre-execute` 被硬拒绝 |
 | | skill | 不进 `<available_skills>` 目录 | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；`skill` 工具在 `tools/pre-execute` 硬拒绝 |
 
-> tool 档位同时覆盖 `mcp__` 编目工具与内置原生工具（原生工具统一以 `built-in` 为 server 归组、同样三档可管）。**On-demand 的内置工具会退出模型常驻视野**，需要时经 `meta_search` 发现、`meta_invoke` 派发（两跳调用）——因此不建议把高频核心工具设为按需。`meta_search`/`meta_invoke` 自身与 Code Mode 保留传输层 `run_code` 不进能力目录，恒常驻、不可在「能力菜单」切换。
+> tool 档位同时覆盖 `mcp__` 编目工具与内置原生工具（原生工具统一以 `built-in` 为 server 归组、同样三档可管）。**On-demand 的内置工具会退出模型常驻视野**，需要时经 `meta_search` 发现、`meta_invoke` 派发（两跳调用）——因此不建议把高频核心工具设为按需。`meta_search`/`meta_invoke` 自身与 Code Mode 保留传输层 `run_code` 不进能力目录，恒常驻、不可在「能力管理」切换。
 
 ## 配置文件
 
@@ -166,18 +166,18 @@ config:
 | 1 | `blocked` 精确 | `blocked: [forbidden_skill]` | 最硬禁用，压过一切 |
 | 2 | `blocked` 通配 | `blocked: ['mcp__secret__*']` | 整组禁用 |
 | 3 | `resident` 精确 | `resident: [bash]` | 单个能力显式常驻 |
-| 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力菜单点击写入的就是这类） |
+| 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力管理点击写入的就是这类） |
 | 5 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` | 整组常驻 |
 | 6 | `on-demand` 通配 | `on-demand: ['mcp__*']` | 兜底批量按需 |
 | 默认 | 未命中任何规则 | — | 常驻 |
 
 要点：
 - `meta_search`/`meta_invoke` 恒常驻，不可被 blocked。
-- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力菜单」把某工具点成按需会写入精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级覆盖，界面提示「分类未生效」。
+- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级覆盖，界面提示「分类未生效」。
 - 原生工具与 MCP 工具一样进编目（归 `built-in` server），未列出默认常驻；被 `on-demand`/`blocked` 覆盖后退出常驻视野，按需时仍可 `meta_search` → `meta_invoke` 两跳调用。**勿把真实 MCP server 命名为 `built-in`。**
 - 已部署 profile 若仍用旧键 `exposed`/`progressive`，启动时会自动映射为 `resident`/`on-demand` 并告警提示；可用 `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` 一次性改写为持久化新键。
 
-> 「能力菜单」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
+> 「能力管理」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 
 ### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 

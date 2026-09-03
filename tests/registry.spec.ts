@@ -133,7 +133,7 @@ describe('meta-registry', () => {
 
     const skill = ctx.capability.search({ kind: 'skill' })
     expect(skill.some(summary => summary.id === 'skill:frontend-design')).toBe(true)
-    // Skills carry their filesystem source root so the 能力菜单 can group them
+    // Skills carry their filesystem source root so the 能力管理 can group them
     // into project vs global sections (user-agents = a global user dir here).
     expect(skill.find(summary => summary.id === 'skill:frontend-design')?.source).toBe('user-agents')
 
