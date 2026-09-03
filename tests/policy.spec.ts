@@ -319,7 +319,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     const classified = ctx.capabilityPolicy.classifyAll()
     const byId = new Map(classified.map(c => [c.id, c]))
     expect(byId.get('mcp__gongfeng__create_issue')?.class).toBe('exposed')
-    expect(byId.get('mcp__gongfeng__create_issue')?.classLabel).toBe('Exposed · 常驻（直接调用）')
+    expect(byId.get('mcp__gongfeng__create_issue')?.classLabel).toBe('Resident · 常驻（直接调用）')
     expect(byId.get('mcp__km__search')?.class).toBe('blocked')
     expect(byId.get('mcp__km__search')?.classLabel).toBe('Blocked · 禁用')
     expect(byId.get('mcp__gongfeng__create_issue')?.mandatory).toBe(false)
