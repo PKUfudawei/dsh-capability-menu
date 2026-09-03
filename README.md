@@ -51,8 +51,12 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 ### 能力管理
 
 <p align="center">
-  <img src="assets/screenshot-mcp-tools.png" alt="工具 tab" width="45%"/>
-  <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
+  <img src="assets/screenshot-tools.png" alt="Tools 页" width="48%"/>
+  <img src="assets/screenshot-skills.png" alt="Skills 页" width="48%"/>
+</p>
+<p align="center">
+  <img src="assets/screenshot-policy.png" alt="查看能力目录 · 三档策略配置" width="48%"/>
+  <img src="assets/screenshot-catalog.png" alt="查看能力目录 · 按需能力目录" width="48%"/>
 </p>
 
 安装后，「设置 / 通用设置」下出现「能力管理」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：

@@ -51,8 +51,12 @@ The model gets two meta tools:
 ### Capability Management
 
 <p align="center">
-  <img src="assets/screenshot-mcp-tools.png" alt="Tools tab" width="45%"/>
-  <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
+  <img src="assets/screenshot-tools.png" alt="Tools tab" width="48%"/>
+  <img src="assets/screenshot-skills.png" alt="Skills tab" width="48%"/>
+</p>
+<p align="center">
+  <img src="assets/screenshot-policy.png" alt="View capability catalog · Policy (effective)" width="48%"/>
+  <img src="assets/screenshot-catalog.png" alt="View capability catalog · On-demand catalog" width="48%"/>
 </p>
 
 Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
