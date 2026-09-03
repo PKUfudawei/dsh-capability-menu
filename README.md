@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=0969DA&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
+  <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/dm/@daweifu/capability-menu.svg?style=flat-square&color=0969DA&labelColor=161b22" alt="downloads"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-2EA44F?style=flat-square&labelColor=161b22" alt="license"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://img.shields.io/github/stars/PKUfudawei/dsh-capability-menu.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="https://github.com/cordiverse/cordis"><img src="https://img.shields.io/badge/stack-Cordis%20bundle-7FBDF1.svg?style=flat-square&labelColor=161b22&logo=cardano&logoColor=white" alt="Cordis bundle"/></a>
@@ -13,26 +14,42 @@
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
 </p>
 
+<p align="center">
+  <strong>简体中文</strong> · <a href="./README.en.md">English</a>
+</p>
+
 <br/>
 
 ## 目录
 
-- [能力菜单](#能力菜单)
+- [能力总览](#能力总览)
 - [快速安装](#快速安装)
-- [能力模型](#能力模型)
 - [暴露策略](#暴露策略)
 - [配置文件](#配置文件)
 
 ---
 
-dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 Cordis 插件，为海量 MCP tools / skills 建立统一能力目录（`ctx.capability`），并以**常驻 / 按需 / 禁用**三档管理暴露程度和执行方式——随时调整 agent 的能力边界，避免海量 tools/skills 塞满一次请求、节省 token 和上下文：
+## 能力总览
 
-- **统一能力目录**：编目所有 MCP 工具与 Skill，模型经 `meta_search` 检索、`meta_invoke` 执行。
-- **三档能力策略**：常驻 = 高频能力随叫随到；按需 = 低频能力归档进目录、用到才翻出来；禁用 = 明确禁止。这是你配置的驻留策略，不是按使用次数自动统计的标签。
-- **可视化配置**：「能力菜单」设置 tab（MCP tools / Skills 两栏，分类可点击循环切换），调整即时生效。
-- **零侵入**：不改上游源码，经 Cordis 插件机制与 Harness 组合进同一运行时。
+dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 Cordis 插件，为海量 MCP tools / skills 建立统一能力目录（`ctx.capability`），并以**常驻 / 按需 / 禁用**三档管理暴露程度和执行方式——随时调整 agent 的能力边界，避免海量 tools/skills 塞满一次请求、节省 token 和上下文。调整即时生效、无需重启，纯插件机制组合进 Harness 运行时，不改上游源码。
 
-## 能力菜单
+### 能力模型
+
+Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 capability。
+
+| kind | 对 Agent 提供 | action | 备注 |
+| --- | --- | --- | --- |
+| `tool` | 执行一个动作（MCP 工具） | `execute` | 由 `ctx.tools` 索引 |
+| `skill` | 某类任务的方法/流程/知识 | `load` | 由 `ctx.skills` 索引 |
+
+模型获得两个元工具：
+
+| 工具 | 作用 | 对应 entry |
+| --- | --- | --- |
+| `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
+| `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
+
+### 能力菜单
 
 <p align="center">
   <img src="assets/screenshot-mcp-tools.png" alt="MCP tools tab" width="45%"/>
@@ -93,22 +110,6 @@ dsh --profile web --dump-config | grep -E 'capability-menu'
 ```sh
 dsh plugin --profile web remove @daweifu/capability-menu
 ```
-
-## 能力模型
-
-Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 capability。
-
-| kind | 对 Agent 提供 | action | 备注 |
-| --- | --- | --- | --- |
-| `tool` | 执行一个动作（MCP 工具） | `execute` | 由 `ctx.tools` 索引 |
-| `skill` | 某类任务的方法/流程/知识 | `load` | 由 `ctx.skills` 索引 |
-
-模型获得两个元工具：
-
-| 工具 | 作用 | 对应 entry |
-| --- | --- | --- |
-| `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
-| `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
 
 ## 暴露策略
 
