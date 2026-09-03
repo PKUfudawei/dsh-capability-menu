@@ -234,6 +234,41 @@ describe('meta-registry', () => {
     expect(scopes.has('broken-preset')).toBe(false)
   })
 
+  it('enumerates agent-preset standing scopes for tools as well as skills', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home)
+    registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
+
+    // Both the tool pass (rebuildTools) and the skill pass (refreshSkills)
+    // request each preset's standing scope; count the requests to prove the
+    // tool side consumes preset scopes, not only the global view. The preset
+    // list starts empty so the registry's eager mount-time passes see nothing;
+    // only the explicit refresh() below enumerates the preset.
+    const requested = new Map<string, number>()
+    let presets: Array<{ id: string; broken?: string }> = []
+    const agentPresets = {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        return presets
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        const name = String(id)
+        requested.set(name, (requested.get(name) ?? 0) + 1)
+        return { agentPreset: id }
+      },
+    }
+    ctx.provide('agentPresets', agentPresets)
+    // Let the mount-time eager tool/skill refresh settle against the empty list.
+    await new Promise(resolve => setTimeout(resolve, 10))
+    presets = [{ id: 'coding-plus' }]
+    await ctx.capability.refresh()
+
+    // One request from the tools pass + one from the skills pass.
+    expect(requested.get('coding-plus')).toBe(2)
+    // Native tools stay cataloged under the built-in pseudo-server.
+    const builtIn = ctx.capability.search({ server: 'built-in', maxResults: 100 })
+    expect(builtIn.map(summary => summary.id)).toContain('bash')
+  })
+
   it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { readFile } = await import('node:fs/promises')

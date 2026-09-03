@@ -9,6 +9,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
+import { readFile } from 'node:fs/promises'
+import yaml from 'js-yaml'
 import type {
   CapabilityClassification,
   CapabilityPolicyService,
@@ -24,6 +26,16 @@ declare module '@deepseek-ai/cordis' {
     capabilityPolicy: CapabilityPolicyService
     capability: CapabilityService
   }
+}
+
+/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+export interface CatalogDocs {
+  /** 当前生效的三档策略配置（getConfig() + metaTools()），YAML 文本。 */
+  readonly policyYaml: string
+  /** 按需能力目录物化文件（capability.catalogPath()）。 */
+  readonly catalog?: { readonly path: string; readonly content: string }
+  /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
+  readonly catalogMissing?: 'disabled' | 'read-failed'
 }
 
 /**
@@ -78,6 +90,36 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('readSkillFile')
   async readSkillFile(id: string, relPath: string): Promise<string | undefined> {
     return this.ctx.capability.readSkillFile(id, relPath)
+  }
+
+  /**
+   * 能力目录查看：返回当前生效的三档策略配置 YAML，以及按需能力目录
+   * 物化文件（~/.dsh/capability-catalog.yaml）的路径与内容。两者都是
+   * 只读视图——策略持久化入口仍是 cordis.patch.yml。
+   */
+  @Remote('getCatalogDocs')
+  async getCatalogDocs(): Promise<CatalogDocs> {
+    const config = this.ctx.capabilityPolicy.getConfig()
+    const policyYaml = [
+      '# 能力菜单 · 当前生效策略（实时视图，只读；持久化入口：cordis.patch.yml）',
+      '# 未在规则列表中的能力默认 Resident（常驻）。',
+      yaml.dump({
+        metaTools: [...this.ctx.capabilityPolicy.metaTools()],
+        tools: config.tools ?? {},
+        skills: config.skills ?? {},
+      }),
+    ].join('\n')
+    const catalogPath = this.ctx.capability.catalogPath?.()
+    if (catalogPath === undefined) {
+      return { policyYaml, catalogMissing: 'disabled' }
+    }
+    try {
+      const content = await readFile(catalogPath, 'utf8')
+      return { policyYaml, catalog: { path: catalogPath, content } }
+    } catch (error) {
+      this.ctx.logger.warn(`capability-menu-remote: on-demand catalog read failed (${catalogPath}): ${String(error)}`)
+      return { policyYaml, catalogMissing: 'read-failed' }
+    }
   }
 }
 

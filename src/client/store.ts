@@ -55,6 +55,16 @@ export interface ToolDetail {
   }
 }
 
+/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+export interface CatalogDocs {
+  /** 当前生效的三档策略配置 YAML。 */
+  readonly policyYaml: string
+  /** 按需能力目录物化文件（path + content）。 */
+  readonly catalog?: { readonly path: string; readonly content: string }
+  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
+  readonly catalogMissing?: 'disabled' | 'read-failed'
+}
+
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 export interface CapabilityPolicyRemote {
   getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
@@ -63,6 +73,7 @@ export interface CapabilityPolicyRemote {
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
+  getCatalogDocs(): Promise<{ ok: true; value: CatalogDocs } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */

@@ -6,21 +6,22 @@
  * under one heading, each listing capabilities with a clickable class chip.
  *
  * Layout:
- *   - summary strip   → per-class counts for the active tab
+ *   - summary strip   → per-class counts for the active tab (Skills tab counts
+ *                       its active 全局/项目 sub-tab)
  *   - tabs            → Tools | Skills (plugins-tab chrome)
  *   - Tools tab       → grouped by server, collapsible disclosure rows; the
  *                       per-class count chip and each tool's class chip are
  *                       clickable to cycle Resident → On-demand → Blocked.
  *                       Harness-native tools (no real MCP server) share the
- *                       reserved `built-in` group, shown as 「系统内置工具」.
- *   - Skills tab      → split into Project/Global sections, each with flat
- *                       skill rows carrying the same clickable class chip
- *                       plus a directory tree / file preview
+ *                       reserved `built-in` group, shown as 「系统内置」.
+ *   - Skills tab      → sub-tabs 全局技能 / 项目技能 (always visible), each
+ *                       with flat skill rows carrying the same clickable class
+ *                       chip plus a directory tree / file preview
  */
 import { useState, useEffect, useCallback } from 'react'
 import type { KeyboardEvent } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, SkillFileEntry, ToolDetail } from './store.ts'
+import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, CatalogDocs, SkillFileEntry, ToolDetail } from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
@@ -55,6 +56,8 @@ export type CapabilityKey =
   | 'projectSkills'
   | 'emptyTools'
   | 'emptySkills'
+  | 'emptyGlobalSkills'
+  | 'emptyProjectSkills'
   | 'toolCount'
   | 'residentShort'
   | 'onDemandShort'
@@ -64,6 +67,12 @@ export type CapabilityKey =
   | 'previewClose'
   | 'detailNotFound'
   | 'cycleOverridden'
+  | 'viewCatalog'
+  | 'catalogPolicy'
+  | 'catalogOnDemand'
+  | 'catalogPolicyNote'
+  | 'catalogDisabled'
+  | 'catalogUnreadable'
 
 type ViewState =
   | { status: 'loading' }
@@ -94,6 +103,10 @@ const CSS = `
 .mc-heading{margin:0;font-size:18px;font-weight:600}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
+.mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
+.mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
+.mc-catalog-tabs{padding:8px 16px 0}
+.mc-catalog-path{padding:8px 16px 0;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
 /* 三态圆点：常驻=实心、按需=半实心、禁用=空心。
    色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用——红绿色盲下三者仍可区分。 */
@@ -112,6 +125,8 @@ body[data-ds-dark-theme] .mc-chip--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-chip--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-chip--blocked{color:#b8abad}
 .mc-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;justify-content:space-between;gap:22px}
+/* Skills sub-tab bar (全局技能/项目技能): same underline chrome, no right-side summary. */
+.mc-subtabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;gap:22px}
 .mc-tab-group{display:flex;align-items:flex-end;gap:22px}
 .mc-tab{color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:0;padding:7px 1px 9px;font-size:13px;line-height:20px;position:relative}
 .mc-tab:hover,.mc-tab[data-active=true]{color:var(--dsw-alias-label-primary)}
@@ -147,9 +162,6 @@ body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-dot-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
 .mc-dot-btn:disabled{cursor:default;opacity:.6;border-color:transparent;background:0 0}
 .mc-tag{font-size:11px;line-height:18px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary)}
-.mc-section-head{display:flex;align-items:center;gap:10px;padding:2px 2px 4px;font-size:13px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.mc-section-head:not(:first-child){margin-top:2px}
-.mc-section-head:after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l1)}
 .mc-empty{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:8px}
 .mc-error{padding:12px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:13px}
 .mc-error pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:11px;color:var(--dsw-alias-label-tertiary)}
@@ -173,7 +185,7 @@ body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-preview-title{font-size:13px;line-height:20px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .mc-preview-close{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .mc-preview-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.mc-preview-body{overflow:auto;padding:14px 16px;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary)}
+.mc-preview-body{overflow:auto;flex:1 1 auto;min-height:0;padding:14px 16px;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary)}
 .mc-preview-hint{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary)}
 `
 if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id="${CSS_ID}"]`) === null) {
@@ -337,8 +349,13 @@ function ReadyBody(props: {
   // belong to the global group.
   const projectSkills = skills.filter(skill => PROJECT_SOURCES.has(skill.source ?? ''))
   const globalSkills = skills.filter(skill => !PROJECT_SOURCES.has(skill.source ?? ''))
-  // Per-tab statistics: tools tab counts tool rows, Skills tab counts skills.
-  const statRows = activeTab === 'tools' ? snapshot.rows.filter(r => r.kind === 'tool') : skills
+  // Which sub-tab the Skills panel shows. Persists across top-tab switches.
+  const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
+  // Per-tab statistics: the Tools tab counts tool rows; the Skills tab counts
+  // the currently active global/project sub-tab.
+  const statRows = activeTab === 'tools'
+    ? snapshot.rows.filter(r => r.kind === 'tool')
+    : skillTab === 'project' ? projectSkills : globalSkills
   const summary = CLASS_KEYS.map(cls => ({ cls, count: countByClass(statRows, cls) }))
 
   /** Tool-detail modal: one schema popup at a time. */
@@ -361,6 +378,26 @@ function ReadyBody(props: {
       setToolDetail({ id, status: 'error', message: String(error) })
     }
   }, [remote, t])
+
+  /** 能力目录弹层状态：查看三档策略配置 + 按需能力目录文件。 */
+  const [catalogDocs, setCatalogDocs] = useState<
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'ready'; docs: CatalogDocs }
+    | null
+  >(null)
+  const [catalogTab, setCatalogTab] = useState<'policy' | 'catalog'>('policy')
+
+  /** Fetch and show the two read-only catalog documents. */
+  const openCatalogDocs = useCallback(async () => {
+    setCatalogDocs({ status: 'loading' })
+    try {
+      const docs = unwrap(await remote.getCatalogDocs(), 'capabilityPolicy.getCatalogDocs')
+      setCatalogDocs({ status: 'ready', docs })
+    } catch (error) {
+      setCatalogDocs({ status: 'error', message: String(error) })
+    }
+  }, [remote])
 
   return (
     <>
@@ -391,6 +428,9 @@ function ReadyBody(props: {
           </button>
         </div>
         <div className="mc-summary">
+          <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
+            {t('viewCatalog')}
+          </button>
           {summary.map(({ cls, count }) => (
             <span key={cls} className={`mc-chip mc-chip--${cls}`}>
               <span className={`mc-dot mc-dot--${cls}`} aria-hidden="true" />
@@ -501,21 +541,32 @@ function ReadyBody(props: {
             <p className="mc-empty">{t('emptySkills')}</p>
           ) : (
             <>
-              {projectSkills.length > 0 && (
-                <>
-                  <h3 className="mc-section-head">{t('projectSkills')}</h3>
-                  <SkillList
-                    skills={projectSkills}
-                    remote={remote}
-                    busy={busy}
-                    t={t}
-                    onCycle={onCycle}
-                  />
-                </>
-              )}
-              {globalSkills.length > 0 && (
-                <>
-                  <h3 className="mc-section-head">{t('globalSkills')}</h3>
+              <div className="mc-subtabs">
+                <div className="mc-tab-group" role="tablist" aria-label={t('skillsGroup')}>
+                  <button
+                    type="button"
+                    role="tab"
+                    className="mc-tab"
+                    aria-selected={skillTab === 'global'}
+                    data-active={skillTab === 'global' ? 'true' : undefined}
+                    onClick={() => setSkillTab('global')}
+                  >
+                    {t('globalSkills')}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className="mc-tab"
+                    aria-selected={skillTab === 'project'}
+                    data-active={skillTab === 'project' ? 'true' : undefined}
+                    onClick={() => setSkillTab('project')}
+                  >
+                    {t('projectSkills')}
+                  </button>
+                </div>
+              </div>
+              {skillTab === 'global' ? (
+                globalSkills.length > 0 ? (
                   <SkillList
                     skills={globalSkills}
                     remote={remote}
@@ -523,7 +574,21 @@ function ReadyBody(props: {
                     t={t}
                     onCycle={onCycle}
                   />
-                </>
+                ) : (
+                  <p className="mc-empty">{t('emptyGlobalSkills')}</p>
+                )
+              ) : (
+                projectSkills.length > 0 ? (
+                  <SkillList
+                    skills={projectSkills}
+                    remote={remote}
+                    busy={busy}
+                    t={t}
+                    onCycle={onCycle}
+                  />
+                ) : (
+                  <p className="mc-empty">{t('emptyProjectSkills')}</p>
+                )
               )}
             </>
           )}
@@ -550,6 +615,67 @@ function ReadyBody(props: {
                   parameters: toolDetail.detail.parameters,
                 },
               }, null, 2)}</pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      {catalogDocs !== null && (
+        <div className="mc-preview-mask" onClick={() => setCatalogDocs(null)}>
+          <div className="mc-preview" onClick={e => e.stopPropagation()}>
+            <div className="mc-preview-head">
+              <span className="mc-preview-title">{t('viewCatalog')}</span>
+              <button type="button" className="mc-preview-close" onClick={() => setCatalogDocs(null)}>
+                {t('previewClose')}
+              </button>
+            </div>
+            {catalogDocs.status === 'loading' && <div className="mc-preview-hint">…</div>}
+            {catalogDocs.status === 'error' && <div className="mc-preview-hint">{catalogDocs.message}</div>}
+            {catalogDocs.status === 'ready' && (
+              <>
+                <div className="mc-subtabs mc-catalog-tabs">
+                  <div className="mc-tab-group" role="tablist" aria-label={t('viewCatalog')}>
+                    <button
+                      type="button"
+                      role="tab"
+                      className="mc-tab"
+                      aria-selected={catalogTab === 'policy'}
+                      data-active={catalogTab === 'policy' ? 'true' : undefined}
+                      onClick={() => setCatalogTab('policy')}
+                    >
+                      {t('catalogPolicy')}
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      className="mc-tab"
+                      aria-selected={catalogTab === 'catalog'}
+                      data-active={catalogTab === 'catalog' ? 'true' : undefined}
+                      onClick={() => setCatalogTab('catalog')}
+                    >
+                      {t('catalogOnDemand')}
+                    </button>
+                  </div>
+                </div>
+                {catalogTab === 'policy' ? (
+                  <>
+                    <p className="mc-catalog-path">{t('catalogPolicyNote')}</p>
+                    <pre className="mc-preview-body">{catalogDocs.docs.policyYaml}</pre>
+                  </>
+                ) : (
+                  <>
+                    {catalogDocs.docs.catalog !== undefined
+                      ? <p className="mc-catalog-path">{catalogDocs.docs.catalog.path}</p>
+                      : <p className="mc-catalog-path">{t('catalogOnDemand')}</p>}
+                    <pre className="mc-preview-body">
+                      {catalogDocs.docs.catalog?.content
+                        ?? (catalogDocs.docs.catalogMissing === 'disabled'
+                          ? t('catalogDisabled')
+                          : t('catalogUnreadable'))}
+                    </pre>
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>

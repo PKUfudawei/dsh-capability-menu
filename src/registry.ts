@@ -320,34 +320,78 @@ export function apply(ctx: Context, config: Config = {}): void {
     return undefined
   }
 
-  /** Rebuild the tool index synchronously from the visible tool registry. */
-  const rebuildTools = (): void => {
-    const next = new Map<string, CapabilityRecord>()
-    for (const schema of ctx.tools.schemas()) {
-      // 全部可见工具都进编目，仅排除 meta_search/meta_invoke（本插件控制面，
-      // 恒常驻）与 run_code（Code Mode 保留传输层）。mcp__ 工具按真实 server
-      // 分组；原生工具（无 mcp__ 前缀）统一归入保留的 built-in server，使能力
-      // 菜单能统一按 server 分组、三档管理，meta_invoke 也能派发它们。
-      if (CATALOG_EXCLUDED_TOOLS.has(schema.name)) continue
-      const existing = toolRecords.get(schema.name)
-      const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
-      const isMcp = schema.name.startsWith(MCP_ID_PREFIX)
-      const serverName = isMcp ? serverNameOf(schema.name) : BUILT_IN_SERVER
-      next.set(schema.name, {
-        id: schema.name,
-        kind: 'tool',
-        actions: ['execute'],
-        name: schema.name,
-        description: schema.description,
-        origin: { provider: serverName, serverName },
-        parameters: schema.parameters as JsonSchemaNode,
-        invocation: { modelInvocable: true, userInvocable: false },
-        tags: [serverName, 'tool'],
-        stats,
-        summary: toSummary(schema.description, summaryMaxChars),
-      })
+  /** Next-catalog accumulator shared by the global and preset-scope passes. */
+  let nextToolRecords = new Map<string, CapabilityRecord>()
+
+  /**
+   * Index one visible tool schema into the next catalog, deduped by name.
+   * 全部可见工具都进编目，仅排除 meta_search/meta_invoke（本插件控制面，
+   * 恒常驻）与 run_code（Code Mode 保留传输层）。mcp__ 工具按真实 server
+   * 分组；原生工具（无 mcp__ 前缀）统一归入保留的 built-in server，使能力
+   * 菜单能统一按 server 分组、三档管理，meta_invoke 也能派发它们。
+   * A schema may surface from several preset scope views; the first wins.
+   */
+  const indexToolSchema = (schema: { name: string; description: string; parameters: JsonSchemaNode }): void => {
+    if (CATALOG_EXCLUDED_TOOLS.has(schema.name)) return
+    if (nextToolRecords.has(schema.name)) return
+    const existing = toolRecords.get(schema.name)
+    const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
+    const isMcp = schema.name.startsWith(MCP_ID_PREFIX)
+    const serverName = isMcp ? serverNameOf(schema.name) : BUILT_IN_SERVER
+    nextToolRecords.set(schema.name, {
+      id: schema.name,
+      kind: 'tool',
+      actions: ['execute'],
+      name: schema.name,
+      description: schema.description,
+      origin: { provider: serverName, serverName },
+      parameters: schema.parameters as JsonSchemaNode,
+      invocation: { modelInvocable: true, userInvocable: false },
+      tags: [serverName, 'tool'],
+      stats,
+      summary: toSummary(schema.description, summaryMaxChars),
+    })
+  }
+
+  /**
+   * Rebuild the tool index from the visible tool registries.
+   *
+   * Harness-native tools are registered on the agent plane (per agent preset's
+   * standing scope), not the root/global layer the plugin's own `ctx.tools`
+   * view sees — exactly the layout the skills side enumerates below. Mirror
+   * that: index the global view first, then every mountable preset's standing
+   * scope, so natives land under the reserved `built-in` pseudo-server.
+   */
+  // Rebuilds can overlap (eager mount-time run vs. a change-event refresh);
+  // the epoch guard drops a superseded run so its older snapshot never
+  // clobbers a newer one.
+  let toolIndexEpoch = 0
+  const rebuildTools = async (): Promise<void> => {
+    const epoch = ++toolIndexEpoch
+    nextToolRecords = new Map<string, CapabilityRecord>()
+    for (const schema of ctx.tools.schemas()) indexToolSchema(schema)
+
+    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as
+      | { list(): Promise<Array<{ id: string; broken?: string }>>; standingKeyFor(id?: string): Promise<ScopeKey> }
+      | undefined
+    if (agentPresets !== undefined) {
+      let presets: Array<{ id: string; broken?: string }> = []
+      try {
+        presets = await agentPresets.list()
+      } catch (error) {
+        ctx.logger.warn(`meta-registry: agent-presets enumeration failed: ${String(error)}`)
+      }
+      for (const preset of presets) {
+        if (preset.broken !== undefined) continue
+        try {
+          const scope = await agentPresets.standingKeyFor(preset.id)
+          for (const schema of ctx.tools.schemas(scope)) indexToolSchema(schema)
+        } catch (error) {
+          ctx.logger.warn(`meta-registry: preset "${preset.id}" tool scope unavailable: ${String(error)}`)
+        }
+      }
     }
-    toolRecords = next
+    if (epoch === toolIndexEpoch) toolRecords = nextToolRecords
   }
 
   /**
@@ -463,9 +507,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  /** Refresh the whole catalog: tools synchronously, skills asynchronously. */
+  /** Refresh the whole catalog: tools and skills, then re-emit the YAML. */
   const refresh = async (): Promise<void> => {
-    rebuildTools()
+    await rebuildTools()
     await refreshSkills()
     await writeCatalog()
   }
@@ -474,10 +518,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   const disposers: Array<() => void> = []
   disposers.push(ctx.on('tools/change', () => void refresh()))
   disposers.push(ctx.on('skills/change', () => void refresh()))
-  // Build the synchronous tool index eagerly; the skill index is left to
-  // the first explicit `refresh()` (or a change event) so an eager load never
-  // snapshots — and caches inside the skill registry — an incomplete catalog.
-  rebuildTools()
+  // Index the global tool view eagerly (the synchronous part of
+  // `rebuildTools`); preset standing scopes and skills are enumerated by the
+  // first explicit `refresh()` (policy mounts it before the surface is used)
+  // or a change event, so an eager load never snapshots — and caches inside the
+  // tool/skill registries — an incomplete catalog.
+  void rebuildTools()
   void refreshSkills()
   ctx.effect(() => () => {
     for (const dispose of disposers) dispose()

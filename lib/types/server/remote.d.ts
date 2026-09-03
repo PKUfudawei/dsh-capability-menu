@@ -17,6 +17,18 @@ declare module '@deepseek-ai/cordis' {
         capability: CapabilityService;
     }
 }
+/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+export interface CatalogDocs {
+    /** 当前生效的三档策略配置（getConfig() + metaTools()），YAML 文本。 */
+    readonly policyYaml: string;
+    /** 按需能力目录物化文件（capability.catalogPath()）。 */
+    readonly catalog?: {
+        readonly path: string;
+        readonly content: string;
+    };
+    /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
+    readonly catalogMissing?: 'disabled' | 'read-failed';
+}
 /**
  * Host-side remote face for the 能力菜单 tab. Every method delegates to the
  * policy service installed by `@daweifu/capability-menu/policy`; the registry
@@ -43,6 +55,12 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined>;
     /** Read a text file inside a skill's directory. */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
+    /**
+     * 能力目录查看：返回当前生效的三档策略配置 YAML，以及按需能力目录
+     * 物化文件（~/.dsh/capability-catalog.yaml）的路径与内容。两者都是
+     * 只读视图——策略持久化入口仍是 cordis.patch.yml。
+     */
+    getCatalogDocs(): Promise<CatalogDocs>;
 }
 /** Register the remote gateway on a context. */
 export declare const name = "capability-menu-remote";

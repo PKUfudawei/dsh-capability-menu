@@ -61,6 +61,18 @@ interface ToolDetail {
     readonly lastUsedAt?: number;
   };
 }
+/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+interface CatalogDocs {
+  /** 当前生效的三档策略配置 YAML。 */
+  readonly policyYaml: string;
+  /** 按需能力目录物化文件（path + content）。 */
+  readonly catalog?: {
+    readonly path: string;
+    readonly content: string;
+  };
+  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
+  readonly catalogMissing?: 'disabled' | 'read-failed';
+}
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 interface CapabilityPolicyRemote {
   getConfig(): Promise<{
@@ -123,6 +135,16 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
+  getCatalogDocs(): Promise<{
+    ok: true;
+    value: CatalogDocs;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
 }
 //#endregion
 //#region src/client/CapabilitySection.d.ts
@@ -136,7 +158,7 @@ interface CapabilitySectionInjected {
   remoteKeys?: string;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {
