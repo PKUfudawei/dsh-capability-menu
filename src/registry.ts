@@ -193,7 +193,7 @@ export interface CapabilityService {
    * Rebuild the catalog from the current tool/skill registries; resolves when
    * done. In production the registry rebuilds automatically on `tools/change`
    * / `skills/change`; this public handle is for tests and external orchestrators
-   * that want to force a rebuild (e.g. after a `progressiveSkillCatalog` change).
+   * that want to force a rebuild.
    */
   refresh(): Promise<void>
 }
@@ -215,16 +215,8 @@ export interface Config {
   /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
   weighting?: number
   /**
-   * Optional path to a Progressive-skill catalog YAML (see §7.2). Each entry
-   * `{ name, description, whenToUse?, path? }` is indexed as a `skill`
-   * CapabilityRecord so `meta_search(kind=skill)` can find Progressive skills
-   * that are not otherwise registered in the session skill registry. The full
-   * SKILL.md is loaded on demand by `meta_invoke` (see the invoke package).
-   */
-  progressiveSkillCatalog?: string
-  /**
-   * Optional path for the on-demand (Progressive) capability catalog emitted as
-   * a YAML file for model-side grep/read browsing. Defaults to
+   * Optional path for the on-demand (On-demand/Progressive) capability catalog
+   * emitted as a YAML file for model-side grep/read browsing. Defaults to
    * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
    * emission. Blocked capabilities are never written.
    */
@@ -239,7 +231,6 @@ export const Config: z<Config> = z.object({
   weighting: z.number().default(0.1),
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
-  progressiveSkillCatalog: z.string(),
   catalogFile: z.string(),
 })
 
@@ -313,8 +304,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   /**
    * Resolve a skill's root directory from the live skill registry. The
    * directory comes from the skill provider's own locator (`resourceBase` for
-   * bundle skills, the SKILL.md parent for flat files) or the indexed origin
-   * path for progressive-catalog entries — never from caller input.
+   * bundle skills, the SKILL.md parent for flat files) — never from caller input.
    */
   const skillRootOf = async (id: string): Promise<string | undefined> => {
     const name = skillNameOf(id)
@@ -327,10 +317,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       if (definition.path !== undefined) return dirname(definition.path)
     }
-    // Progressive-catalog skills are not registered with a provider; fall
-    // back to the catalog-declared path (a directory holding the SKILL.md).
-    const record = skillRecords.get(id)
-    if (record?.origin.path !== undefined) return record.origin.path
     return undefined
   }
 
@@ -362,52 +348,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       })
     }
     toolRecords = next
-  }
-
-  /** One entry of the independent Progressive-skill catalog YAML (§7.2). */
-  interface ProgressiveSkillEntry {
-    readonly name: string
-    readonly description: string
-    readonly whenToUse?: string
-    readonly path?: string
-  }
-
-  /** Read and parse the Progressive-skill catalog YAML into entries (empty when unconfigured/unreadable). */
-  const loadProgressiveSkills = async (): Promise<ProgressiveSkillEntry[]> => {
-    const file = config.progressiveSkillCatalog
-    if (file === undefined || file.length === 0) return []
-    const path = resolve(process.cwd(), file)
-    let text: string
-    try {
-      text = await readFile(path, 'utf8')
-    } catch (error) {
-      ctx.logger.warn(`meta-registry: progressive skill catalog not readable (${path}): ${String(error)}`)
-      return []
-    }
-    let parsed: unknown
-    try {
-      parsed = yaml.load(text)
-    } catch (error) {
-      ctx.logger.warn(`meta-registry: progressive skill catalog parse failed (${path}): ${String(error)}`)
-      return []
-    }
-    if (parsed === null || typeof parsed !== 'object') return []
-    const list = (parsed as { skills?: unknown }).skills
-    if (!Array.isArray(list)) return []
-    const entries: ProgressiveSkillEntry[] = []
-    for (const raw of list) {
-      if (raw === null || typeof raw !== 'object') continue
-      const item = raw as Record<string, unknown>
-      if (typeof item.name !== 'string' || item.name.length === 0) continue
-      const description = typeof item.description === 'string' ? item.description : ''
-      entries.push({
-        name: item.name,
-        description,
-        ...typeof item.whenToUse === 'string' ? { whenToUse: item.whenToUse } : {},
-        ...typeof item.path === 'string' ? { path: item.path } : {},
-      })
-    }
-    return entries
   }
 
   /**
@@ -486,34 +426,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
     }
 
-    // Additionally index Progressive skills from the independent YAML catalog.
-    // Exposed skills (from ctx.skills) win on a name collision so an Exposed
-    // skill is never shadowed by a stale Progressive catalog entry.
-    const progressive = await loadProgressiveSkills()
-    for (const entry of progressive) {
-      const id = skillId(entry.name)
-      if (nextSkills.has(id)) continue
-      const existing = skillRecords.get(id)
-      const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
-      nextSkills.set(id, {
-        id,
-        kind: 'skill',
-        actions: ['load'],
-        name: entry.name,
-        description: entry.description,
-        ...entry.whenToUse !== undefined ? { whenToUse: entry.whenToUse } : {},
-        origin: {
-          provider: 'progressive-catalog',
-          ...entry.path !== undefined ? { path: entry.path } : {},
-        },
-        parameters: { type: 'object', properties: {}, additionalProperties: false },
-        invocation: { modelInvocable: true, userInvocable: false },
-        tags: ['progressive-catalog', 'skill'],
-        stats,
-        summary: toSummary(entry.description, summaryMaxChars),
-      })
-      nextSkillScopes.set(id, undefined)
-    }
     skillRecords = nextSkills
     skillScopes = nextSkillScopes
   }

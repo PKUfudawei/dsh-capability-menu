@@ -232,41 +232,6 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
-  it('loads a Progressive skill from the YAML catalog path when not registered in ctx.skills', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
-    const { mkdir, writeFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    // Progressive skill exists on disk only via its catalog path, not in the agent skill dir.
-    const progressiveRoot = join(home, 'progressive-skills')
-    await mkdir(join(progressiveRoot, 'sql-analytics'), { recursive: true })
-    await writeFile(join(progressiveRoot, 'sql-analytics', 'SKILL.md'), [
-      '---',
-      'name: sql-analytics',
-      'description: SQL analytics templates',
-      '---',
-      '',
-      'Run the aggregation query templates.',
-    ].join('\n'))
-    const catalog = join(home, 'progressive-skills.yaml')
-    await writeFile(catalog, [
-      'skills:',
-      `  - name: sql-analytics`,
-      `    description: SQL analytics query templates and methods`,
-      `    path: ${progressiveRoot}/sql-analytics`,
-      '',
-    ].join('\n'))
-    const ctx = await setup(home, {}, { progressiveSkillCatalog: catalog })
-    await ctx.capability.refresh()
-
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' })
-    expect(isError).toBe(false)
-    const result = value as { ok: boolean; kind: string; detail: { name: string; content: string; provider: string } }
-    expect(result.ok).toBe(true)
-    expect(result.kind).toBe('skill')
-    expect(result.detail.name).toBe('sql-analytics')
-    expect(result.detail.content).toContain('aggregation query templates')
-  })
-
   it('rejects a blocked capability', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = new Context()
@@ -331,43 +296,24 @@ describe('capability-menu-invoke', () => {
 
   it('keeps loaded-skill dedup isolated per session in the same process', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
-    const { mkdir, writeFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    // Use a Progressive skill (loaded from its YAML catalog path) so both
-    // agents resolve it without depending on per-scope skill registration.
-    const progressiveRoot = join(home, 'progressive-skills')
-    await mkdir(join(progressiveRoot, 'sql-analytics'), { recursive: true })
-    await writeFile(join(progressiveRoot, 'sql-analytics', 'SKILL.md'), [
-      '---',
-      'name: sql-analytics',
-      'description: SQL analytics templates',
-      '---',
-      '',
-      'Run the aggregation query templates.',
-    ].join('\n'))
-    const catalog = join(home, 'progressive-skills.yaml')
-    await writeFile(catalog, [
-      'skills:',
-      `  - name: sql-analytics`,
-      `    description: SQL analytics query templates and methods`,
-      `    path: ${progressiveRoot}/sql-analytics`,
-      '',
-    ].join('\n'))
-    const ctx = await setup(home, {}, { progressiveSkillCatalog: catalog })
+    // A registered On-demand skill (agent-dir skill) resolves through ctx.skills
+    // for both agents in the same process.
+    await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Full design instructions body here.')
+    const ctx = await setup(home)
     await ctx.capability.refresh()
 
     const agentA = agentStub('agent-a')
     const agentB = agentStub('agent-b')
 
-    const a1 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentA)
-    const b1 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentB)
-    const a2 = await runTool(ctx, 'meta_invoke', { id: 'skill:sql-analytics' }, agentA)
+    const a1 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentA)
+    const b1 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentB)
+    const a2 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentA)
 
     const content = (result: { value: unknown }): string => (result.value as { detail: { content: string } }).detail.content
     // Session A loads the full body once…
-    expect(content(a1)).toContain('aggregation query templates')
+    expect(content(a1)).toContain('Full design instructions')
     // …session B in the same process must get the full body too (not a reminder).
-    expect(content(b1)).toContain('aggregation query templates')
+    expect(content(b1)).toContain('Full design instructions')
     // Re-loading in session A returns the short reminder.
     expect(content(a2)).toContain('already loaded')
   })

@@ -120,7 +120,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | **常驻** | tool | 完整 schema 进 `assembly.tools` → 模型请求 `tools` payload，每步可见 | 无需发现（已常驻） | 模型直接调用，运行时走完整 `ctx.tools` 管线 |
 | | skill | 名字+描述进 `<available_skills>` 目录（正文不在目录） | 无需发现（已常驻） | `skill` 工具按需加载正文（渐进加载） |
 | **按需** | tool | 不进 payload（零上下文成本） | `meta_search` list / `grep` 检索物化目录 YAML（`catalogFile`） | `meta_invoke` 执行（走 `ctx.tools.execute`，管线完整）；或 detail 拿 schema 后直接调 |
-| | skill | 不进 `<available_skills>` 目录 | `meta_search` 检索 / `grep` 检索物化目录 YAML（`catalogFile`，条目来自 `progressiveSkillCatalog` 与已注册 skill） | `meta_invoke` 按 `path` 加载 SKILL.md 正文 |
+| | skill | 不进 `<available_skills>` 目录 | `meta_search` 检索 / `grep` 检索物化目录 YAML（`catalogFile`） | `meta_invoke` 加载 SKILL.md 正文（经 `ctx.skills`） |
 | **禁用** | tool | 不进 payload | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；模型幻觉直调也在 `tools/pre-execute` 被硬拒绝 |
 | | skill | 不进 `<available_skills>` 目录 | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；`skill` 工具在 `tools/pre-execute` 硬拒绝 |
 
@@ -133,41 +133,42 @@ dsh plugin --profile web remove @daweifu/capability-menu
 ```yaml
 config:
   tools:
-    exposed: [execute_cmd, get_session_context, search_kb, 'mcp__gongfeng__*']   # 通配：该 server 下全部常驻
-    progressive: ['mcp__*', 'server:km:*']                                        # 通配兜底 + 按 server 前缀批量按需
-    blocked: ['mcp__secret__*']                                                   # 禁用优先级最高，压过常驻
+    exposed:
+      - execute_cmd
+      - get_session_context
+      - search_kb
+      - 'mcp__gongfeng__*'    # 通配：该 server 下全部常驻
+    progressive:
+      - 'mcp__*'              # 通配兜底
+      - 'server:km:*'         # 按 server 前缀批量按需
+    blocked:
+      - 'mcp__secret__*'      # 禁用优先级最高，压过常驻
   skills:
-    exposed: [debugging, coding]
-    progressive: [legacy_skill]          # 显式按需（未列出即默认常驻）
-    blocked: [forbidden_skill]
-  metaTools: [meta_search, meta_invoke]  # 恒常驻，不可被禁用
-  progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
+    exposed:
+      - debugging
+      - coding
+    progressive:
+      - legacy_skill          # 显式按需（未列出即默认常驻）
+    blocked:
+      - forbidden_skill
+  metaTools:
+    - meta_search             # 恒常驻，不可被禁用
+    - meta_invoke
 ```
 
 **规则优先级**（命中即停）：`blocked` 精确 > `blocked` 通配 > `exposed` 精确 > `progressive` 精确 > `exposed` 通配 > `progressive` 通配 > 默认 Exposed。`blocked` 是最硬的控制（压过一切），meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed 且不可被 blocked。**精确规则优先于通配（跨档也成立）**：例如 `tools.exposed: ['mcp__gongfeng__*']` 存在时，在「能力菜单」里把某个工具点击设为按需，会写入一条精确 progressive 规则并正确生效，不会被通配压回（若仍被更高优先级规则覆盖，界面会提示分类未生效）。`tools.exposed` 里列原生工具名（`bash` 等）是**显式常驻声明**：原生工具与 MCP 工具一样进编目（归 `builtin` server）、可被规则分类，未列出时默认即常驻。一旦原生工具被 `progressive`/`blocked` 覆盖，它将退出模型常驻视野——On-demand 时仍可经 `meta_search` → `meta_invoke` 两跳调用，不会被彻底锁死。请勿把真实 MCP server 命名为 `builtin`（会与原生工具组撞名）。
 
 > 「能力菜单」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 
-### 渐进技能目录（`progressiveSkillCatalog`）
+### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 
-按需（Progressive）技能不进固定上下文，也可能根本没注册进 `ctx.skills`。为了让它们仍可被发现，用一份独立 YAML 存 name + description + path，由 registry 索引、`meta_search` 检索；完整 SKILL.md 由 `meta_invoke` 按需加载（`ctx.skills` 未注册时按 YAML 的 `path` 读取）：
+On-demand 能力的模型侧目录是**单个自动生成的文件**——registry 在工具/技能变更、分类调整（能力菜单点击或 `updateConfig`）时自动重写，默认 `~/.dsh/capability-catalog.yaml`（可用 `catalogFile` 改路径，置空字符串禁用）。没有额外的用户维护输入清单：技能必须**先注册进 `ctx.skills`**（由 skill provider 提供，例如把 SKILL.md 目录放到用户/项目技能根，或挂进 `customSkillDirs`），再在「能力菜单」或 `skills.progressive` 规则里切为按需，就会自动进入该目录。
 
-```yaml
-# ~/.dsh/progressive-skills.yaml
-skills:
-  - name: legacy_skill            # 对应 skills.progressive 里的规则名
-    description: 旧版迁移技能，低频使用
-    whenToUse: 处理旧工程时使用
-    path: /path/to/legacy_skill   # 含 SKILL.md 的目录
-```
-
-### 按需能力目录（`catalogFile`，grep 可检索）
-
-按需（Progressive）能力会物化成一个 YAML 目录文件——registry 在工具/技能变更、分类调整（能力菜单点击或 `updateConfig`）时自动重写，默认 `~/.dsh/capability-catalog.yaml`（可用 `catalogFile` 改路径，置空字符串禁用）。这让模型能用原生 `grep`/`read` 直接检索按需能力，不必先"想到"调 `meta_search`；`meta_search` 仍保留，作为结构化 schema 入口。系统提示词会常驻一行目录路径，指引模型需要低频能力时先用 `grep` 检索该文件（没有任何按需能力时不注入，避免浪费上下文）。
+这让模型能用原生 `grep`/`read` 直接检索按需能力，不必先"想到"调 `meta_search`；`meta_search` 仍保留，作为结构化 schema 入口。系统提示词会常驻一行目录路径，指引模型需要低频能力时先用 `grep` 检索该文件（没有任何按需能力时不注入，避免浪费上下文）。模型拿到 id 后由 `meta_invoke` 执行/加载：工具经 `ctx.tools.execute`，技能正文经 `ctx.skills` 取。
 
 ```yaml
-# ~/.dsh/capability-catalog.yaml（自动生成；仅含 Progressive 能力，
-# Exposed 已常驻、Blocked 不可发现，均不写入）
+# ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand/Progressive 能力，
+# Resident 已常驻、Blocked 不可发现，均不写入；列表以 `-` 每项一行的 block 序列写出）
 capabilities:
   - id: mcp__km__search
     kind: tool
@@ -181,8 +182,6 @@ capabilities:
     whenToUse: 处理旧工程时使用
 ```
 
-> `progressiveSkillCatalog` 是**输入**（声明 progressive skill 的元数据），`catalogFile` 是**输出**（自动生成的按需目录物化，二者用途不同）。
->
 > 目录文件默认写在宿主 `~/.dsh`，需要模型侧 `bash`/`read` 工具的沙箱能访问该路径；若沙箱隔离宿主目录，请把 `catalogFile` 显式配置到沙箱可见的路径。默认路径在多个 dsh 实例间共享（last-write-wins），多实例部署时请为每个实例配置独立的 `catalogFile`。
 
 ### 默认（不配置 policy）

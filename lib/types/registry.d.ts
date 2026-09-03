@@ -178,7 +178,7 @@ export interface CapabilityService {
      * Rebuild the catalog from the current tool/skill registries; resolves when
      * done. In production the registry rebuilds automatically on `tools/change`
      * / `skills/change`; this public handle is for tests and external orchestrators
-     * that want to force a rebuild (e.g. after a `progressiveSkillCatalog` change).
+     * that want to force a rebuild.
      */
     refresh(): Promise<void>;
 }
@@ -198,16 +198,8 @@ export interface Config {
     /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
     weighting?: number;
     /**
-     * Optional path to a Progressive-skill catalog YAML (see §7.2). Each entry
-     * `{ name, description, whenToUse?, path? }` is indexed as a `skill`
-     * CapabilityRecord so `meta_search(kind=skill)` can find Progressive skills
-     * that are not otherwise registered in the session skill registry. The full
-     * SKILL.md is loaded on demand by `meta_invoke` (see the invoke package).
-     */
-    progressiveSkillCatalog?: string;
-    /**
-     * Optional path for the on-demand (Progressive) capability catalog emitted as
-     * a YAML file for model-side grep/read browsing. Defaults to
+     * Optional path for the on-demand (On-demand/Progressive) capability catalog
+     * emitted as a YAML file for model-side grep/read browsing. Defaults to
      * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
      * emission. Blocked capabilities are never written.
      */

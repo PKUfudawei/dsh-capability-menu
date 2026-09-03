@@ -65,12 +65,6 @@ export interface Config {
    * Progressive or Blocked. Default `[meta_search, meta_invoke]`.
    */
   metaTools?: string[]
-  /**
-   * Optional path to a Progressive-skill catalog YAML (name + description +
-   * path). Consumed by the registry as an additional skill index source (see
-   * `@daweifu/capability-menu-registry` `progressiveSkillCatalog`).
-   */
-  progressiveSkillCatalog?: string
 }
 
 /** Validate and default the policy configuration. */
@@ -87,7 +81,6 @@ export const Config: z<Config> = z.object({
   }),
   metaTools: z.array(z.string()).default(['meta_search', 'meta_invoke']),
   // schemastery object properties are optional-by-default; no `.optional()` needed.
-  progressiveSkillCatalog: z.string(),
 })
 
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const

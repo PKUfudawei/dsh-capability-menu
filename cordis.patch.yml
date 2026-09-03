@@ -33,15 +33,14 @@
 #         metaTools:
 #           - meta_search
 #           - meta_invoke
-#         progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
 #
 # - `capability-menu-registry` (P0): builds/indexes the capability catalog and
 #   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers
 #   no model-facing tool itself. Indexes every visible tool — MCP tools by their
 #   server and harness-native tools (bash/read/write/…) under the reserved
-#   `builtin` pseudo-server — plus skills (global layer and every mountable
-#   preset's standing scope) and Progressive skills from
-#   `progressiveSkillCatalog` (§7.2).
+#   `builtin` pseudo-server — plus skills from the global layer and every
+#   mountable preset's standing scope. The single on-demand catalog is emitted to
+#   `catalogFile` (default `~/.dsh/capability-catalog.yaml`) for grep/read.
 # - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
 # - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
 #   execution of tools — MCP or native — and skill loading). Executes on the GLOBAL

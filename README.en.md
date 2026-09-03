@@ -120,7 +120,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | **Resident** | tool | full schema in `assembly.tools` → the model's `tools` request payload, visible at every step | none (already resident) | model calls it directly; at runtime it goes through the full `ctx.tools` pipeline |
 | | skill | name + description in the `<available_skills>` catalog (body not in the catalog) | none (already resident) | the `skill` tool loads the body on demand (progressive loading) |
 | **On-demand** | tool | not in the payload (zero context cost) | `meta_search` list / `grep` the materialized catalog YAML (`catalogFile`) | executed by `meta_invoke` (via `ctx.tools.execute`, full pipeline); or fetch the schema through detail and call it directly |
-| | skill | not in the `<available_skills>` catalog | `meta_search`, or `grep` the materialized catalog YAML (`catalogFile`; entries come from `progressiveSkillCatalog` and registered skills) | `meta_invoke` loads the SKILL.md body by `path` |
+| | skill | not in the `<available_skills>` catalog | `meta_search`, or `grep` the materialized catalog YAML (`catalogFile`) | `meta_invoke` loads the SKILL.md body (via `ctx.skills`) |
 | **Blocked** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
 | | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
 
@@ -133,42 +133,44 @@ Rules are declared under the `config` of the `capability-menu-policy` plugin ent
 ```yaml
 config:
   tools:
-    exposed: [execute_cmd, get_session_context, search_kb, 'mcp__gongfeng__*']   # wildcard: everything under this server is resident
-    progressive: ['mcp__*', 'server:km:*']                                        # wildcard fallback + bulk on-demand by server prefix
-    blocked: ['mcp__secret__*']                                                   # blocked outranks everything, even resident
+    exposed:
+      - execute_cmd
+      - get_session_context
+      - search_kb
+      - 'mcp__gongfeng__*'    # wildcard: everything under this server is resident
+    progressive:
+      - 'mcp__*'              # wildcard fallback
+      - 'server:km:*'         # bulk on-demand by server prefix
+    blocked:
+      - 'mcp__secret__*'      # blocked outranks everything, even resident
   skills:
-    exposed: [debugging, coding]
-    progressive: [legacy_skill]          # explicit on-demand (unlisted skills default to resident)
-    blocked: [forbidden_skill]
-  metaTools: [meta_search, meta_invoke]  # always resident; cannot be blocked
-  progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
+    exposed:
+      - debugging
+      - coding
+    progressive:
+      - legacy_skill          # explicit on-demand (unlisted skills default to resident)
+    blocked:
+      - forbidden_skill
+  metaTools:
+    - meta_search             # always resident; cannot be blocked
+    - meta_invoke
 ```
 
 **Rule priority** (first match wins): `blocked` exact > `blocked` wildcard > `exposed` exact > `progressive` exact > `exposed` wildcard > `progressive` wildcard > default Exposed. `blocked` is the hardest control (it overrides everything), and the meta tools (`meta_search`/`meta_invoke`) are always Exposed and cannot be blocked. **Exact rules win over wildcards (even across tiers)**: for example, when `tools.exposed: ['mcp__gongfeng__*']` exists, clicking a tool to On-demand in the Capability Menu writes an exact `progressive` rule that takes effect properly instead of being pushed back by the wildcard (if it is still overridden by a higher-priority rule, the UI reports that the classification did not apply). Listing native tools in `tools.exposed` (such as `bash`) is an *explicit resident declaration*: native tools are cataloged exactly like MCP tools (under the `builtin` server) and can be classified by rules — unlisted native tools default to Resident anyway. Once overridden by progressive/blocked, a native tool leaves the model's resident view; when On-demand it remains reachable via `meta_search` → `meta_invoke`, so it is never fully locked away. Do not name a real MCP server `builtin` (it would collide with the native-tool group).
 
 > Changes made in the Capability Menu tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 
-### Progressive skill catalog (`progressiveSkillCatalog`)
+### On-demand capability catalog (`catalogFile`, the single materialized catalog, searchable with `grep`)
 
-On-demand (Progressive) skills stay out of the fixed context and may not even be registered in `ctx.skills`. To keep them discoverable, a separate YAML stores name + description + path, indexed by the registry and searched via `meta_search`; the full SKILL.md is loaded on demand by `meta_invoke` (reading the YAML `path` when the skill is not registered in `ctx.skills`):
+The model-side catalog for On-demand capabilities is **one auto-generated file** — the registry rewrites it automatically whenever tools/skills change or classification changes (a Capability Menu click or `updateConfig`). It defaults to `~/.dsh/capability-catalog.yaml` (change it with `catalogFile`, or disable by setting an empty string). There is **no separate user-maintained input file**: a skill must first be **registered in `ctx.skills`** (provided by a skill provider — e.g. put its SKILL.md under a user/project skills root or mount it via `customSkillDirs`), then switched to On-demand in the Capability Menu or by a `skills.progressive` rule, and it automatically appears in this file.
 
-```yaml
-# ~/.dsh/progressive-skills.yaml
-skills:
-  - name: legacy_skill            # matches the rule name in skills.progressive
-    description: A legacy migration skill, used infrequently
-    whenToUse: Use when working on legacy projects
-    path: /path/to/legacy_skill   # directory containing SKILL.md
-```
-
-### On-demand capability catalog (`catalogFile`, searchable with `grep`)
-
-On-demand (Progressive) capabilities are materialized into a YAML catalog file — the registry rewrites it automatically whenever tools/skills change or classification changes (a Capability Menu click or `updateConfig`). It defaults to `~/.dsh/capability-catalog.yaml` (change it with `catalogFile`, or disable by setting an empty string). This lets the model search on-demand capabilities directly with the native `grep`/`read`, without having to "think of" calling `meta_search` first; `meta_search` is still available as the structured schema entry point. The system prompt always carries one line pointing at the catalog path, telling the model to `grep` it first when it needs a low-frequency capability (when there are no on-demand capabilities at all, no line is injected, saving context).
+This lets the model search on-demand capabilities directly with the native `grep`/`read`, without having to "think of" calling `meta_search` first; `meta_search` is still available as the structured schema entry point. The system prompt always carries one line pointing at the catalog path, telling the model to `grep` it first when it needs a low-frequency capability (when there are no on-demand capabilities at all, no line is injected, saving context). Once the model has an id, `meta_invoke` runs/loads it: tools through `ctx.tools.execute`, skill bodies through `ctx.skills`.
 
 ```yaml
-# ~/.dsh/capability-catalog.yaml (auto-generated; contains only Progressive
-# capabilities — Exposed ones are already resident and Blocked ones must not
-# be discoverable, so neither is written)
+# ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand /
+# Progressive capabilities — Resident ones are already resident and Blocked
+# ones must not be discoverable, so neither is written. Lists are emitted as
+# `-` block sequences, one item per line.)
 capabilities:
   - id: mcp__km__search
     kind: tool
@@ -182,8 +184,6 @@ capabilities:
     whenToUse: Use when working on legacy projects
 ```
 
-> `progressiveSkillCatalog` is the **input** (metadata declaring progressive skills); `catalogFile` is the **output** (the auto-generated on-demand catalog materialization) — they serve different purposes.
->
 > The catalog file is written under the host's `~/.dsh` by default, so the sandbox of the model-side `bash`/`read` tools must be able to reach that path. If the sandbox isolates the host directory, explicitly configure `catalogFile` to a path the sandbox can see. The default path is shared across multiple dsh instances (last-write-wins); in multi-instance deployments, give each instance its own `catalogFile`.
 
 ### Default (policy not configured)

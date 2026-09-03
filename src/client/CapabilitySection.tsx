@@ -324,8 +324,8 @@ function ReadyBody(props: {
   const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle } = props
   const { servers, skills } = groupRows(snapshot.rows)
   // Skills whose source root is inside the current project vs. everything else
-  // (user/global dirs, bundled, custom, runtime); progressive-catalog entries
-  // carry no source and belong to the global group.
+  // (user/global dirs, bundled, custom, runtime); skills without a source label
+  // belong to the global group.
   const projectSkills = skills.filter(skill => PROJECT_SOURCES.has(skill.source ?? ''))
   const globalSkills = skills.filter(skill => !PROJECT_SOURCES.has(skill.source ?? ''))
   // Per-tab statistics: tools tab counts tool rows, Skills tab counts skills.

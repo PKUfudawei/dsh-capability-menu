@@ -10,8 +10,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ToolRunContext, JsonValue } from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { isModelInvocable, renderSkillContent, type SkillDefinition, type SkillResourceBase, type SkillSource } from '@deepseek-ai/dsh-skill'
-import { SKILL_ID_PREFIX, skillNameOf, type CapabilityRecord } from './registry.ts'
+import { isModelInvocable, renderSkillContent, type SkillResourceBase } from '@deepseek-ai/dsh-skill'
+import { SKILL_ID_PREFIX, skillNameOf } from './registry.ts'
 
 export const name = 'capability-menu-invoke'
 export const inject = ['capability', 'tools', 'skills']
@@ -87,46 +87,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   // WeakMap lets entries be collected with the agent. Without an agent context
   // (headless dispatch) nothing is cached.
   const loadedSkills = new WeakMap<object, Set<string>>()
-
-  /**
-   * Load a Progressive skill's full body. Progressive skills are indexed from
-   * the independent YAML catalog and may not be registered in `ctx.skills`; read
-   * the catalog entry's `path` (SKILL.md) directly and strip frontmatter to
-   * produce a `SkillDefinition`-compatible body.
-   */
-  const loadProgressiveSkill = async (
-    name: string,
-    capability: CapabilityRecord,
-    signal: AbortSignal | undefined,
-  ): Promise<SkillDefinition | undefined> => {
-    // If the skill is registered globally, prefer the registry's parser.
-    const registered = await ctx.skills.get(name, { signal }).catch(() => undefined)
-    if (registered !== undefined) return registered
-    const basePath = capability.origin.path
-    if (basePath === undefined) return undefined
-    const { readFile } = await import('node:fs/promises')
-    const { resolve } = await import('node:path')
-    const markdownPath = resolve(process.cwd(), basePath, 'SKILL.md')
-    let text: string
-    try {
-      text = await readFile(markdownPath, 'utf8')
-    } catch (error) {
-      ctx.logger.warn(`meta_invoke: progressive skill "${name}" body not readable (${markdownPath}): ${String(error)}`)
-      return undefined
-    }
-    const content = stripFrontmatter(text)
-    return {
-      name,
-      description: capability.description,
-      ...capability.whenToUse !== undefined ? { whenToUse: capability.whenToUse } : {},
-      invocation: { modelInvocable: true, userInvocable: false },
-      source: { type: 'local' } as unknown as SkillSource,
-      provider: capability.origin.provider ?? 'progressive-catalog',
-      ...capability.origin.path !== undefined ? { path: resolve(process.cwd(), capability.origin.path) } : {},
-      resourceBase: { kind: 'directory', path: resolve(process.cwd(), basePath) },
-      content,
-    }
-  }
 
   const tool = defineTool({
     name: 'meta_invoke',
@@ -313,14 +273,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           signal: exec.signal,
           scope: exec.agent,
         }
-        let skill = await ctx.skills.get(name, lookup).catch(() => undefined)
-        // Progressive skills are indexed from the independent YAML catalog; they may
-        // not be registered in the session skill registry. Fall back to reading
-        // the catalog entry's path (or the catalog-provided name lookup) so the
-        // full SKILL.md can still be loaded on demand.
-        if (skill === undefined) {
-          skill = await loadProgressiveSkill(name, capability, exec.signal)
-        }
+        const skill = await ctx.skills.get(name, lookup).catch(() => undefined)
         if (skill === undefined) {
           throw new Error(`meta_invoke: skill "${name}" is unknown or no longer available`)
         }

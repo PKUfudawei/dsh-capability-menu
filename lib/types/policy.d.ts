@@ -59,12 +59,6 @@ export interface Config {
      * Progressive or Blocked. Default `[meta_search, meta_invoke]`.
      */
     metaTools?: string[];
-    /**
-     * Optional path to a Progressive-skill catalog YAML (name + description +
-     * path). Consumed by the registry as an additional skill index source (see
-     * `@daweifu/capability-menu-registry` `progressiveSkillCatalog`).
-     */
-    progressiveSkillCatalog?: string;
 }
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;

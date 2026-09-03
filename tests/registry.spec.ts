@@ -178,37 +178,6 @@ describe('meta-registry', () => {
     expect(after).toBe(before + 1)
   })
 
-  it('indexes Progressive skills from the independent YAML catalog (§7.2)', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const { writeFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    const catalog = join(home, 'progressive-skills.yaml')
-    await writeFile(catalog, [
-      'skills:',
-      '  - name: sql-analytics',
-      '    description: SQL analytics query templates and methods',
-      '    whenToUse: aggregate queries or reporting',
-      '    path: /srv/skills/sql-analytics',
-      '  - name: incident-runbook',
-      '    description: Incident runbook and triage flow',
-      '    path: /srv/skills/incident-runbook',
-      '',
-    ].join('\n'))
-    const ctx = await setup(home, { progressiveSkillCatalog: catalog })
-    await ctx.capability.refresh()
-
-    const found = ctx.capability.search({ kind: 'skill', query: 'sql' })
-    const sql = found.find(summary => summary.id === 'skill:sql-analytics')
-    expect(sql).toBeDefined()
-    expect(sql?.kind).toBe('skill')
-    expect(sql?.summary).toContain('SQL analytics')
-
-    const detail = await ctx.capability.getDetail('skill:incident-runbook')
-    expect(detail?.kind).toBe('skill')
-    expect(detail?.origin.path).toBe('/srv/skills/incident-runbook')
-    expect(detail?.tags).toContain('progressive-catalog')
-  })
-
   it('lists a skill directory and reads its text files with containment', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { mkdir, writeFile } = await import('node:fs/promises')
@@ -295,12 +264,16 @@ describe('meta-registry', () => {
     await ctx.capability.refresh()
 
     expect(ctx.capability.catalogPath()).toBe(catalogFile)
-    const doc = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string; description: string }> }
+    const raw = await readFile(catalogFile, 'utf8')
+    const doc = yaml.load(raw) as { capabilities: Array<{ id: string; description: string }> }
     const ids = doc.capabilities.map(entry => entry.id)
     expect(ids).toContain('mcp__km__search')
     expect(ids).not.toContain('mcp__gongfeng__create_issue')
     expect(ids).not.toContain('mcp__secret__read')
     expect(doc.capabilities.find(entry => entry.id === 'mcp__km__search')?.description.length).toBeLessThanOrEqual(160)
+    // The emitted YAML uses block sequences (`- id: ...`), not flow arrays.
+    expect(raw).toContain('- id: mcp__km__search')
+    expect(raw).not.toMatch(/capabilities:\s*\[/)
 
     // C2: reclassifying the Progressive capability to blocked must remove it
     // from the disk catalog — the grep-able file must not keep exposing it
