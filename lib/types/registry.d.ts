@@ -9,7 +9,8 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope';
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools';
 /**
  * Kinds of capability the catalog can hold.
- * - `tool`:   action capability — executes a concrete action (an MCP tool).
+ * - `tool`:   action capability — executes a concrete action (an MCP tool or a
+ *   harness-native tool cataloged under the reserved `builtin` server).
  * - `skill`:  action capability — loads the method/instructions for a task.
  */
 export type CapabilityKind = 'tool' | 'skill';
@@ -17,21 +18,36 @@ export type CapabilityKind = 'tool' | 'skill';
  * Stable invocation actions a capability can declare. Each kind maps to one
  * canonical action; a new kind only deserves a new value here when it
  * introduces a new action (not a new flavor of an existing one).
- * `execute` = run the concrete action (an MCP tool, via `ctx.tools.execute`);
+ * `execute` = run the concrete action (a tool — MCP or native — via `ctx.tools.execute`);
  * `load`    = load the method/instructions (a skill).
  */
 export type CapabilityAction = 'execute' | 'load';
 /** Stable identifier prefixes: MCP tools keep `mcp__...`, skills use `skill:<name>`. */
 export declare const SKILL_ID_PREFIX = "skill:";
 export declare const MCP_ID_PREFIX = "mcp__";
+/**
+ * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
+ * management surface. Native tools (bash/read/write/…) are cataloged like MCP
+ * tools — same `server` dimension — so the 能力菜单 can group them, classify
+ * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
+ */
+export declare const BUILTIN_SERVER = "builtin";
+/**
+ * Tool names that never enter the capability catalog: this plugin's own
+ * control plane (`meta_search`/`meta_invoke`, always Resident) and the
+ * reserved Code Mode presentation transport (`run_code`).
+ */
+export declare const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string>;
 /** Capability-stable origin metadata used by search filters and detail views. */
 export interface CapabilityOrigin {
-    /** Human/namespace label, e.g. `gongfeng` or `filesystem`. */
+    /** Human/namespace label: an MCP server name, the reserved `builtin` for native tools, or a skill provider. */
     readonly provider: string;
-    /** MCP server name, present only for `kind: 'tool'`. */
+    /** Server namespace, present only for `kind: 'tool'` (`builtin` for native tools). */
     readonly serverName?: string;
     /** Local skill path, present only for `kind: 'skill'`. */
     readonly path?: string;
+    /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+    readonly source?: string;
 }
 /** Objective and subjective usage statistics, written back from `tools/result`. */
 export interface CapabilityStats {
@@ -72,6 +88,8 @@ export interface CapabilitySummary {
     readonly name: string;
     readonly summary: string;
     readonly server?: string;
+    /** Skill source root label, present only for `kind: 'skill'`. */
+    readonly source?: string;
     readonly tags: readonly string[];
     readonly success_rate?: number;
     readonly uses: number;

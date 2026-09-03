@@ -63,7 +63,52 @@ function registerMcpTool(ctx: Context, server: string, raw: string, description:
   return name
 }
 
+function registerNativeTool(ctx: Context, name: string, description: string): string {
+  ctx.tools.register(defineTool({
+    name,
+    description,
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: false } },
+    async execute() {
+      return { ok: true }
+    },
+  }))
+  return name
+}
+
 describe('meta-registry', () => {
+  it('indexes harness-native tools under the builtin pseudo-server and keeps the control plane out', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home)
+    registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create a new issue/ticket/bug report in a Gongfeng project')
+    const bash = registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
+    const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions')
+    // The plugin's own control plane and the reserved transport never enter the catalog.
+    registerNativeTool(ctx, 'meta_search', 'Search capabilities')
+    registerNativeTool(ctx, 'meta_invoke', 'Execute a capability')
+    await ctx.capability.refresh()
+
+    // Natives are discoverable and grouped under the reserved builtin server.
+    const byBuiltin = ctx.capability.search({ server: 'builtin' })
+    const builtinIds = byBuiltin.map(summary => summary.id)
+    expect(builtinIds).toContain(bash)
+    expect(builtinIds).toContain(grep)
+    expect(byBuiltin.every(summary => summary.server === 'builtin')).toBe(true)
+
+    // Control-plane tools stay out of list/detail.
+    const allTools = ctx.capability.search({ kind: 'tool', maxResults: 100 })
+    const toolIds = allTools.map(summary => summary.id)
+    expect(toolIds).not.toContain('meta_search')
+    expect(toolIds).not.toContain('meta_invoke')
+    expect(ctx.capability.get('meta_search')).toBeUndefined()
+
+    // Detail for a native resolves through the tool registry.
+    const detail = await ctx.capability.getDetail(bash)
+    expect(detail?.kind).toBe('tool')
+    expect(detail?.origin.serverName).toBe('builtin')
+  })
+
+
   it('indexes MCP tools and model-invocable skills, and searches them', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     // Skills must exist before the skill provider/registry load: the skill
@@ -88,6 +133,9 @@ describe('meta-registry', () => {
 
     const skill = ctx.capability.search({ kind: 'skill' })
     expect(skill.some(summary => summary.id === 'skill:frontend-design')).toBe(true)
+    // Skills carry their filesystem source root so the 能力菜单 can group them
+    // into project vs global sections (user-agents = a global user dir here).
+    expect(skill.find(summary => summary.id === 'skill:frontend-design')?.source).toBe('user-agents')
 
     // Detail for the MCP tool exposes parameters + output.
     const detail = await ctx.capability.getDetail(issue, { scope: agentStub('agent') })

@@ -16,7 +16,8 @@ import { dirname, join, resolve, sep } from 'node:path'
 
 /**
  * Kinds of capability the catalog can hold.
- * - `tool`:   action capability — executes a concrete action (an MCP tool).
+ * - `tool`:   action capability — executes a concrete action (an MCP tool or a
+ *   harness-native tool cataloged under the reserved `builtin` server).
  * - `skill`:  action capability — loads the method/instructions for a task.
  */
 export type CapabilityKind = 'tool' | 'skill'
@@ -25,7 +26,7 @@ export type CapabilityKind = 'tool' | 'skill'
  * Stable invocation actions a capability can declare. Each kind maps to one
  * canonical action; a new kind only deserves a new value here when it
  * introduces a new action (not a new flavor of an existing one).
- * `execute` = run the concrete action (an MCP tool, via `ctx.tools.execute`);
+ * `execute` = run the concrete action (a tool — MCP or native — via `ctx.tools.execute`);
  * `load`    = load the method/instructions (a skill).
  */
 export type CapabilityAction = 'execute' | 'load'
@@ -33,15 +34,30 @@ export type CapabilityAction = 'execute' | 'load'
 /** Stable identifier prefixes: MCP tools keep `mcp__...`, skills use `skill:<name>`. */
 export const SKILL_ID_PREFIX = 'skill:'
 export const MCP_ID_PREFIX = 'mcp__'
+/**
+ * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
+ * management surface. Native tools (bash/read/write/…) are cataloged like MCP
+ * tools — same `server` dimension — so the 能力菜单 can group them, classify
+ * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
+ */
+export const BUILTIN_SERVER = 'builtin'
+/**
+ * Tool names that never enter the capability catalog: this plugin's own
+ * control plane (`meta_search`/`meta_invoke`, always Resident) and the
+ * reserved Code Mode presentation transport (`run_code`).
+ */
+export const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string> = new Set(['meta_search', 'meta_invoke', 'run_code'])
 
 /** Capability-stable origin metadata used by search filters and detail views. */
 export interface CapabilityOrigin {
-  /** Human/namespace label, e.g. `gongfeng` or `filesystem`. */
+  /** Human/namespace label: an MCP server name, the reserved `builtin` for native tools, or a skill provider. */
   readonly provider: string
-  /** MCP server name, present only for `kind: 'tool'`. */
+  /** Server namespace, present only for `kind: 'tool'` (`builtin` for native tools). */
   readonly serverName?: string
   /** Local skill path, present only for `kind: 'skill'`. */
   readonly path?: string
+  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+  readonly source?: string
 }
 
 /** Objective and subjective usage statistics, written back from `tools/result`. */
@@ -82,6 +98,8 @@ export interface CapabilitySummary {
   readonly name: string
   readonly summary: string
   readonly server?: string
+  /** Skill source root label, present only for `kind: 'skill'`. */
+  readonly source?: string
   readonly tags: readonly string[]
   readonly success_rate?: number
   readonly uses: number
@@ -282,7 +300,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   assertPositiveInteger('maxResults', maxResults, 1)
   assertWeight('weighting', weighting)
 
-  /** MCP tool records keyed by tool name; skills keyed by `skill:<name>`. */
+  /** Tool records keyed by tool name (MCP tools plus native tools under `builtin`); skills keyed by `skill:<name>`. */
   let toolRecords = new Map<string, CapabilityRecord>()
   let skillRecords = new Map<string, CapabilityRecord>()
   /** The scope each indexed skill was collected from; undefined = global layer. */
@@ -316,18 +334,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     return undefined
   }
 
-  /** Rebuild the MCP tool index synchronously from the visible tool registry. */
+  /** Rebuild the tool index synchronously from the visible tool registry. */
   const rebuildTools = (): void => {
     const next = new Map<string, CapabilityRecord>()
     for (const schema of ctx.tools.schemas()) {
-      // 只编目 mcp__ 工具：原生工具（bash/read 等非 mcp__ 前缀）不进能力目录，
-      // 因此不被 meta_search/meta_invoke 覆盖、也不在能力菜单（classifyAll）
-      // 枚举中；它们由 dsh 原生暴露面直连，仅受投影链可见性裁剪，须在
-      // tools.exposed 保活。与 invoke 的 id 前缀守卫保持一致。
-      if (!schema.name.startsWith(MCP_ID_PREFIX)) continue
+      // 全部可见工具都进编目，仅排除 meta_search/meta_invoke（本插件控制面，
+      // 恒常驻）与 run_code（Code Mode 保留传输层）。mcp__ 工具按真实 server
+      // 分组；原生工具（无 mcp__ 前缀）统一归入保留的 builtin server，使能力
+      // 菜单能统一按 server 分组、三档管理，meta_invoke 也能派发它们。
+      if (CATALOG_EXCLUDED_TOOLS.has(schema.name)) continue
       const existing = toolRecords.get(schema.name)
       const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
-      const serverName = serverNameOf(schema.name)
+      const isMcp = schema.name.startsWith(MCP_ID_PREFIX)
+      const serverName = isMcp ? serverNameOf(schema.name) : BUILTIN_SERVER
       next.set(schema.name, {
         id: schema.name,
         kind: 'tool',
@@ -418,6 +437,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
         origin: {
           provider: skill.provider,
+          ...typeof skill.source === 'string' ? { source: skill.source } : {},
         },
         parameters: { type: 'object', properties: {}, additionalProperties: false },
         invocation: { modelInvocable: true, userInvocable: skill.invocation.userInvocable },
@@ -531,7 +551,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  /** Refresh the whole catalog: MCP tools synchronously, skills asynchronously. */
+  /** Refresh the whole catalog: tools synchronously, skills asynchronously. */
   const refresh = async (): Promise<void> => {
     rebuildTools()
     await refreshSkills()
@@ -604,6 +624,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           name: record.name,
           summary: record.summary,
           ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
+          ...record.origin.source !== undefined ? { source: record.origin.source } : {},
           tags: record.tags,
           ...rate !== undefined ? { success_rate: rate } : {},
           uses: record.stats.uses,
@@ -721,11 +742,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   // meta_invoke wrapper itself records nothing for any capability.
   ctx.on('tools/result', (exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>) => {
     const name = exec.name
-    if (!name.startsWith(MCP_ID_PREFIX)) return
     const record = toolRecords.get(name)
     if (record === undefined) return
-    // meta_invoke never carries the `mcp__` prefix (filtered above), so a nested
-    // dispatch from meta_invoke attributes stats only to the target capability.
+    // Nested dispatches (a meta_invoke call or a native-tool forward) carry the
+    // target tool's own name, so stats always attribute to the target capability.
     const durationMs = result.meta !== undefined && typeof result.meta === 'object'
       && result.meta !== null && 'durationMs' in result.meta
       ? (result.meta as { durationMs?: unknown }).durationMs as number | undefined

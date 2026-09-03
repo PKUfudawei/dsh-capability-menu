@@ -30,7 +30,7 @@
 
 ## Capability Overview
 
-dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It builds a unified capability catalog (`ctx.capability`) over a large number of MCP tools / skills and manages their **exposure level and execution** in three tiers — **Resident / On-demand / Blocked** — so you can adjust the agent's capability boundary at any time, keep a flood of tools/skills out of a single request, and save tokens and context. Changes apply immediately without restarting, and the plugin composes into the Harness runtime purely through the Cordis plugin mechanism — no upstream source is modified.
+dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It builds a unified capability catalog (`ctx.capability`) over a large number of tools / skills (MCP tools and harness-native built-in tools) and manages their **exposure level and execution** in three tiers — **Resident / On-demand / Blocked** — so you can adjust the agent's capability boundary at any time, keep a flood of tools/skills out of a single request, and save tokens and context. Changes apply immediately without restarting, and the plugin composes into the Harness runtime purely through the Cordis plugin mechanism — no upstream source is modified.
 
 ### Capability Model
 
@@ -38,7 +38,7 @@ dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com
 
 | kind | provides to the agent | action | notes |
 | --- | --- | --- | --- |
-| `tool` | executes an action (an MCP tool) | `execute` | indexed by `ctx.tools` |
+| `tool` | executes an action (an MCP tool or a harness-native built-in tool) | `execute` | indexed by `ctx.tools` |
 | `skill` | the method / flow / knowledge for a class of tasks | `load` | indexed by `ctx.skills` |
 
 The model gets two meta tools:
@@ -51,14 +51,15 @@ The model gets two meta tools:
 ### Capability Menu
 
 <p align="center">
-  <img src="assets/screenshot-mcp-tools.png" alt="MCP tools tab" width="45%"/>
+  <img src="assets/screenshot-mcp-tools.png" alt="Tools tab" width="45%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
 </p>
 
 Once installed, a Capability Menu tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
 
-- **Two panes**: MCP tools (grouped by server, collapsible; click a row to view the model-facing tool definition — name / description / parameters) and Skills (click a row to expand its directory tree; click a file to preview the content, e.g. its SKILL.md).
-- **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, half-filled = On-demand, hollow = Blocked — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification, and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
+- **Tools**: every tool is grouped by server and collapsible. MCP tools hang under their own server (`gongfeng`/`km`…); harness-native built-in tools (`bash`/`read`/`write`/`glob`/`grep`…) hang under the reserved "System built-in" group (server key `builtin`). Click a row to view the model-facing tool definition — name / description / parameters.
+- **Skills**: click a row to expand its directory tree; click a file to preview the content, e.g. its SKILL.md. Skills are split into "Project skills" (workspace `.dsh/skills`, `.agents/skills`) and "Global skills" (`~/.dsh`, `~/.agents`, etc.); an empty section is hidden.
+- **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, half-filled = On-demand, hollow = Blocked — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification (built-in tools are manageable exactly like MCP tools), and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
 
 ## Quick Install
 
@@ -123,7 +124,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | **Blocked** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
 | | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
 
-> The tool tiers in the table above all refer to `mcp__` cataloged tools. Native tools do not take part in three-tier management; they can only be kept visible through `tools.exposed` (see the configuration sample below).
+> The tool tiers in the table above cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `builtin` server and are managed in all three tiers just like MCP tools). **An On-demand built-in tool leaves the model's resident view**: the model reaches it via `meta_search` and executes it with `meta_invoke` (a two-hop call) — so keep high-frequency core tools Resident. The `meta_search`/`meta_invoke` tools themselves and the reserved Code Mode transport `run_code` never enter the capability catalog; they are always Resident and cannot be cycled in the Capability Menu.
 
 ## Configuration
 
@@ -143,7 +144,7 @@ config:
   progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
 ```
 
-**Rule priority** (first match wins): `blocked` exact > `blocked` wildcard > `exposed` exact > `progressive` exact > `exposed` wildcard > `progressive` wildcard > default Exposed. `blocked` is the hardest control (it overrides everything), and the meta tools (`meta_search`/`meta_invoke`) are always Exposed and cannot be blocked. **Exact rules win over wildcards (even across tiers)**: for example, when `tools.exposed: ['mcp__gongfeng__*']` exists, clicking a tool to On-demand in the Capability Menu writes an exact `progressive` rule that takes effect properly instead of being pushed back by the wildcard (if it is still overridden by a higher-priority rule, the UI reports that the classification did not apply). Listing native tools in `tools.exposed` (such as `execute_cmd`) *keeps them alive*: native tools are not part of the capability catalog and are only clipped in visibility by the projection chain — listing them here keeps them visible and callable by the model. Once overridden by progressive/blocked, the model can neither see nor call them.
+**Rule priority** (first match wins): `blocked` exact > `blocked` wildcard > `exposed` exact > `progressive` exact > `exposed` wildcard > `progressive` wildcard > default Exposed. `blocked` is the hardest control (it overrides everything), and the meta tools (`meta_search`/`meta_invoke`) are always Exposed and cannot be blocked. **Exact rules win over wildcards (even across tiers)**: for example, when `tools.exposed: ['mcp__gongfeng__*']` exists, clicking a tool to On-demand in the Capability Menu writes an exact `progressive` rule that takes effect properly instead of being pushed back by the wildcard (if it is still overridden by a higher-priority rule, the UI reports that the classification did not apply). Listing native tools in `tools.exposed` (such as `bash`) is an *explicit resident declaration*: native tools are cataloged exactly like MCP tools (under the `builtin` server) and can be classified by rules — unlisted native tools default to Resident anyway. Once overridden by progressive/blocked, a native tool leaves the model's resident view; when On-demand it remains reachable via `meta_search` → `meta_invoke`, so it is never fully locked away. Do not name a real MCP server `builtin` (it would collide with the native-tool group).
 
 > Changes made in the Capability Menu tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 

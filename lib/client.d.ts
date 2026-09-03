@@ -13,14 +13,17 @@ import { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
  * how `dsh-client-ui-settings-plugin-inventory` consumes
  * `ctx.remote.pluginInventory`.
  */
-/** One capability's Exposed/Progressive/Blocked row, as surfaced by the server. */
+/** One capability's Resident/On-demand/Blocked row, as surfaced by the server. */
 interface CapabilityRow {
   readonly id: string;
   readonly kind: 'tool' | 'skill';
   readonly name: string;
+  /** Server namespace for tools (`builtin` groups harness-native tools); undefined for skills. */
   readonly server?: string;
+  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+  readonly source?: string;
   readonly class: 'exposed' | 'progressive' | 'blocked';
-  /** Human-friendly display: `Exposed · 常驻（直接调用）` / `Progressive · 按需（目录渐进加载）` / `Blocked · 禁用`. */
+  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Blocked · 禁用`. */
   readonly classLabel?: string;
   readonly mandatory: boolean;
 }
@@ -47,6 +50,7 @@ interface ToolDetail {
     readonly provider: string;
     readonly serverName?: string;
     readonly path?: string;
+    readonly source?: string;
   };
   readonly tags: readonly string[];
   readonly stats: {
@@ -132,7 +136,7 @@ interface CapabilitySectionInjected {
   remoteKeys?: string;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'exposed' | 'progressive' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'emptyTools' | 'emptySkills' | 'toolCount' | 'exposedShort' | 'progressiveShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'exposed' | 'progressive' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtinGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'toolCount' | 'exposedShort' | 'progressiveShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

@@ -53,6 +53,19 @@ function registerMcpTool(ctx: Context, server: string, raw: string, description:
   return name
 }
 
+function registerNativeTool(ctx: Context, name: string, description: string): string {
+  ctx.tools.register(defineTool({
+    name,
+    description,
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: false } },
+    async execute() {
+      return { ok: true }
+    },
+  }))
+  return name
+}
+
 async function writeSkill(root: string, name: string, description: string, body: string): Promise<void> {
   const { mkdir, writeFile } = await import('node:fs/promises')
   const { join } = await import('node:path')
@@ -122,6 +135,27 @@ describe('capability-menu-search', () => {
 
     const { isError } = await runTool(ctx, 'meta_search', { query: 'issue', id: issue })
     expect(isError).toBe(true)
+  })
+
+  it('searches and details harness-native tools via the builtin server', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    const ctx = await setup(home)
+    const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions')
+    registerMcpTool(ctx, 'gongfeng', 'search', 'Find issues by keyword')
+    await ctx.capability.refresh()
+
+    const { value, isError } = await runTool(ctx, 'meta_search', { query: 'regular expressions' })
+    expect(isError).toBe(false)
+    const result = value as { mode: string; results: Array<{ id: string; server?: string }> }
+    // The native is ranked and carries the reserved builtin server on the wire.
+    expect(result.results.some(item => item.id === grep && item.server === 'builtin')).toBe(true)
+
+    const detail = await runTool(ctx, 'meta_search', { id: grep })
+    expect(detail.isError).toBe(false)
+    const detailResult = detail.value as { mode: string; result: { kind: string; name: string } }
+    expect(detailResult.mode).toBe('detail')
+    expect(detailResult.result.kind).toBe('tool')
+    expect(detailResult.result.name).toBe(grep)
   })
 
   it('hides blocked capabilities from list and rejects blocked detail', async () => {

@@ -8,14 +8,17 @@
  * `ctx.remote.pluginInventory`.
  */
 
-/** One capability's Exposed/Progressive/Blocked row, as surfaced by the server. */
+/** One capability's Resident/On-demand/Blocked row, as surfaced by the server. */
 export interface CapabilityRow {
   readonly id: string
   readonly kind: 'tool' | 'skill'
   readonly name: string
+  /** Server namespace for tools (`builtin` groups harness-native tools); undefined for skills. */
   readonly server?: string
+  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+  readonly source?: string
   readonly class: 'exposed' | 'progressive' | 'blocked'
-  /** Human-friendly display: `Exposed · 常驻（直接调用）` / `Progressive · 按需（目录渐进加载）` / `Blocked · 禁用`. */
+  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Blocked · 禁用`. */
   readonly classLabel?: string
   readonly mandatory: boolean
 }
@@ -41,7 +44,7 @@ export interface ToolDetail {
   readonly whenToUse?: string
   readonly parameters: Record<string, unknown>
   readonly output?: Record<string, unknown>
-  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string }
+  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string }
   readonly tags: readonly string[]
   readonly stats: {
     readonly uses: number

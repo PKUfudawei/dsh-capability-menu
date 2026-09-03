@@ -210,6 +210,18 @@ describe('capability-menu-policy plugin', () => {
     expect(decision).toEqual({ kind: 'deny', reason: 'skill "forbidden-skill" is blocked and cannot be loaded' })
   })
 
+  it('denies direct execution of a blocked native tool at pre-execute', async () => {
+    const ctx = await setup({ tools: { blocked: ['bash'] } })
+    registerTool(ctx, 'bash')
+    const decision = await ctx.waterfall('tools/pre-execute', {
+      callId: CallId('call-1'),
+      name: 'bash',
+      arguments: {},
+      signal: new AbortController().signal,
+    }, () => Promise.resolve({ kind: 'allow' }))
+    expect(decision).toEqual({ kind: 'deny', reason: 'capability "bash" is blocked and cannot be executed' })
+  })
+
   it('does not deny Progressive tools so meta_invoke can still execute them', async () => {
     const ctx = await setup({ tools: { progressive: ['mcp__km__search'] } })
     const decision = await ctx.waterfall('tools/pre-execute', {
@@ -323,6 +335,30 @@ describe('capability-policy management surface (能力菜单)', () => {
     expect(byId.get('mcp__km__search')?.class).toBe('blocked')
     expect(byId.get('mcp__km__search')?.classLabel).toBe('Blocked · 禁用')
     expect(byId.get('mcp__gongfeng__create_issue')?.mandatory).toBe(false)
+  })
+
+  it('classifyAll surfaces native tools under the builtin server and lets them cycle to On-demand', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(policy, {})
+
+    registerTool(ctx, 'grep')
+    registerTool(ctx, 'mcp__gongfeng__create_issue')
+    await ctx.capability.refresh()
+
+    const service = ctx.capabilityPolicy
+    const row = service.classifyAll().find(c => c.id === 'grep')
+    expect(row?.server).toBe('builtin')
+    expect(row?.class).toBe('exposed')
+    expect(row?.classLabel).toContain('Resident')
+
+    // The UI cycle writes an exact rule; the native reclassifies immediately.
+    await service.updateConfig({ tools: { progressive: ['grep'] } })
+    expect(service.classifyCapability('grep')).toBe('progressive')
+    expect(service.classifyAll().find(c => c.id === 'grep')?.classLabel).toContain('On-demand')
   })
 
   it('classifyAll is not truncated by the registry maxResults default', async () => {

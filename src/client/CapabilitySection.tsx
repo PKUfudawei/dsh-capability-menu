@@ -2,16 +2,19 @@
  * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
  *
  * React section for the 能力菜单 settings tab. Follows the real dsh client
- * pattern (see `dsh-client-ui-settings-plugins`): two tabs (MCP 工具 / Skills)
+ * pattern (see `dsh-client-ui-settings-plugins`): two tabs (工具 / Skills)
  * under one heading, each listing capabilities with a clickable class chip.
  *
  * Layout:
  *   - summary strip   → per-class counts for the active tab
- *   - tabs            → MCP tools | Skills (plugins-tab chrome)
- *   - MCP tab         → grouped by server, collapsible disclosure rows; the
+ *   - tabs            → Tools | Skills (plugins-tab chrome)
+ *   - Tools tab       → grouped by server, collapsible disclosure rows; the
  *                       per-class count chip and each tool's class chip are
- *                       clickable to cycle Progressive → Blocked → Exposed
- *   - Skills tab      → flat skill rows with the same clickable class chip
+ *                       clickable to cycle Resident → On-demand → Blocked.
+ *                       Harness-native tools (no real MCP server) share the
+ *                       reserved `builtin` group, shown as 「系统内置工具」.
+ *   - Skills tab      → split into Project/Global sections, each with flat
+ *                       skill rows carrying the same clickable class chip
  *                       plus a directory tree / file preview
  */
 import { useState, useEffect, useCallback } from 'react'
@@ -47,6 +50,9 @@ export type CapabilityKey =
   | 'rules'
   | 'toolsGroup'
   | 'skillsGroup'
+  | 'builtinGroup'
+  | 'globalSkills'
+  | 'projectSkills'
   | 'emptyTools'
   | 'emptySkills'
   | 'toolCount'
@@ -67,7 +73,7 @@ type ViewState =
 const CLASS_KEYS = ['exposed', 'progressive', 'blocked'] as const
 type CapabilityClass = (typeof CLASS_KEYS)[number]
 
-/** Click-cycle order: Progressive → Blocked → Exposed → Progressive. */
+/** Click-cycle order on machine values (displayed as On-demand → Blocked → Resident). */
 const NEXT_CLASS: Record<CapabilityClass, CapabilityClass> = {
   progressive: 'blocked',
   blocked: 'exposed',
@@ -134,6 +140,9 @@ body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-dot-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
 .mc-dot-btn:disabled{cursor:default;opacity:.6;border-color:transparent;background:0 0}
 .mc-tag{font-size:11px;line-height:18px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary)}
+.mc-section-head{display:flex;align-items:center;gap:10px;padding:2px 2px 4px;font-size:13px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.mc-section-head:not(:first-child){margin-top:2px}
+.mc-section-head:after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l1)}
 .mc-empty{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:8px}
 .mc-error{padding:12px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:13px}
 .mc-error pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:11px;color:var(--dsw-alias-label-tertiary)}
@@ -173,6 +182,12 @@ interface Grouped {
   skills: CapabilityRow[]
 }
 
+/** The reserved server key grouping harness-native (non-MCP) tools. */
+const BUILTIN_SERVER = 'builtin'
+
+/** Skills whose source root lives inside the current project. */
+const PROJECT_SOURCES = new Set(['project-dsh', 'project-agents'])
+
 function groupRows(rows: readonly CapabilityRow[]): Grouped {
   const byServer = new Map<string, CapabilityRow[]>()
   const skills: CapabilityRow[] = []
@@ -181,7 +196,7 @@ function groupRows(rows: readonly CapabilityRow[]): Grouped {
       skills.push(row)
       continue
     }
-    const server = row.server ?? 'builtin'
+    const server = row.server ?? BUILTIN_SERVER
     const list = byServer.get(server)
     if (list === undefined) byServer.set(server, [row])
     else list.push(row)
@@ -308,7 +323,12 @@ function ReadyBody(props: {
 }): JSX.Element {
   const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle } = props
   const { servers, skills } = groupRows(snapshot.rows)
-  // Per-tab statistics: MCP tools tab counts tool rows, Skills tab counts skills.
+  // Skills whose source root is inside the current project vs. everything else
+  // (user/global dirs, bundled, custom, runtime); progressive-catalog entries
+  // carry no source and belong to the global group.
+  const projectSkills = skills.filter(skill => PROJECT_SOURCES.has(skill.source ?? ''))
+  const globalSkills = skills.filter(skill => !PROJECT_SOURCES.has(skill.source ?? ''))
+  // Per-tab statistics: tools tab counts tool rows, Skills tab counts skills.
   const statRows = activeTab === 'tools' ? snapshot.rows.filter(r => r.kind === 'tool') : skills
   const summary = CLASS_KEYS.map(cls => ({ cls, count: countByClass(statRows, cls) }))
 
@@ -396,7 +416,7 @@ function ReadyBody(props: {
                       }}
                     >
                       <IconTriangleRightFill14 size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
-                      <span className="mc-server-name">{server}</span>
+                      <span className="mc-server-name">{server === BUILTIN_SERVER ? t('builtinGroup') : server}</span>
                       <span className="mc-server-count">{t('toolCount', { count: tools.length })}</span>
                       <span className="mc-server-meta">
                         <span className="mc-counts">
@@ -471,13 +491,32 @@ function ReadyBody(props: {
           {skills.length === 0 ? (
             <p className="mc-empty">{t('emptySkills')}</p>
           ) : (
-            <SkillList
-              skills={skills}
-              remote={remote}
-              busy={busy}
-              t={t}
-              onCycle={onCycle}
-            />
+            <>
+              {projectSkills.length > 0 && (
+                <>
+                  <h3 className="mc-section-head">{t('projectSkills')}</h3>
+                  <SkillList
+                    skills={projectSkills}
+                    remote={remote}
+                    busy={busy}
+                    t={t}
+                    onCycle={onCycle}
+                  />
+                </>
+              )}
+              {globalSkills.length > 0 && (
+                <>
+                  <h3 className="mc-section-head">{t('globalSkills')}</h3>
+                  <SkillList
+                    skills={globalSkills}
+                    remote={remote}
+                    busy={busy}
+                    t={t}
+                    onCycle={onCycle}
+                  />
+                </>
+              )}
+            </>
           )}
         </div>
       </div>

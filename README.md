@@ -30,7 +30,7 @@
 
 ## 能力总览
 
-dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 Cordis 插件，为海量 MCP tools / skills 建立统一能力目录（`ctx.capability`），并以**常驻 / 按需 / 禁用**三档管理暴露程度和执行方式——随时调整 agent 的能力边界，避免海量 tools/skills 塞满一次请求、节省 token 和上下文。调整即时生效、无需重启，纯插件机制组合进 Harness 运行时，不改上游源码。
+dsh-capability-menu 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 Cordis 插件，为海量 tools / skills（MCP 工具与内置原生工具）建立统一能力目录（`ctx.capability`），并以**常驻 / 按需 / 禁用**三档管理暴露程度和执行方式——随时调整 agent 的能力边界，避免海量 tools/skills 塞满一次请求、节省 token 和上下文。调整即时生效、无需重启，纯插件机制组合进 Harness 运行时，不改上游源码。
 
 ### 能力模型
 
@@ -38,7 +38,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 | kind | 对 Agent 提供 | action | 备注 |
 | --- | --- | --- | --- |
-| `tool` | 执行一个动作（MCP 工具） | `execute` | 由 `ctx.tools` 索引 |
+| `tool` | 执行一个动作（MCP 工具或内置原生工具） | `execute` | 由 `ctx.tools` 索引 |
 | `skill` | 某类任务的方法/流程/知识 | `load` | 由 `ctx.skills` 索引 |
 
 模型获得两个元工具：
@@ -51,14 +51,15 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 ### 能力菜单
 
 <p align="center">
-  <img src="assets/screenshot-mcp-tools.png" alt="MCP tools tab" width="45%"/>
+  <img src="assets/screenshot-mcp-tools.png" alt="工具 tab" width="45%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="45%"/>
 </p>
 
 安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
-- **两栏**：MCP 工具（按 server 分组、可折叠；点击某行查看模型侧工具定义 name / description / parameters）与 Skills（点击某行展开目录树，点文件预览 SKILL.md 等正文）。
-- **三态圆点与循环切换**：每个能力带一个分类圆点（实心 = 常驻、半实心 = 按需、空心 = 禁用），栏顶部显示各档数量统计；点击能力旁的圆点或分类计数即可循环切换分类，若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
+- **工具**：全部工具按 server 分组、可折叠。MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（`bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置工具」组（server 键 `builtin`）。点击某行查看模型侧工具定义 name / description / parameters。
+- **Skills**：点击某行展开目录树，点文件预览 SKILL.md 等正文；按来源分成「项目技能」（工作区 `.dsh/skills`、`.agents/skills`）与「全局技能」（`~/.dsh`、`~/.agents` 等）两组，无项目技能时整组隐藏。
+- **三态圆点与循环切换**：每个能力带一个分类圆点（实心 = 常驻、半实心 = 按需、空心 = 禁用），栏顶部显示各档数量统计；点击能力旁的圆点或分类计数即可循环切换分类（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
 
 ## 快速安装
 
@@ -123,7 +124,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | **禁用** | tool | 不进 payload | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；模型幻觉直调也在 `tools/pre-execute` 被硬拒绝 |
 | | skill | 不进 `<available_skills>` 目录 | `meta_search` 不返回、目录 YAML 不写入 | `meta_invoke` 拒绝；`skill` 工具在 `tools/pre-execute` 硬拒绝 |
 
-> 上表的 tool 档位均指 `mcp__` 编目工具；原生工具不参与三档管理，只能以 `tools.exposed` 保活可见性（见下方配置文件示例）。
+> tool 档位同时覆盖 `mcp__` 编目工具与内置原生工具（原生工具统一以 `builtin` 为 server 归组、同样三档可管）。**On-demand 的内置工具会退出模型常驻视野**，需要时经 `meta_search` 发现、`meta_invoke` 派发（两跳调用）——因此不建议把高频核心工具设为按需。`meta_search`/`meta_invoke` 自身与 Code Mode 保留传输层 `run_code` 不进能力目录，恒常驻、不可在「能力菜单」切换。
 
 ## 配置文件
 
@@ -143,7 +144,7 @@ config:
   progressiveSkillCatalog: ~/.dsh/progressive-skills.yaml
 ```
 
-**规则优先级**（命中即停）：`blocked` 精确 > `blocked` 通配 > `exposed` 精确 > `progressive` 精确 > `exposed` 通配 > `progressive` 通配 > 默认 Exposed。`blocked` 是最硬的控制（压过一切），meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed 且不可被 blocked。**精确规则优先于通配（跨档也成立）**：例如 `tools.exposed: ['mcp__gongfeng__*']` 存在时，在「能力菜单」里把某个工具点击设为按需，会写入一条精确 progressive 规则并正确生效，不会被通配压回（若仍被更高优先级规则覆盖，界面会提示分类未生效）。`tools.exposed` 里列原生工具名（`execute_cmd` 等）是**保活**：原生工具不进能力编目、只受投影链裁剪可见性，列在这里保持模型可见可调——一旦被 progressive/blocked 覆盖，模型就看不到也调不到。
+**规则优先级**（命中即停）：`blocked` 精确 > `blocked` 通配 > `exposed` 精确 > `progressive` 精确 > `exposed` 通配 > `progressive` 通配 > 默认 Exposed。`blocked` 是最硬的控制（压过一切），meta 工具（`meta_search`/`meta_invoke`）恒为 Exposed 且不可被 blocked。**精确规则优先于通配（跨档也成立）**：例如 `tools.exposed: ['mcp__gongfeng__*']` 存在时，在「能力菜单」里把某个工具点击设为按需，会写入一条精确 progressive 规则并正确生效，不会被通配压回（若仍被更高优先级规则覆盖，界面会提示分类未生效）。`tools.exposed` 里列原生工具名（`bash` 等）是**显式常驻声明**：原生工具与 MCP 工具一样进编目（归 `builtin` server）、可被规则分类，未列出时默认即常驻。一旦原生工具被 `progressive`/`blocked` 覆盖，它将退出模型常驻视野——On-demand 时仍可经 `meta_search` → `meta_invoke` 两跳调用，不会被彻底锁死。请勿把真实 MCP server 命名为 `builtin`（会与原生工具组撞名）。
 
 > 「能力菜单」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 

@@ -37,30 +37,30 @@
 #
 # - `capability-menu-registry` (P0): builds/indexes the capability catalog and
 #   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers
-#   no model-facing tool itself. Indexes the GLOBAL registry (no visibility
-#   filter) and additionally indexes Progressive skills from
+#   no model-facing tool itself. Indexes every visible tool — MCP tools by their
+#   server and harness-native tools (bash/read/write/…) under the reserved
+#   `builtin` pseudo-server — plus skills (global layer and every mountable
+#   preset's standing scope) and Progressive skills from
 #   `progressiveSkillCatalog` (§7.2).
 # - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
 # - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
-#   execution of MCP tools and skill loading). Executes on the GLOBAL view
-#   (no agent) so Progressive tools stay runnable; dedups already-loaded skills.
+#   execution of tools — MCP or native — and skill loading). Executes on the GLOBAL
+#   view (no agent) so On-demand tools stay runnable; dedups already-loaded skills.
 #   Rejects Blocked capabilities.
-# - `capability-menu-policy` (P3): Exposed/Progressive/Blocked projection
+# - `capability-menu-policy` (P3): Resident/On-demand/Blocked projection
 #   strategy + 能力菜单 surface. Reads explicit exposed/progressive/blocked
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
-#   `system-prompt/assemble` to Exposed + meta tools only. The execution chain
-#   (`ctx.tools.execute`) is untouched, so Progressive tools remain executable
+#   `system-prompt/assemble` to Resident + meta tools only. The execution chain
+#   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` with
 #   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力菜单 tab
-#   (Exposed/Progressive/Blocked rules + click-to-cycle classification +
+#   (Resident/On-demand/Blocked rules + click-to-cycle classification +
 #   read-only list), plus skill file browsing (`getDetail`/`listSkillDir`/
 #   `readSkillFile`) via the Typert gateway.
 #
-# Default (policy present but no config): every capability is Exposed — the
+# Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `progressive`/`blocked`
-# rules to pull capabilities out of the model surface. This bundle ships the
-# harness-native coding tools under `tools.exposed` so the model keeps direct
-# bash/file access.
+# rules to pull capabilities out of the model surface.
 - insert:
     - id: capability-menu-registry
       name: '@daweifu/capability-menu/registry'
@@ -71,13 +71,14 @@
     - id: capability-menu-policy
       name: '@daweifu/capability-menu/policy'
       config:
-        # Harness-native coding tools stay context-resident (Exposed) so the
-        # model can call them directly. meta_invoke only dispatches MCP `mcp__*`
-        # tools, so native tools (bash/read/write/edit/glob/grep) MUST stay
-        # Exposed — listing them Progressive/Blocked would make them neither
-        # visible nor invocable. The default (unlisted) class is Exposed; add
-        # explicit `progressive`/`blocked` rules to pull MCP servers and skills
-        # out of the model surface.
+        # Native coding tools are cataloged under the reserved `builtin`
+        # pseudo-server and are fully manageable like MCP tools. Unlisted
+        # capabilities default to Resident; list them under `progressive`/
+        # `blocked` to pull MCP servers, native tools, or skills out of the
+        # model surface. On-demand native tools stay invocable through
+        # `meta_search` → `meta_invoke`. The `meta_search`/`meta_invoke`
+        # control-plane tools and the reserved `run_code` transport never enter
+        # the catalog. Do not name a real MCP server `builtin`.
         tools:
           exposed:
             - bash

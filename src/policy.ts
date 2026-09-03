@@ -227,8 +227,10 @@ export interface CapabilityClassification {
   readonly kind: CapabilityKind
   /** Model-facing name (tool name or skill bare name). */
   readonly name: string
-  /** MCP server for tools; undefined for skills. */
+  /** Server namespace for tools (`builtin` for harness-native tools); undefined for skills. */
   readonly server?: string
+  /** Skill source root label, present only for skills. */
+  readonly source?: string
   readonly class: CapabilityClass
   /** Human-friendly display label for the classification. */
   readonly classLabel: string
@@ -405,6 +407,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           kind: summary.kind,
           name: summary.name,
           ...summary.server !== undefined ? { server: summary.server } : {},
+          ...summary.source !== undefined ? { source: summary.source } : {},
           class: cls,
           classLabel: CLASS_LABELS[cls],
           mandatory,

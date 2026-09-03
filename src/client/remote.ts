@@ -15,12 +15,14 @@ import type {
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
 
-/** Read-only row: one capability's Exposed/Progressive/Blocked classification. */
+/** Read-only row: one capability's Resident/On-demand/Blocked classification. */
 export interface CapabilityRow {
   readonly id: string
   readonly kind: 'tool' | 'skill'
   readonly name: string
   readonly server?: string
+  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+  readonly source?: string
   readonly class: 'exposed' | 'progressive' | 'blocked'
   readonly classLabel?: string
   readonly mandatory: boolean
@@ -42,7 +44,7 @@ export interface ToolDetail {
   readonly whenToUse?: string
   readonly parameters: Record<string, unknown>
   readonly output?: Record<string, unknown>
-  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string }
+  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string }
   readonly tags: readonly string[]
   readonly stats: {
     readonly uses: number
@@ -58,6 +60,7 @@ const capabilityRow$schema = z.object({
   kind: z.union([z.literal('tool'), z.literal('skill')]).readonly(),
   name: z.string().readonly(),
   server: z.string().optional().readonly(),
+  source: z.string().optional().readonly(),
   class: z.union([z.literal('exposed'), z.literal('progressive'), z.literal('blocked')]).readonly(),
   classLabel: z.string().optional().readonly(),
   mandatory: z.boolean().readonly(),
@@ -81,6 +84,7 @@ const toolDetail$schema = z.object({
     provider: z.string().readonly(),
     serverName: z.string().optional().readonly(),
     path: z.string().optional().readonly(),
+    source: z.string().optional().readonly(),
   }).readonly(),
   tags: z.array(z.string()).readonly(),
   stats: z.object({

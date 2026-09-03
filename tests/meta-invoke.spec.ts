@@ -62,6 +62,28 @@ function registerMcpTool(
   return name
 }
 
+function registerNativeTool(
+  ctx: Context,
+  name: string,
+  description: string,
+  onExecute?: (args: unknown) => unknown,
+): string {
+  ctx.tools.register(defineTool({
+    name,
+    description,
+    parameters: { command: { type: 'string', required: true, description: 'Command to run' } },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, received: { type: 'json' } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    async execute(args) {
+      if (onExecute) return onExecute(args) as never
+      return { ok: true, received: args }
+    },
+  }))
+  return name
+}
+
 async function writeSkill(root: string, name: string, description: string, body: string): Promise<void> {
   const { mkdir, writeFile } = await import('node:fs/promises')
   const { join } = await import('node:path')
@@ -152,6 +174,55 @@ describe('capability-menu-invoke', () => {
     expect(result.detail.target).toBe(issue)
     expect(result.detail.parameters).toBeDefined()
     expect(executed).toBe(false)
+  })
+
+  it('forwards a harness-native tool (builtin server) through the tool pipeline', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    let received: unknown
+    const bash = registerNativeTool(ctx, 'bash', 'Run commands in a bash shell', args => {
+      received = args
+      return { ok: true }
+    })
+    await ctx.capability.refresh()
+
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: bash, args: { command: 'echo hi' } })
+    expect(isError).toBe(false)
+    const result = value as { ok: boolean; kind: string; detail: { forwarded: boolean; target: string } }
+    expect(result.ok).toBe(true)
+    expect(result.kind).toBe('mcp')
+    expect(result.detail.forwarded).toBe(true)
+    expect(result.detail.target).toBe(bash)
+    expect(received).toEqual({ command: 'echo hi' })
+  })
+
+  it('executes an On-demand native tool while it stays out of the exposure surface', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(policy, { tools: { progressive: ['grep'] } })
+    await ctx.plugin(toolMetaInvoke, {})
+    const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions', args => ({ ok: true, received: args }))
+    await ctx.capability.refresh()
+
+    // On-demand natives are projected out of the model-facing tool list…
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.tools.map(tool => tool.name)).not.toContain(grep)
+
+    // …but stay reachable through meta_invoke.
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: grep, args: { command: 'ls' } })
+    expect(isError).toBe(false)
+    const result = value as { ok: boolean; kind: string; detail: { forwarded: boolean; target: string } }
+    expect(result.ok).toBe(true)
+    expect(result.detail.target).toBe(grep)
   })
 
   it('rejects an unknown capability id', async () => {
