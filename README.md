@@ -57,9 +57,10 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
-- **工具**：全部工具按 server 分组、可折叠。MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（`bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置工具」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
-- **Skills**：点击某行展开目录树，点文件预览 SKILL.md 等正文；按来源分成「项目技能」（工作区 `.dsh/skills`、`.agents/skills`）与「全局技能」（`~/.dsh`、`~/.agents` 等）两组，无项目技能时整组隐藏。
-- **三态圆点与循环切换**：每个能力带一个分类圆点（实心 = 常驻、半实心 = 按需、空心 = 禁用），栏顶部显示各档数量统计；点击能力旁的圆点或分类计数即可循环切换分类（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
+- **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计和「查看能力目录」按钮。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
+- **Skills 页签**：内部再分「全局技能 / 项目技能」两个子页签（始终显示，空的一侧显示空态提示），顶部数量统计跟随当前子页签。点击技能行展开目录树，点文件预览 SKILL.md 等正文。
+- **三态圆点与循环切换**：每个能力带一个分类圆点——实心 = 常驻、上半实心圆环 = 按需、圆环 + 斜杠（禁行标志）= 禁用；点击能力旁圆点或分类计数即可循环切换（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
+- **查看能力目录**：点右上角按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`blocked` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
 
 ## 快速安装
 
