@@ -60,7 +60,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 - **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计和「查看能力目录」按钮。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
 - **Skills 页签**：内部再分「全局技能 / 项目技能」两个子页签（始终显示，空的一侧显示空态提示），顶部数量统计跟随当前子页签。点击技能行展开目录树，点文件预览 SKILL.md 等正文。
 - **三态圆点与循环切换**：每个能力带一个分类圆点——实心 = 常驻、上半实心圆环 = 按需、圆环 + 斜杠（禁行标志）= 禁用；点击能力旁圆点或分类计数即可循环切换（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
-- **查看能力目录**：点右上角按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`blocked` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
+- **查看能力目录**：点右上角按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`disabled` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
 
 ## 快速安装
 
@@ -142,7 +142,7 @@ config:
     on-demand:
       - 'mcp__*'              # 通配兜底
       - 'server:km:*'         # 按 server 前缀批量按需
-    blocked:
+    disabled:
       - 'mcp__secret__*'      # 禁用优先级最高，压过常驻
   skills:
     resident:
@@ -150,21 +150,21 @@ config:
       - coding
     on-demand:
       - legacy_skill          # 显式按需（未列出即默认常驻）
-    blocked:
+    disabled:
       - forbidden_skill
   metaTools:
     - meta_search             # 恒常驻，不可被禁用
     - meta_invoke
 ```
 
-> 配置键即档位英文词：`resident`（常驻）/ `on-demand`（按需）/ `blocked`（禁用）。
+> 配置键即档位英文词：`resident`（常驻）/ `on-demand`（按需）/ `disabled`（禁用）。
 
 **规则优先级**（从上到下命中即停；同档内精确规则优先于通配）：
 
 | 优先级 | 规则 | 示例 | 效果 |
 | --- | --- | --- | --- |
-| 1 | `blocked` 精确 | `blocked: [forbidden_skill]` | 最硬禁用，压过一切 |
-| 2 | `blocked` 通配 | `blocked: ['mcp__secret__*']` | 整组禁用 |
+| 1 | `disabled` 精确 | `disabled: [forbidden_skill]` | 最硬禁用，压过一切 |
+| 2 | `disabled` 通配 | `disabled: ['mcp__secret__*']` | 整组禁用 |
 | 3 | `resident` 精确 | `resident: [bash]` | 单个能力显式常驻 |
 | 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力管理点击写入的就是这类） |
 | 5 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` | 整组常驻 |
@@ -172,10 +172,10 @@ config:
 | 默认 | 未命中任何规则 | — | 常驻 |
 
 要点：
-- `meta_search`/`meta_invoke` 恒常驻，不可被 blocked。
+- `meta_search`/`meta_invoke` 恒常驻，不可被 disabled。
 - **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级覆盖，界面提示「分类未生效」。
-- 原生工具与 MCP 工具一样进编目（归 `built-in` server），未列出默认常驻；被 `on-demand`/`blocked` 覆盖后退出常驻视野，按需时仍可 `meta_search` → `meta_invoke` 两跳调用。**勿把真实 MCP server 命名为 `built-in`。**
-- 已部署 profile 若仍用旧键 `exposed`/`progressive`，启动时会自动映射为 `resident`/`on-demand` 并告警提示；可用 `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` 一次性改写为持久化新键。
+- 原生工具与 MCP 工具一样进编目（归 `built-in` server），未列出默认常驻；被 `on-demand`/`disabled` 覆盖后退出常驻视野，按需时仍可 `meta_search` → `meta_invoke` 两跳调用。**勿把真实 MCP server 命名为 `built-in`。**
+- 已部署 profile 若仍用旧键 `exposed`/`progressive`/`blocked`，启动时会自动映射为 `resident`/`on-demand`/`disabled` 并告警提示；可用 `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` 一次性改写为持久化新键。
 
 > 「能力管理」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
 
@@ -191,7 +191,7 @@ On-demand 能力自动物化成**一个 YAML 文件**给模型检索，链路：
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
-# Resident 已常驻、Blocked 不可发现，均不写入；列表以 `-` 每项一行的 block 序列写出）
+# Resident 已常驻、Disabled 不可发现，均不写入；列表以 `-` 每项一行的 block 序列写出）
 capabilities:
   - id: mcp__km__search
     kind: tool

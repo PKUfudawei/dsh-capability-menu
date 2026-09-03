@@ -95,7 +95,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
 
   /**
    * 能力目录查看：返回「三档策略配置」语义化视图——默认全部常驻，
-   * tools.resident 按 server 各显示 '*'，例外（on-demand/blocked）按
+   * tools.resident 按 server 各显示 '*'，例外（on-demand/disabled）按
    * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
    * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
    * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
@@ -110,8 +110,8 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     const count = (rows: ReadonlyArray<{ readonly class: string }>, cls: string): number =>
       rows.filter(row => row.class === cls).length
 
-    /** 例外档（on-demand/blocked）的生效工具，按 server 分组为 server → 短名列表。 */
-    const toolGroups = (cls: 'on-demand' | 'blocked'): Record<string, string[]> => {
+    /** 例外档（on-demand/disabled）的生效工具，按 server 分组为 server → 短名列表。 */
+    const toolGroups = (cls: 'on-demand' | 'disabled'): Record<string, string[]> => {
       const groups = new Map<string, string[]>()
       for (const row of toolRows.filter(r => r.class === cls)) {
         const server = row.server ?? BUILT_IN_SERVER
@@ -126,7 +126,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
         .map(([server, names]) => [server, names.sort((a, b) => a.localeCompare(b))]))
     }
     /** 例外档技能的生效短名（技能无 server 维度，平铺列表）。 */
-    const skillNames = (cls: 'on-demand' | 'blocked'): string[] =>
+    const skillNames = (cls: 'on-demand' | 'disabled'): string[] =>
       skillRows.filter(row => row.class === cls).map(row => row.name).sort((a, b) => a.localeCompare(b))
 
     // tools.resident：每个含工具的 server 一个 '*'（该 server 其余工具默认常驻）。
@@ -138,21 +138,21 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     // 例外档仅当实际存在时才写入，避免空的 []/{}。
     const tools: Record<string, unknown> = { resident: residentTools }
     const onDemandTools = toolGroups('on-demand')
-    const blockedTools = toolGroups('blocked')
+    const disabledTools = toolGroups('disabled')
     if (Object.keys(onDemandTools).length > 0) tools['on-demand'] = onDemandTools
-    if (Object.keys(blockedTools).length > 0) tools.blocked = blockedTools
+    if (Object.keys(disabledTools).length > 0) tools.disabled = disabledTools
 
     const skills: Record<string, unknown> = { resident: '*' }
     const onDemandSkills = skillNames('on-demand')
-    const blockedSkills = skillNames('blocked')
+    const disabledSkills = skillNames('disabled')
     if (onDemandSkills.length > 0) skills['on-demand'] = onDemandSkills
-    if (blockedSkills.length > 0) skills.blocked = blockedSkills
+    if (disabledSkills.length > 0) skills.disabled = disabledSkills
 
     const policyYaml = [
       '# 能力管理 · 当前生效策略（只读；持久化入口：cordis.patch.yml）',
-      '# 语义：默认全部能力常驻；下方 on-demand / blocked 为按 server → 工具名分级的例外。',
-      `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'blocked')}；` +
-        `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'blocked')}`,
+      '# 语义：默认全部能力常驻；下方 on-demand / disabled 为按 server → 工具名分级的例外。',
+      `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'disabled')}；` +
+        `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'disabled')}`,
       yaml.dump({
         metaTools: [...this.ctx.capabilityPolicy.metaTools()],
         tools,

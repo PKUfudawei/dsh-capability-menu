@@ -125,15 +125,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         signal: exec.signal,
         scope,
       }
-      // Blocked capabilities are not discoverable: the registry keeps them
+      // Disabled capabilities are not discoverable: the registry keeps them
       // indexed for the management surface, but meta_search never surfaces
       // them to the model.
       const policy = ctx.get('capabilityPolicy')
-      const isBlocked = (id: string): boolean => policy?.isBlockedCapability(id) ?? false
+      const isDisabled = (id: string): boolean => policy?.isDisabledCapability(id) ?? false
 
       if (id.length > 0) {
-        if (isBlocked(id)) {
-          throw new Error(`meta_search: capability "${id}" is blocked and cannot be inspected`)
+        if (isDisabled(id)) {
+          throw new Error(`meta_search: capability "${id}" is disabled and cannot be inspected`)
         }
         const result = await ctx.capability.getDetail(id, context)
         if (result === undefined) {
@@ -149,7 +149,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         tag,
         maxResults: Math.min(requestedMax ?? maxResults, 50),
         scope,
-      }).filter(result => !isBlocked(result.id))
+      }).filter(result => !isDisabled(result.id))
       const catalogPath = ctx.capability.catalogPath?.()
       return {
         mode: 'list' as const,

@@ -158,7 +158,7 @@ describe('capability-menu-search', () => {
     expect(detailResult.result.name).toBe(grep)
   })
 
-  it('hides blocked capabilities from list and rejects blocked detail', async () => {
+  it('hides disabled capabilities from list and rejects disabled detail', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -170,7 +170,7 @@ describe('capability-menu-search', () => {
       watch: false,
     })
     await ctx.plugin(registry, {})
-    await ctx.plugin(policy, { tools: { blocked: ['mcp__gongfeng__create_issue'] } })
+    await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaSearch, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     await ctx.capability.refresh()
@@ -184,7 +184,7 @@ describe('capability-menu-search', () => {
     expect(detail.isError).toBe(true)
   })
 
-  it('hides blocked skills from list and rejects blocked skill detail', async () => {
+  it('hides disabled skills from list and rejects disabled skill detail', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     await writeSkill(`${home}/.agents/skills`, 'forbidden-skill', 'Forbidden skill body', 'Body text.')
     const ctx = new Context()
@@ -197,7 +197,7 @@ describe('capability-menu-search', () => {
       watch: false,
     })
     await ctx.plugin(registry, {})
-    await ctx.plugin(policy, { skills: { blocked: ['forbidden-skill'] } })
+    await ctx.plugin(policy, { skills: { disabled: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaSearch, {})
     await ctx.capability.refresh()
 

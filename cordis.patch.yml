@@ -25,7 +25,7 @@
 #           on-demand:
 #             - 'mcp__*'
 #             - 'server:km:*'
-#           blocked: []
+#           disabled: []
 #         skills:
 #           resident:
 #             - debugging
@@ -45,20 +45,20 @@
 # - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
 #   execution of tools — MCP or native — and skill loading). Executes on the GLOBAL
 #   view (no agent) so On-demand tools stay runnable; dedups already-loaded skills.
-#   Rejects Blocked capabilities.
-# - `capability-menu-policy` (P3): Resident/On-demand/Blocked projection
-#   strategy + 能力管理 surface. Reads explicit resident/on-demand/blocked
+#   Rejects Disabled capabilities.
+# - `capability-menu-policy` (P3): Resident/On-demand/Disabled projection
+#   strategy + 能力管理 surface. Reads explicit resident/on-demand/disabled
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
 #   `system-prompt/assemble` to Resident + meta tools only. The execution chain
 #   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` with
 #   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力管理 tab
-#   (Resident/On-demand/Blocked rules + click-to-cycle classification +
+#   (Resident/On-demand/Disabled rules + click-to-cycle classification +
 #   read-only list), plus skill file browsing (`getDetail`/`listSkillDir`/
 #   `readSkillFile`) via the Typert gateway.
 #
 # Default (policy present but no config): every capability is Resident — the
-# `classify` fallback, nothing is hidden. Add explicit `on-demand`/`blocked`
+# `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`
 # rules to pull capabilities out of the model surface.
 - insert:
     - id: capability-menu-registry
@@ -73,7 +73,7 @@
         # Native coding tools are cataloged under the reserved `built-in`
         # pseudo-server and are fully manageable like MCP tools. Unlisted
         # capabilities default to Resident; list them under `on-demand`/
-        # `blocked` to pull MCP servers, native tools, or skills out of the
+        # `disabled` to pull MCP servers, native tools, or skills out of the
         # model surface. On-demand native tools stay invocable through
         # `meta_search` → `meta_invoke`. The `meta_search`/`meta_invoke`
         # control-plane tools and the reserved `run_code` transport never enter

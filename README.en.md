@@ -30,7 +30,7 @@
 
 ## Capability Overview
 
-dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It builds a unified capability catalog (`ctx.capability`) over a large number of tools / skills (MCP tools and harness-native built-in tools) and manages their **exposure level and execution** in three tiers — **Resident / On-demand / Blocked** — so you can adjust the agent's capability boundary at any time, keep a flood of tools/skills out of a single request, and save tokens and context. Changes apply immediately without restarting, and the plugin composes into the Harness runtime purely through the Cordis plugin mechanism — no upstream source is modified. **Without this plugin (policy) mounted, everything stays visible as before; mounted with no rules at all, every capability defaults to Resident.**
+dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It builds a unified capability catalog (`ctx.capability`) over a large number of tools / skills (MCP tools and harness-native built-in tools) and manages their **exposure level and execution** in three tiers — **Resident / On-demand / Disabled** — so you can adjust the agent's capability boundary at any time, keep a flood of tools/skills out of a single request, and save tokens and context. Changes apply immediately without restarting, and the plugin composes into the Harness runtime purely through the Cordis plugin mechanism — no upstream source is modified. **Without this plugin (policy) mounted, everything stays visible as before; mounted with no rules at all, every capability defaults to Resident.**
 
 ### Capability Model
 
@@ -59,8 +59,8 @@ Once installed, a Capability Management tab appears under Settings → General S
 
 - **Tools / Skills tabs**: the top tab bar shows `Tools` and `Skills`; its right side holds the per-class counts and the "View capability catalog" button. The Tools tab groups every tool by server (collapsible). MCP tools hang under their own server (`gongfeng`/`km`…); harness-native tools from the agent presets (`bash`/`read`/`write`/`glob`/`grep`…) hang under the reserved "System built-in" group (server key `built-in`). Click a row to view the model-facing tool definition — name / description / parameters.
 - **Skills tab**: split into "Global skills" / "Project skills" sub-tabs (both always visible; the empty side shows an empty-state hint), and the per-class counts at the top follow the active sub-tab. Click a skill row to expand its directory tree; click a file to preview its content (e.g. the SKILL.md).
-- **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, top-half-filled ring = On-demand, ring with a slash (no-entry sign) = Blocked — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification (built-in tools are manageable exactly like MCP tools), and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
-- **View capability catalog**: the top-right button opens a read-only modal with the effective policy in a semantic view — every capability defaults to Resident, so `tools.resident` lists each server as `'*'`, exceptions appear only under `on-demand`/`blocked` grouped by server → tool name (skills have no server dimension, so `skills.resident` is just `'*'`) — plus the materialized On-demand catalog file (`catalogFile`) path and content. Persistence remains via the profile's `cordis.patch.yml`.
+- **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, top-half-filled ring = On-demand, ring with a slash (no-entry sign) = Disabled — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification (built-in tools are manageable exactly like MCP tools), and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
+- **View capability catalog**: the top-right button opens a read-only modal with the effective policy in a semantic view — every capability defaults to Resident, so `tools.resident` lists each server as `'*'`, exceptions appear only under `on-demand`/`disabled` grouped by server → tool name (skills have no server dimension, so `skills.resident` is just `'*'`) — plus the materialized On-demand catalog file (`catalogFile`) path and content. Persistence remains via the profile's `cordis.patch.yml`.
 
 ## Quick Install
 
@@ -122,7 +122,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | | skill | name + description in the `<available_skills>` catalog (body not in the catalog) | none (already resident) | the `skill` tool loads the body on demand (on-demand loading) |
 | **On-demand** | tool | not in the payload (zero context cost) | `meta_search` list / `grep` the materialized catalog YAML (`catalogFile`) | executed by `meta_invoke` (via `ctx.tools.execute`, full pipeline); or fetch the schema through detail and call it directly |
 | | skill | not in the `<available_skills>` catalog | `meta_search`, or `grep` the materialized catalog YAML (`catalogFile`) | `meta_invoke` loads the SKILL.md body (via `ctx.skills`) |
-| **Blocked** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
+| **Disabled** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
 | | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
 
 > The tool tiers in the table above cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers just like MCP tools). **An On-demand built-in tool leaves the model's resident view**: the model reaches it via `meta_search` and executes it with `meta_invoke` (a two-hop call) — so keep high-frequency core tools Resident. The `meta_search`/`meta_invoke` tools themselves and the reserved Code Mode transport `run_code` never enter the capability catalog; they are always Resident and cannot be cycled in the Capability Management.
@@ -142,29 +142,29 @@ config:
     on-demand:
       - 'mcp__*'              # wildcard fallback
       - 'server:km:*'         # bulk on-demand by server prefix
-    blocked:
-      - 'mcp__secret__*'      # blocked outranks everything, even resident
+    disabled:
+      - 'mcp__secret__*'      # disabled outranks everything, even resident
   skills:
     resident:
       - debugging
       - coding
     on-demand:
       - legacy_skill          # explicit on-demand (unlisted skills default to resident)
-    blocked:
+    disabled:
       - forbidden_skill
   metaTools:
-    - meta_search             # always resident; cannot be blocked
+    - meta_search             # always resident; cannot be disabled
     - meta_invoke
 ```
 
-> Config keys are the tier words themselves: `resident` (常驻) / `on-demand` (按需) / `blocked` (禁用).
+> Config keys are the tier words themselves: `resident` (常驻) / `on-demand` (按需) / `disabled` (禁用).
 
 **Rule priority** (first match wins; within one tier, an exact rule beats a wildcard):
 
 | priority | rule | example | effect |
 | --- | --- | --- | --- |
-| 1 | `blocked` exact | `blocked: [forbidden_skill]` | hardest deny, overrides everything |
-| 2 | `blocked` wildcard | `blocked: ['mcp__secret__*']` | block a whole group |
+| 1 | `disabled` exact | `disabled: [forbidden_skill]` | hardest deny, overrides everything |
+| 2 | `disabled` wildcard | `disabled: ['mcp__secret__*']` | block a whole group |
 | 3 | `resident` exact | `resident: [bash]` | keep one capability resident |
 | 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Management click writes) |
 | 5 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` | keep a whole group resident |
@@ -172,10 +172,10 @@ config:
 | default | no rule matched | — | resident |
 
 Key points:
-- `meta_search`/`meta_invoke` are always resident and cannot be blocked.
+- `meta_search`/`meta_invoke` are always resident and cannot be disabled.
 - **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Management writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
-- Native tools are cataloged exactly like MCP tools (under the `built-in` server); unlisted native tools default to Resident. Once overridden by `on-demand`/`blocked` a native tool leaves the model's resident view — when On-demand it stays reachable via `meta_search` → `meta_invoke`. **Do not name a real MCP server `built-in`.**
-- Profiles still declaring the legacy keys `exposed`/`progressive` are auto-mapped to `resident`/`on-demand` at startup (with a warning); run `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` to persist the new spelling.
+- Native tools are cataloged exactly like MCP tools (under the `built-in` server); unlisted native tools default to Resident. Once overridden by `on-demand`/`disabled` a native tool leaves the model's resident view — when On-demand it stays reachable via `meta_search` → `meta_invoke`. **Do not name a real MCP server `built-in`.**
+- Profiles still declaring the legacy keys `exposed`/`progressive`/`blocked` are auto-mapped to `resident`/`on-demand`/`disabled` at startup (with a warning); run `node scripts/migrate-capability-keys.mjs <cordis.patch.yml>` to persist the new spelling.
 
 > Changes made in the Capability Management tab only write to in-memory runtime state and are not persisted. To persist them (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
 
@@ -191,7 +191,7 @@ On-demand capabilities are materialized into **one auto-generated YAML file** th
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand
-# capabilities — Resident ones are already resident and Blocked ones must not
+# capabilities — Resident ones are already resident and Disabled ones must not
 # be discoverable, so neither is written. Lists are emitted as `-` block
 # sequences, one item per line.)
 capabilities:

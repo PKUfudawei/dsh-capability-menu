@@ -171,12 +171,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     async execute(args: { id: string; args?: unknown }, exec: ToolRunContext) {
       const id = args.id.trim()
-      // Blocked capabilities are a hard deny at the execution surface: the
+      // Disabled capabilities are a hard deny at the execution surface: the
       // registry keeps them indexed so the management UI can list them, but the
-      // model can never reach a blocked capability through meta_invoke.
+      // model can never reach a disabled capability through meta_invoke.
       const policy = ctx.get('capabilityPolicy')
-      if (policy?.isBlockedCapability(id)) {
-        throw new Error(`meta_invoke: capability "${id}" is blocked and cannot be invoked`)
+      if (policy?.isDisabledCapability(id)) {
+        throw new Error(`meta_invoke: capability "${id}" is disabled and cannot be invoked`)
       }
       const capability = ctx.capability.get(id)
       if (capability === undefined) {
@@ -318,18 +318,5 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   ctx.tools.register(tool)
-}
-
-/**
- * Strip leading YAML frontmatter (`---\n...\n---`) from a raw SKILL.md body,
- * returning the remaining markdown. Falls back to the raw text when no
- * frontmatter delimiter is present.
- */
-export function stripFrontmatter(markdown: string): string {
-  const text = markdown.startsWith('\uFEFF') ? markdown.slice(1) : markdown
-  if (!text.startsWith('---')) return text
-  const end = text.indexOf('\n---', 3)
-  if (end === -1) return text
-  return text.slice(end + 4).replace(/^\n+/, '')
 }
 

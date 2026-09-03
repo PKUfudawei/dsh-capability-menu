@@ -8,7 +8,7 @@
  *   - `registry` (P0): capability catalog + `ctx.capability` service (no model tool).
  *   - `search`   (P1): registers `meta_search`.
  *   - `invoke`   (P2): registers `meta_invoke`.
- *   - `policy`   (P3): Resident/On-demand/Blocked projection policy + `ctx.capabilityPolicy`.
+ *   - `policy`   (P3): Resident/On-demand/Disabled projection policy + `ctx.capabilityPolicy`.
  * - the package root entry (`name` + `apply` below): mounts the Typert gateway
  *   that exposes `ctx.capabilityPolicy` to the browser as the `capabilityPolicy`
  *   remote namespace — the data source of the 能力管理 settings tab.

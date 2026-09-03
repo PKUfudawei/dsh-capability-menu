@@ -1,7 +1,7 @@
 {
   "name": "@daweifu/capability-menu",
   "version": "0.1.1",
-  "description": "Unified capability management for the DeepSeek Harness: catalog (ctx.capability) + meta_search/meta_invoke + Resident/On-demand/Blocked projection policy + 能力管理 settings tab, in one installable bundle (server + browser).",
+  "description": "Unified capability management for the DeepSeek Harness: catalog (ctx.capability) + meta_search/meta_invoke + Resident/On-demand/Disabled projection policy + 能力管理 settings tab, in one installable bundle (server + browser).",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -42,10 +42,6 @@
     "./policy": {
       "types": "./lib/types/policy.d.ts",
       "default": "./lib/policy.js"
-    },
-    "./invariant": {
-      "types": "./lib/types/invariant.d.ts",
-      "default": "./lib/invariant.js"
     },
     "./client": {
       "types": "./lib/client.d.ts",

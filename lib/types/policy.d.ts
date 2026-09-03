@@ -1,5 +1,5 @@
 /**
- * Resident / On-demand / Blocked capability projection policy for the DeepSeek
+ * Resident / On-demand / Disabled capability projection policy for the DeepSeek
  * Harness.
  *
  * @module @daweifu/capability-menu (policy plugin)
@@ -17,9 +17,9 @@ import { type CapabilityKind } from './registry.ts';
  * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
  *   `meta_invoke` (catalog-resident, load/execute on demand).
- * - `blocked`: neither resident nor discoverable nor executable.
+ * - `disabled`: neither resident nor discoverable nor executable.
  */
-export type CapabilityClass = 'resident' | 'on-demand' | 'blocked';
+export type CapabilityClass = 'resident' | 'on-demand' | 'disabled';
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
  * A pattern matches a capability id (`mcp__<server>__<raw>` / `skill:<name>`)
@@ -36,7 +36,7 @@ export interface PolicyRule {
     readonly target: 'id' | 'server';
 }
 /**
- * Per-kind explicit configuration. `resident`/`on-demand`/`blocked` are
+ * Per-kind explicit configuration. `resident`/`on-demand`/`disabled` are
  * ordered lists of exact-name / glob rules. Empty lists mean "nothing
  * explicitly classified", so the default (`resident`) applies.
  */
@@ -45,7 +45,13 @@ export interface CapabilitySetConfig {
     resident?: string[];
     /** Explicitly-On-demand rule list (exact name or glob). */
     'on-demand'?: string[];
-    /** Explicitly-Blocked rule list (exact name or glob); wins over everything. */
+    /** Explicitly-Disabled rule list (exact name or glob); wins over everything. */
+    disabled?: string[];
+    /**
+     * @deprecated pre-rename alias of `disabled`; accepted and mapped so legacy
+     * profiles written with the `blocked` key keep working without an on-disk
+     * rewrite.
+     */
     blocked?: string[];
     /**
      * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
@@ -58,15 +64,15 @@ export interface CapabilitySetConfig {
      */
     progressive?: string[];
 }
-/** Resident / On-demand / Blocked projection policy configuration. */
+/** Resident / On-demand / Disabled projection policy configuration. */
 export interface Config {
-    /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.blocked`. */
+    /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.disabled`. */
     tools?: CapabilitySetConfig;
-    /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.blocked`. */
+    /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.disabled`. */
     skills?: CapabilitySetConfig;
     /**
      * Tool names that are ALWAYS kept resident and can never be classified
-     * On-demand or Blocked. Default `[meta_search, meta_invoke]`.
+     * On-demand or Disabled. Default `[meta_search, meta_invoke]`.
      */
     metaTools?: string[];
 }
@@ -74,10 +80,11 @@ export interface Config {
 export declare const Config: z<Config>;
 export declare const DEFAULT_META_TOOLS: readonly ["meta_search", "meta_invoke"];
 /**
- * Map a legacy rule set (old keys `exposed`/`progressive`) onto the current
- * key names, so already-deployed `cordis.patch.yml` profiles keep working
- * without an on-disk rewrite. New keys win when they carry rules; a legacy
- * key fills in when the matching new list is empty.
+ * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
+ * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
+ * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
+ * keys win when they carry rules; a legacy key fills in when the matching new
+ * list is empty.
  */
 export declare function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined;
 /**
@@ -94,7 +101,7 @@ export declare function compileGlob(pattern: string): RegExp;
 export interface CompiledCapabilityRules {
     readonly resident: readonly PolicyRule[];
     readonly onDemand: readonly PolicyRule[];
-    readonly blocked: readonly PolicyRule[];
+    readonly disabled: readonly PolicyRule[];
 }
 /** Compile a {@link CapabilitySetConfig} into fast-matchable rules. */
 export declare function compileSet(set?: CapabilitySetConfig): CompiledCapabilityRules;
@@ -113,8 +120,8 @@ export interface MatchTarget {
 }
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > resident-exact > on-demand-exact >
- * resident-wildcard > on-demand-wildcard > default (resident). `blocked` is a
+ * disabled-exact > disabled-wildcard > resident-exact > on-demand-exact >
+ * resident-wildcard > on-demand-wildcard > default (resident). `disabled` is a
  * control decision, so it beats an explicit `resident` rule. Within
  * resident/on-demand an exact name beats a wildcard, so the management UI can
  * pin a single capability to a class even when a broader wildcard rule says
@@ -154,12 +161,12 @@ export interface CapabilityPolicyService {
     isResidentTool(name: string): boolean;
     /** True when a skill is Resident. */
     isResidentSkill(name: string): boolean;
-    /** True when a tool is Blocked. */
-    isBlockedTool(name: string): boolean;
-    /** True when a skill is Blocked. */
-    isBlockedSkill(name: string): boolean;
-    /** True when a capability id (`mcp__...` / `skill:...`) is Blocked. */
-    isBlockedCapability(id: string): boolean;
+    /** True when a tool is Disabled. */
+    isDisabledTool(name: string): boolean;
+    /** True when a skill is Disabled. */
+    isDisabledSkill(name: string): boolean;
+    /** True when a capability id (`mcp__...` / `skill:...`) is Disabled. */
+    isDisabledCapability(id: string): boolean;
     /** Tool names that are always kept Resident. */
     metaTools(): readonly string[];
     /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */

@@ -57,7 +57,7 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
     /**
      * 能力目录查看：返回「三档策略配置」语义化视图——默认全部常驻，
-     * tools.resident 按 server 各显示 '*'，例外（on-demand/blocked）按
+     * tools.resident 按 server 各显示 '*'，例外（on-demand/disabled）按
      * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
      * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
      * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。

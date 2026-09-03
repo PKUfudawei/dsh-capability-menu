@@ -1,5 +1,5 @@
 /**
- * Resident / On-demand / Blocked capability projection policy for the DeepSeek
+ * Resident / On-demand / Disabled capability projection policy for the DeepSeek
  * Harness.
  *
  * @module @daweifu/capability-menu (policy plugin)
@@ -20,9 +20,9 @@ import { serverNameOf, type CapabilityKind } from './registry.ts'
  * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
  *   `meta_invoke` (catalog-resident, load/execute on demand).
- * - `blocked`: neither resident nor discoverable nor executable.
+ * - `disabled`: neither resident nor discoverable nor executable.
  */
-export type CapabilityClass = 'resident' | 'on-demand' | 'blocked'
+export type CapabilityClass = 'resident' | 'on-demand' | 'disabled'
 
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
@@ -41,7 +41,7 @@ export interface PolicyRule {
 }
 
 /**
- * Per-kind explicit configuration. `resident`/`on-demand`/`blocked` are
+ * Per-kind explicit configuration. `resident`/`on-demand`/`disabled` are
  * ordered lists of exact-name / glob rules. Empty lists mean "nothing
  * explicitly classified", so the default (`resident`) applies.
  */
@@ -50,7 +50,13 @@ export interface CapabilitySetConfig {
   resident?: string[]
   /** Explicitly-On-demand rule list (exact name or glob). */
   'on-demand'?: string[]
-  /** Explicitly-Blocked rule list (exact name or glob); wins over everything. */
+  /** Explicitly-Disabled rule list (exact name or glob); wins over everything. */
+  disabled?: string[]
+  /**
+   * @deprecated pre-rename alias of `disabled`; accepted and mapped so legacy
+   * profiles written with the `blocked` key keep working without an on-disk
+   * rewrite.
+   */
   blocked?: string[]
   /**
    * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
@@ -64,15 +70,15 @@ export interface CapabilitySetConfig {
   progressive?: string[]
 }
 
-/** Resident / On-demand / Blocked projection policy configuration. */
+/** Resident / On-demand / Disabled projection policy configuration. */
 export interface Config {
-  /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.blocked`. */
+  /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.disabled`. */
   tools?: CapabilitySetConfig
-  /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.blocked`. */
+  /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.disabled`. */
   skills?: CapabilitySetConfig
   /**
    * Tool names that are ALWAYS kept resident and can never be classified
-   * On-demand or Blocked. Default `[meta_search, meta_invoke]`.
+   * On-demand or Disabled. Default `[meta_search, meta_invoke]`.
    */
   metaTools?: string[]
 }
@@ -82,16 +88,18 @@ export const Config: z<Config> = z.object({
   tools: z.object({
     resident: z.array(z.string()).default([]),
     'on-demand': z.array(z.string()).default([]),
-    blocked: z.array(z.string()).default([]),
+    disabled: z.array(z.string()).default([]),
     // Deprecated pre-rename aliases: kept in the schema so a config cast keeps
     // them available for `normalizeSetConfig` instead of stripping them.
+    blocked: z.array(z.string()),
     exposed: z.array(z.string()),
     progressive: z.array(z.string()),
   }),
   skills: z.object({
     resident: z.array(z.string()).default([]),
     'on-demand': z.array(z.string()).default([]),
-    blocked: z.array(z.string()).default([]),
+    disabled: z.array(z.string()).default([]),
+    blocked: z.array(z.string()),
     exposed: z.array(z.string()),
     progressive: z.array(z.string()),
   }),
@@ -102,10 +110,11 @@ export const Config: z<Config> = z.object({
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
 
 /**
- * Map a legacy rule set (old keys `exposed`/`progressive`) onto the current
- * key names, so already-deployed `cordis.patch.yml` profiles keep working
- * without an on-disk rewrite. New keys win when they carry rules; a legacy
- * key fills in when the matching new list is empty.
+ * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
+ * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
+ * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
+ * keys win when they carry rules; a legacy key fills in when the matching new
+ * list is empty.
  */
 export function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined {
   if (set === undefined) return undefined
@@ -116,7 +125,9 @@ export function normalizeSetConfig(set: CapabilitySetConfig | undefined): Capabi
   const onDemand = set['on-demand'] !== undefined && set['on-demand'].length > 0 ? set['on-demand'] : undefined
   if (onDemand !== undefined) next['on-demand'] = onDemand
   else if (set.progressive !== undefined && set.progressive.length > 0) next['on-demand'] = set.progressive
-  if (set.blocked !== undefined && set.blocked.length > 0) next.blocked = set.blocked
+  const disabled = set.disabled !== undefined && set.disabled.length > 0 ? set.disabled : undefined
+  if (disabled !== undefined) next.disabled = disabled
+  else if (set.blocked !== undefined && set.blocked.length > 0) next.disabled = set.blocked
   return next
 }
 
@@ -157,7 +168,7 @@ export function compileGlob(pattern: string): RegExp {
 export interface CompiledCapabilityRules {
   readonly resident: readonly PolicyRule[]
   readonly onDemand: readonly PolicyRule[]
-  readonly blocked: readonly PolicyRule[]
+  readonly disabled: readonly PolicyRule[]
 }
 
 /** Compile a {@link CapabilitySetConfig} into fast-matchable rules. */
@@ -165,7 +176,7 @@ export function compileSet(set: CapabilitySetConfig = {}): CompiledCapabilityRul
   return {
     resident: (set.resident ?? []).map(parseRule),
     onDemand: (set['on-demand'] ?? []).map(parseRule),
-    blocked: (set.blocked ?? []).map(parseRule),
+    disabled: (set.disabled ?? []).map(parseRule),
   }
 }
 
@@ -202,8 +213,8 @@ function ruleMatches(rule: PolicyRule, target: MatchTarget): boolean {
 
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > resident-exact > on-demand-exact >
- * resident-wildcard > on-demand-wildcard > default (resident). `blocked` is a
+ * disabled-exact > disabled-wildcard > resident-exact > on-demand-exact >
+ * resident-wildcard > on-demand-wildcard > default (resident). `disabled` is a
  * control decision, so it beats an explicit `resident` rule. Within
  * resident/on-demand an exact name beats a wildcard, so the management UI can
  * pin a single capability to a class even when a broader wildcard rule says
@@ -217,13 +228,13 @@ export function classify(
 ): CapabilityClass {
   const meta = metaTools instanceof Set ? metaTools : new Set<string>(metaTools)
   const id = target.id
-  // metaTools can never be On-demand/Blocked for tools.
+  // metaTools can never be On-demand/Disabled for tools.
   if (target.kind === 'tool' && meta.has(id)) return 'resident'
-  for (const rule of compiled.blocked) {
-    if (!rule.wildcard && ruleMatches(rule, target)) return 'blocked'
+  for (const rule of compiled.disabled) {
+    if (!rule.wildcard && ruleMatches(rule, target)) return 'disabled'
   }
-  for (const rule of compiled.blocked) {
-    if (rule.wildcard && ruleMatches(rule, target)) return 'blocked'
+  for (const rule of compiled.disabled) {
+    if (rule.wildcard && ruleMatches(rule, target)) return 'disabled'
   }
   for (const rule of compiled.resident) {
     if (!rule.wildcard && ruleMatches(rule, target)) return 'resident'
@@ -269,7 +280,7 @@ export interface CapabilityClassification {
 const CLASS_LABELS: Record<CapabilityClass, string> = {
   resident: 'Resident · 常驻（直接调用）',
   'on-demand': 'On-demand · 按需（目录渐进加载）',
-  blocked: 'Blocked · 禁用',
+  disabled: 'Disabled · 禁用',
 }
 
 /**
@@ -284,12 +295,12 @@ export interface CapabilityPolicyService {
   isResidentTool(name: string): boolean
   /** True when a skill is Resident. */
   isResidentSkill(name: string): boolean
-  /** True when a tool is Blocked. */
-  isBlockedTool(name: string): boolean
-  /** True when a skill is Blocked. */
-  isBlockedSkill(name: string): boolean
-  /** True when a capability id (`mcp__...` / `skill:...`) is Blocked. */
-  isBlockedCapability(id: string): boolean
+  /** True when a tool is Disabled. */
+  isDisabledTool(name: string): boolean
+  /** True when a skill is Disabled. */
+  isDisabledSkill(name: string): boolean
+  /** True when a capability id (`mcp__...` / `skill:...`) is Disabled. */
+  isDisabledCapability(id: string): boolean
   /** Tool names that are always kept Resident. */
   metaTools(): readonly string[]
   /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */
@@ -342,12 +353,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // the current `resident`/`on-demand`, so pre-rename profiles keep working
   // without a disk rewrite. The management UI always writes the new keys.
   const normalized: Config = { ...config }
-  const legacyTools = config.tools?.exposed !== undefined || config.tools?.progressive !== undefined
-  const legacySkills = config.skills?.exposed !== undefined || config.skills?.progressive !== undefined
+  const legacyTools = config.tools?.exposed !== undefined || config.tools?.progressive !== undefined || config.tools?.blocked !== undefined
+  const legacySkills = config.skills?.exposed !== undefined || config.skills?.progressive !== undefined || config.skills?.blocked !== undefined
   normalized.tools = normalizeSetConfig(config.tools)
   normalized.skills = normalizeSetConfig(config.skills)
   if (legacyTools || legacySkills) {
-    ctx.logger.warn('capability-policy: legacy rule keys `exposed`/`progressive` were auto-mapped to `resident`/`on-demand`; edit the profile patch to persist the new keys')
+    ctx.logger.warn('capability-policy: legacy rule keys `exposed`/`progressive`/`blocked` were auto-mapped to `resident`/`on-demand`/`disabled`; edit the profile patch to persist the new keys')
   }
 
   // Mutable runtime state so the management surface (能力管理) can live-update
@@ -365,19 +376,19 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     toolCompiled = {
       resident: toolRules.resident.map(rule => ({ ...rule, kind: 'tool' as const })),
       onDemand: toolRules.onDemand.map(rule => ({ ...rule, kind: 'tool' as const })),
-      blocked: toolRules.blocked.map(rule => ({ ...rule, kind: 'tool' as const })),
+      disabled: toolRules.disabled.map(rule => ({ ...rule, kind: 'tool' as const })),
     }
     skillCompiled = {
       resident: skillRules.resident.map(rule => ({ ...rule, kind: 'skill' as const })),
       onDemand: skillRules.onDemand.map(rule => ({ ...rule, kind: 'skill' as const })),
-      blocked: skillRules.blocked.map(rule => ({ ...rule, kind: 'skill' as const })),
+      disabled: skillRules.disabled.map(rule => ({ ...rule, kind: 'skill' as const })),
     }
     // Meta tools are the control-plane escape hatch: blocking one is a
     // misconfiguration that must fail loud, never silently disable the surface.
     for (const name of metaTools) {
       const target = { id: name, name, server: serverNameOf(name), kind: 'tool' as const, ruleKind: 'tool' as const }
-      if (anyRuleMatches(toolCompiled.blocked, target)) {
-        throw new Error(`meta tool "${name}" cannot be blocked; remove it from tools.blocked`)
+      if (anyRuleMatches(toolCompiled.disabled, target)) {
+        throw new Error(`meta tool "${name}" cannot be disabled; remove it from tools.disabled`)
       }
     }
   }
@@ -401,14 +412,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     isResidentSkill(name: string): boolean {
       return service.classifySkill(name) === 'resident'
     },
-    isBlockedTool(name: string): boolean {
-      return service.classifyTool(name) === 'blocked'
+    isDisabledTool(name: string): boolean {
+      return service.classifyTool(name) === 'disabled'
     },
-    isBlockedSkill(name: string): boolean {
-      return service.classifySkill(name) === 'blocked'
+    isDisabledSkill(name: string): boolean {
+      return service.classifySkill(name) === 'disabled'
     },
-    isBlockedCapability(id: string): boolean {
-      return service.classifyCapability(id) === 'blocked'
+    isDisabledCapability(id: string): boolean {
+      return service.classifyCapability(id) === 'disabled'
     },
     metaTools(): readonly string[] {
       return metaTools
@@ -430,10 +441,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       }
       recompile()
       // Classification changed → the on-demand catalog on disk is stale (a
-      // capability reclassified to blocked must disappear from the grep-able
+      // capability reclassified to disabled must disappear from the grep-able
       // YAML). Await the registry refresh so callers get a completion signal:
       // the disk catalog is rewritten before the call returns, closing the
-      // window where a blocked capability stayed visible on disk.
+      // window where a disabled capability stayed visible on disk.
       await ctx.capability.refresh()
     },
     classifyAll(): readonly CapabilityClassification[] {
@@ -456,26 +467,26 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
   }
 
-  // Blocked capabilities are a hard deny at the execution surface, not just a
-  // projection concern: a hallucinated direct call to a blocked tool (or to the
-  // `skill` loader for a blocked skill) must never reach the underlying server.
+  // Disabled capabilities are a hard deny at the execution surface, not just a
+  // projection concern: a hallucinated direct call to a disabled tool (or to the
+  // `skill` loader for a disabled skill) must never reach the underlying server.
   // On-demand tools stay executable — meta_invoke forwards through this same
-  // pipeline, so only Blocked is rejected here.
+  // pipeline, so only Disabled is rejected here.
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (service.isBlockedTool(exec.name)) {
-      return { kind: 'deny', reason: `capability "${exec.name}" is blocked and cannot be executed` }
+    if (service.isDisabledTool(exec.name)) {
+      return { kind: 'deny', reason: `capability "${exec.name}" is disabled and cannot be executed` }
     }
     if (exec.name === 'skill') {
       const args = exec.arguments as { name?: unknown } | null | undefined
       const name = typeof args?.name === 'string' ? args.name : ''
-      if (name.length > 0 && service.isBlockedSkill(name)) {
-        return { kind: 'deny', reason: `skill "${name}" is blocked and cannot be loaded` }
+      if (name.length > 0 && service.isDisabledSkill(name)) {
+        return { kind: 'deny', reason: `skill "${name}" is disabled and cannot be loaded` }
       }
     }
     return next()
   })
 
-  // On-demand/Blocked skills must not appear in the model-facing
+  // On-demand/Disabled skills must not appear in the model-facing
   // `<available_skills>` catalog injected by `dsh-tool-skill`. The catalog is a
   // user-role message whose `source.kind === 'skill-catalog'`; rewrite it every
   // pre-step to keep only Resident skills. dsh-tool-skill republishes the full

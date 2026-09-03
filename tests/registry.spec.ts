@@ -288,7 +288,7 @@ describe('meta-registry', () => {
       tools: {
         resident: ['mcp__gongfeng__create_issue'],
         'on-demand': ['mcp__km__search'],
-        blocked: ['mcp__secret__read'],
+        disabled: ['mcp__secret__read'],
       },
     })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -310,11 +310,11 @@ describe('meta-registry', () => {
     expect(raw).toContain('- id: mcp__km__search')
     expect(raw).not.toMatch(/capabilities:\s*\[/)
 
-    // C2: reclassifying the On-demand capability to blocked must remove it
+    // C2: reclassifying the On-demand capability to disabled must remove it
     // from the disk catalog — the grep-able file must not keep exposing it
     // after the in-memory classification changed. updateConfig is awaited, so
     // the disk rewrite is complete by the time it returns.
-    await ctx.capabilityPolicy.updateConfig({ tools: { blocked: ['mcp__km__search'] } })
+    await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
     const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
     expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
   })

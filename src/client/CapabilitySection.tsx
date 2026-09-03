@@ -11,7 +11,7 @@
  *   - tabs            → Tools | Skills (plugins-tab chrome)
  *   - Tools tab       → grouped by server, collapsible disclosure rows; the
  *                       per-class count chip and each tool's class chip are
- *                       clickable to cycle Resident → On-demand → Blocked.
+ *                       clickable to cycle Resident → On-demand → Disabled.
  *                       Harness-native tools (no real MCP server) share the
  *                       reserved `built-in` group, shown as 「系统内置」.
  *   - Skills tab      → sub-tabs 全局技能 / 项目技能 (always visible), each
@@ -42,7 +42,7 @@ export type CapabilityKey =
   | 'desc'
   | 'resident'
   | 'on-demand'
-  | 'blocked'
+  | 'disabled'
   | 'kind'
   | 'class'
   | 'tool'
@@ -61,7 +61,7 @@ export type CapabilityKey =
   | 'toolCount'
   | 'residentShort'
   | 'onDemandShort'
-  | 'blockedShort'
+  | 'disabledShort'
   | 'cycleHint'
   | 'notPreviewable'
   | 'previewClose'
@@ -79,13 +79,13 @@ type ViewState =
   | { status: 'error'; message: string }
   | { status: 'ready'; snapshot: CapabilitySnapshot }
 
-const CLASS_KEYS = ['resident', 'on-demand', 'blocked'] as const
+const CLASS_KEYS = ['resident', 'on-demand', 'disabled'] as const
 type CapabilityClass = (typeof CLASS_KEYS)[number]
 
-/** Click-cycle order on machine values (displayed as On-demand → Blocked → Resident). */
+/** Click-cycle order on machine values (displayed as On-demand → Disabled → Resident). */
 const NEXT_CLASS: Record<CapabilityClass, CapabilityClass> = {
-  'on-demand': 'blocked',
-  blocked: 'resident',
+  'on-demand': 'disabled',
+  disabled: 'resident',
   resident: 'on-demand',
 }
 
@@ -93,7 +93,7 @@ const NEXT_CLASS: Record<CapabilityClass, CapabilityClass> = {
 const CLASS_SHORT_KEYS: Record<CapabilityClass, CapabilityKey> = {
   resident: 'residentShort',
   'on-demand': 'onDemandShort',
-  blocked: 'blockedShort',
+  disabled: 'disabledShort',
 }
 
 /** Scoped stylesheet: injected once at module scope, like every official bundle. */
@@ -116,17 +116,17 @@ const CSS = `
 .mc-dot{position:relative;width:13px;height:13px;border-radius:50%;flex:none;box-sizing:border-box}
 .mc-dot--resident{--mc-dot:#527a9c;background:var(--mc-dot);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='5.3' fill='%23000'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='5.3' fill='%23000'/%3E%3C/svg%3E") center/contain no-repeat}
 .mc-dot--on-demand{--mc-dot:#a57c33;background:var(--mc-dot);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cpath d='M1.4 6 A4.6 4.6 0 0 1 10.6 6 Z' fill='%23000'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cpath d='M1.4 6 A4.6 4.6 0 0 1 10.6 6 Z' fill='%23000'/%3E%3C/svg%3E") center/contain no-repeat}
-.mc-dot--blocked{--mc-dot:#7e7477;background:var(--mc-dot);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cline x1='3' y1='9' x2='9' y2='3' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cline x1='3' y1='9' x2='9' y2='3' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}
+.mc-dot--disabled{--mc-dot:#7e7477;background:var(--mc-dot);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cline x1='3' y1='9' x2='9' y2='3' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Ccircle cx='6' cy='6' r='4.6' fill='none' stroke='%23000' stroke-width='1.4'/%3E%3Cline x1='3' y1='9' x2='9' y2='3' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}
 body[data-ds-dark-theme] .mc-dot--resident{--mc-dot:#96b6d1}
 body[data-ds-dark-theme] .mc-dot--on-demand{--mc-dot:#d4b26b}
-body[data-ds-dark-theme] .mc-dot--blocked{--mc-dot:#b8abad}
+body[data-ds-dark-theme] .mc-dot--disabled{--mc-dot:#b8abad}
 /* 同上色系（低饱和灰调）：仅文字着色，不加背景，浅/深主题各一档。 */
 .mc-chip--resident{color:#527a9c}
 .mc-chip--on-demand{color:#a57c33}
-.mc-chip--blocked{color:#7e7477}
+.mc-chip--disabled{color:#7e7477}
 body[data-ds-dark-theme] .mc-chip--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-chip--on-demand{color:#d4b26b}
-body[data-ds-dark-theme] .mc-chip--blocked{color:#b8abad}
+body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;justify-content:space-between;gap:22px}
 /* Skills sub-tab bar (全局技能/项目技能): same underline chrome, no right-side summary. */
 .mc-subtabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;gap:22px}
@@ -152,10 +152,10 @@ body[data-ds-dark-theme] .mc-chip--blocked{color:#b8abad}
 .mc-count:disabled{cursor:default;opacity:.6}
 .mc-count--resident{color:#527a9c}
 .mc-count--on-demand{color:#a57c33}
-.mc-count--blocked{color:#7e7477}
+.mc-count--disabled{color:#7e7477}
 body[data-ds-dark-theme] .mc-count--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-count--on-demand{color:#d4b26b}
-body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
+body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-tools{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
 .mc-tool{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 26px;font-size:13px;line-height:20px;cursor:pointer}
 .mc-tool:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -277,7 +277,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       const lists: Record<CapabilityClass, string[]> = {
         resident: [],
         'on-demand': [],
-        blocked: [],
+        disabled: [],
       }
       for (const cls of CLASS_KEYS) {
         const raw = set && typeof set === 'object' && !Array.isArray(set) ? (set as Record<string, unknown>)[cls] : undefined
@@ -298,7 +298,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       const next = await loadSnapshot(remote)
       setState({ status: 'ready', snapshot: next })
       // Detect silently-overridden changes: a broader wildcard rule (or a hard
-      // blocked rule) still wins over the exact id just pinned, so the class
+      // disabled rule) still wins over the exact id just pinned, so the class
       // did not move to `to`. Surface that instead of failing silently.
       const overridden = ids.filter(id => next.rows.find(r => r.id === id)?.class !== to)
       setNotice(overridden.length > 0 ? t('cycleOverridden', { count: overridden.length }) : null)

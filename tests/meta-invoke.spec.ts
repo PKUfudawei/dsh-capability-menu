@@ -232,7 +232,7 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
-  it('rejects a blocked capability', async () => {
+  it('rejects a disabled capability', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -244,7 +244,7 @@ describe('capability-menu-invoke', () => {
       watch: false,
     })
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { tools: { blocked: ['mcp__gongfeng__create_issue'] } })
+    await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaInvoke, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     await ctx.capability.refresh()
@@ -253,7 +253,7 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
-  it('rejects a blocked skill', async () => {
+  it('rejects a disabled skill', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     await writeSkill(`${home}/.agents/skills`, 'forbidden-skill', 'Forbidden skill body', 'Body text.')
     const ctx = new Context()
@@ -266,7 +266,7 @@ describe('capability-menu-invoke', () => {
       watch: false,
     })
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { skills: { blocked: ['forbidden-skill'] } })
+    await ctx.plugin(policy, { skills: { disabled: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaInvoke, {})
     await ctx.capability.refresh()
 

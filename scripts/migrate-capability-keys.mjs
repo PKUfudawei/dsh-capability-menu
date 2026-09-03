@@ -2,12 +2,13 @@
 /**
  * Migrate legacy rule keys in a dsh profile patch.
  *
- * The Resident/On-demand/Blocked tier keys used to be spelled
- * `exposed`/`progressive`; they are now `resident`/`on-demand`. This script
- * rewrites the rule keys inside the `capability-menu-policy` entry's `config`
- * (tools.* and skills.*) of a profile's `cordis.patch.yml`, preserving all
- * other formatting and comments. The policy also auto-maps the legacy keys at
- * runtime, so this is only needed to persist the new spelling.
+ * The Resident/On-demand/Disabled tier keys used to be spelled
+ * `exposed`/`progressive` (and the disabled tier `blocked`); they are now
+ * `resident`/`on-demand`/`disabled`. This script rewrites the rule keys inside
+ * the `capability-menu-policy` entry's `config` (tools.* and skills.*) of a
+ * profile's `cordis.patch.yml`, preserving all other formatting and comments.
+ * The policy also auto-maps the legacy keys at runtime, so this is only needed
+ * to persist the new spelling.
  *
  * Usage:
  *   node scripts/migrate-capability-keys.mjs <profile-cordis-patch.yml> [--dry-run]
@@ -25,6 +26,7 @@ const dryRun = flag === '--dry-run'
 const KEY_RENAME = [
   [/^(\s*)exposed(:.*)$/, '$1resident$2'],
   [/^(\s*)progressive(:.*)$/, '$1on-demand$2'],
+  [/^(\s*)blocked(:.*)$/, '$1disabled$2'],
 ]
 
 const lines = (await readFile(file, 'utf8')).split('\n')
@@ -62,7 +64,8 @@ if (configIndex === -1) {
   process.exit(1)
 }
 
-// Rewrite deeper-indented `exposed:` / `progressive:` keys until the config block ends.
+// Rewrite deeper-indented legacy rule keys (`exposed:`/`progressive:`/`blocked:`)
+// until the config block ends.
 let changed = 0
 for (let i = configIndex + 1; i < lines.length; i += 1) {
   const line = lines[i]
@@ -70,7 +73,6 @@ for (let i = configIndex + 1; i < lines.length; i += 1) {
   if (!line.trim() || line.trimStart().startsWith('#')) continue
   // A shallower non-blank line ends the config block (next plugin entry or root key).
   if (indent.length <= configIndent.length) break
-  const trimmed = line.trimStart()
   const replaced = KEY_RENAME.reduce(
     (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
     line,
@@ -80,7 +82,6 @@ for (let i = configIndex + 1; i < lines.length; i += 1) {
     lines[i] = replaced
     changed += 1
   }
-  void trimmed
 }
 
 if (changed === 0) {

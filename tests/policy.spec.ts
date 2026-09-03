@@ -66,10 +66,10 @@ describe('wildcard / rule matching', () => {
     expect(policy.classify(rules, target)).toBe('resident')
   })
 
-  it('gives blocked priority over resident on conflicts', () => {
-    const rules = policy.compileSet({ resident: ['mcp__*'], blocked: ['mcp__x__*'] })
+  it('gives disabled priority over resident on conflicts', () => {
+    const rules = policy.compileSet({ resident: ['mcp__*'], disabled: ['mcp__x__*'] })
     const target = { id: 'mcp__x__y', server: 'x', kind: 'tool' as const, ruleKind: 'tool' as const }
-    expect(policy.classify(rules, target)).toBe('blocked')
+    expect(policy.classify(rules, target)).toBe('disabled')
   })
 
   it('parses server rules correctly', () => {
@@ -103,14 +103,14 @@ describe('wildcard / rule matching', () => {
     expect(policy.classify(rules, target)).toBe('resident')
   })
 
-  it('keeps blocked above every exact rule', () => {
+  it('keeps disabled above every exact rule', () => {
     const rules = policy.compileSet({
       resident: ['mcp__x__y'],
       'on-demand': ['mcp__x__y'],
-      blocked: ['mcp__x__*'],
+      disabled: ['mcp__x__*'],
     })
     const target = { id: 'mcp__x__y', server: 'x', kind: 'tool' as const, ruleKind: 'tool' as const }
-    expect(policy.classify(rules, target)).toBe('blocked')
+    expect(policy.classify(rules, target)).toBe('disabled')
   })
 
   it('classifies skills with default resident', () => {
@@ -121,10 +121,10 @@ describe('wildcard / rule matching', () => {
     expect(policy.classify(rules, target('skill:forbidden', 'forbidden'), new Set())).toBe('resident')
   })
 
-  it('classifies a skill blocked by an exact rule', () => {
-    const rules = policy.compileSet({ blocked: ['forbidden'] })
+  it('classifies a skill disabled by an exact rule', () => {
+    const rules = policy.compileSet({ disabled: ['forbidden'] })
     const target = { id: 'skill:forbidden', name: 'forbidden', kind: 'skill' as const, ruleKind: 'skill' as const }
-    expect(policy.classify(rules, target)).toBe('blocked')
+    expect(policy.classify(rules, target)).toBe('disabled')
   })
 })
 
@@ -165,19 +165,19 @@ describe('capability-menu-policy plugin', () => {
     expect(names).toContain('some_tool')
   })
 
-  it('excludes blocked tools from the projection even when also resident', async () => {
-    const ctx = await setup({ tools: { resident: ['a'], blocked: ['a'] } })
+  it('excludes disabled tools from the projection even when also resident', async () => {
+    const ctx = await setup({ tools: { resident: ['a'], disabled: ['a'] } })
     registerTool(ctx, 'a')
     registerTool(ctx, 'meta_search')
     const service = ctx.capabilityPolicy
-    expect(service.isBlockedTool('a')).toBe(true)
+    expect(service.isDisabledTool('a')).toBe(true)
     expect(service.isResidentTool('a')).toBe(false)
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.tools.map(t => t.name)).not.toContain('a')
   })
 
-  it('fails loud when a meta tool is blocked', async () => {
-    await expect(setup({ tools: { blocked: ['meta_search'] } })).rejects.toThrow(/meta tool "meta_search" cannot be blocked/)
+  it('fails loud when a meta tool is disabled', async () => {
+    await expect(setup({ tools: { disabled: ['meta_search'] } })).rejects.toThrow(/meta tool "meta_search" cannot be disabled/)
   })
 
   it('auto-maps legacy rule keys (exposed/progressive) to resident/on-demand', async () => {
@@ -201,8 +201,8 @@ describe('capability-menu-policy plugin', () => {
     expect(ctx.capabilityPolicy.classifyCapability('skill:coding')).toBe('resident')
   })
 
-  it('denies direct execution of a blocked tool at pre-execute', async () => {
-    const ctx = await setup({ tools: { blocked: ['mcp__secret__read'] } })
+  it('denies direct execution of a disabled tool at pre-execute', async () => {
+    const ctx = await setup({ tools: { disabled: ['mcp__secret__read'] } })
     registerTool(ctx, 'mcp__secret__read')
     const decision = await ctx.waterfall('tools/pre-execute', {
       callId: ToolCallId('call-1'),
@@ -210,22 +210,22 @@ describe('capability-menu-policy plugin', () => {
       arguments: {},
       signal: new AbortController().signal,
     }, () => Promise.resolve({ kind: 'allow' }))
-    expect(decision).toEqual({ kind: 'deny', reason: 'capability "mcp__secret__read" is blocked and cannot be executed' })
+    expect(decision).toEqual({ kind: 'deny', reason: 'capability "mcp__secret__read" is disabled and cannot be executed' })
   })
 
-  it('denies the skill loader for a blocked skill at pre-execute', async () => {
-    const ctx = await setup({ skills: { blocked: ['forbidden-skill'] } })
+  it('denies the skill loader for a disabled skill at pre-execute', async () => {
+    const ctx = await setup({ skills: { disabled: ['forbidden-skill'] } })
     const decision = await ctx.waterfall('tools/pre-execute', {
       callId: ToolCallId('call-1'),
       name: 'skill',
       arguments: { name: 'forbidden-skill' },
       signal: new AbortController().signal,
     }, () => Promise.resolve({ kind: 'allow' }))
-    expect(decision).toEqual({ kind: 'deny', reason: 'skill "forbidden-skill" is blocked and cannot be loaded' })
+    expect(decision).toEqual({ kind: 'deny', reason: 'skill "forbidden-skill" is disabled and cannot be loaded' })
   })
 
-  it('denies direct execution of a blocked native tool at pre-execute', async () => {
-    const ctx = await setup({ tools: { blocked: ['bash'] } })
+  it('denies direct execution of a disabled native tool at pre-execute', async () => {
+    const ctx = await setup({ tools: { disabled: ['bash'] } })
     registerTool(ctx, 'bash')
     const decision = await ctx.waterfall('tools/pre-execute', {
       callId: ToolCallId('call-1'),
@@ -233,7 +233,7 @@ describe('capability-menu-policy plugin', () => {
       arguments: {},
       signal: new AbortController().signal,
     }, () => Promise.resolve({ kind: 'allow' }))
-    expect(decision).toEqual({ kind: 'deny', reason: 'capability "bash" is blocked and cannot be executed' })
+    expect(decision).toEqual({ kind: 'deny', reason: 'capability "bash" is disabled and cannot be executed' })
   })
 
   it('does not deny On-demand tools so meta_invoke can still execute them', async () => {
@@ -335,7 +335,7 @@ describe('capability-policy management surface (能力管理)', () => {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, {
-      tools: { resident: ['mcp__gongfeng__*'], 'on-demand': ['mcp__*'], blocked: ['mcp__km__search'] },
+      tools: { resident: ['mcp__gongfeng__*'], 'on-demand': ['mcp__*'], disabled: ['mcp__km__search'] },
     })
 
     registerTool(ctx, 'mcp__gongfeng__create_issue')
@@ -346,8 +346,8 @@ describe('capability-policy management surface (能力管理)', () => {
     const byId = new Map(classified.map(c => [c.id, c]))
     expect(byId.get('mcp__gongfeng__create_issue')?.class).toBe('resident')
     expect(byId.get('mcp__gongfeng__create_issue')?.classLabel).toBe('Resident · 常驻（直接调用）')
-    expect(byId.get('mcp__km__search')?.class).toBe('blocked')
-    expect(byId.get('mcp__km__search')?.classLabel).toBe('Blocked · 禁用')
+    expect(byId.get('mcp__km__search')?.class).toBe('disabled')
+    expect(byId.get('mcp__km__search')?.classLabel).toBe('Disabled · 禁用')
     expect(byId.get('mcp__gongfeng__create_issue')?.mandatory).toBe(false)
   })
 
@@ -391,5 +391,24 @@ describe('capability-policy management surface (能力管理)', () => {
     const classified = ctx.capabilityPolicy.classifyAll()
     expect(classified.length).toBe(25)
     expect(new Set(classified.map(c => c.id)).size).toBe(25)
+  })
+})
+
+describe('legacy rule-key aliases', () => {
+  it('maps the pre-rename `blocked` tier key onto `disabled`', () => {
+    const mapped = policy.normalizeSetConfig({
+      resident: ['bash'],
+      'on-demand': ['legacy_skill'],
+      blocked: ['mcp__secret__*'],
+    })
+    expect(mapped?.resident).toEqual(['bash'])
+    expect(mapped?.['on-demand']).toEqual(['legacy_skill'])
+    expect(mapped?.disabled).toEqual(['mcp__secret__*'])
+    expect(mapped?.blocked).toBeUndefined()
+  })
+
+  it('prefers the current `disabled` key over the legacy `blocked` key', () => {
+    const mapped = policy.normalizeSetConfig({ disabled: ['read'], blocked: ['write'] })
+    expect(mapped?.disabled).toEqual(['read'])
   })
 })

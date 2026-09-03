@@ -29,7 +29,7 @@ export declare const MCP_ID_PREFIX = "mcp__";
  * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
  * management surface. Native tools (bash/read/write/…) are cataloged like MCP
  * tools — same `server` dimension — so the 能力管理 can group them, classify
- * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
+ * them Resident/On-demand/Disabled, and `meta_invoke` can dispatch them.
  */
 export declare const BUILT_IN_SERVER = "built-in";
 /**
@@ -201,7 +201,7 @@ export interface Config {
      * Optional path for the on-demand capability catalog emitted as a YAML file
      * for model-side grep/read browsing. Defaults to
      * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
-     * emission. Blocked capabilities are never written.
+     * emission. Disabled capabilities are never written.
      */
     catalogFile?: string;
 }

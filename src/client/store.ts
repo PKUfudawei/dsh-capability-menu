@@ -8,7 +8,7 @@
  * `ctx.remote.pluginInventory`.
  */
 
-/** One capability's Resident/On-demand/Blocked row, as surfaced by the server. */
+/** One capability's Resident/On-demand/Disabled row, as surfaced by the server. */
 export interface CapabilityRow {
   readonly id: string
   readonly kind: 'tool' | 'skill'
@@ -17,8 +17,8 @@ export interface CapabilityRow {
   readonly server?: string
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string
-  readonly class: 'resident' | 'on-demand' | 'blocked'
-  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Blocked · 禁用`. */
+  readonly class: 'resident' | 'on-demand' | 'disabled'
+  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Disabled · 禁用`. */
   readonly classLabel?: string
   readonly mandatory: boolean
 }

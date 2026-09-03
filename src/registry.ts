@@ -38,7 +38,7 @@ export const MCP_ID_PREFIX = 'mcp__'
  * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
  * management surface. Native tools (bash/read/write/…) are cataloged like MCP
  * tools — same `server` dimension — so the 能力管理 can group them, classify
- * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
+ * them Resident/On-demand/Disabled, and `meta_invoke` can dispatch them.
  */
 export const BUILT_IN_SERVER = 'built-in'
 /**
@@ -218,7 +218,7 @@ export interface Config {
    * Optional path for the on-demand capability catalog emitted as a YAML file
    * for model-side grep/read browsing. Defaults to
    * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
-   * emission. Blocked capabilities are never written.
+   * emission. Disabled capabilities are never written.
    */
   catalogFile?: string
 }
@@ -477,7 +477,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   /**
    * Emit the on-demand capability catalog as a YAML file the model can browse
    * with grep/read. Only On-demand capabilities are written; Resident ones are
-   * already in the model surface and Blocked ones must stay undiscoverable.
+   * already in the model surface and Disabled ones must stay undiscoverable.
    * Skips emission when the policy plugin is not mounted (no classification) or
    * the file path is disabled.
    */
@@ -541,9 +541,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       // Index/source is the GLOBAL registry — no visibility filter here.
       // Resident/On-demand is a projection-layer concern (`dsh-capability-policy`),
       // so an On-demand tool hidden from the model's exposure surface must still
-      // be searchable so `meta_search` can return it for `meta_invoke`. Blocked
+      // be searchable so `meta_search` can return it for `meta_invoke`. Disabled
       // enforcement lives at the model-facing tools (meta_search/meta_invoke),
-      // keeping the management surface able to list Blocked capabilities.
+      // keeping the management surface able to list Disabled capabilities.
       if (kind === 'all' || kind === 'tool') {
         for (const record of toolRecords.values()) all.push(record)
       }

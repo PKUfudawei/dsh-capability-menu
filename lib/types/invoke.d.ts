@@ -71,10 +71,4 @@ export type MetaInvokeResult = {
  *   execution (matches the existing `skill` tool semantics).
  */
 export declare function apply(ctx: Context, config?: Config): void;
-/**
- * Strip leading YAML frontmatter (`---\n...\n---`) from a raw SKILL.md body,
- * returning the remaining markdown. Falls back to the raw text when no
- * frontmatter delimiter is present.
- */
-export declare function stripFrontmatter(markdown: string): string;
 //# sourceMappingURL=invoke.d.ts.map

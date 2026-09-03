@@ -13,7 +13,7 @@ import { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
  * how `dsh-client-ui-settings-plugin-inventory` consumes
  * `ctx.remote.pluginInventory`.
  */
-/** One capability's Resident/On-demand/Blocked row, as surfaced by the server. */
+/** One capability's Resident/On-demand/Disabled row, as surfaced by the server. */
 interface CapabilityRow {
   readonly id: string;
   readonly kind: 'tool' | 'skill';
@@ -22,8 +22,8 @@ interface CapabilityRow {
   readonly server?: string;
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string;
-  readonly class: 'resident' | 'on-demand' | 'blocked';
-  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Blocked · 禁用`. */
+  readonly class: 'resident' | 'on-demand' | 'disabled';
+  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Disabled · 禁用`. */
   readonly classLabel?: string;
   readonly mandatory: boolean;
 }
@@ -158,7 +158,7 @@ interface CapabilitySectionInjected {
   remoteKeys?: string;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'blocked' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'blockedShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {
