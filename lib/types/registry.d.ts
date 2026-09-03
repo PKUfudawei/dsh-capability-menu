@@ -22,8 +22,13 @@ export type CapabilityKind = 'tool' | 'skill';
  * `load`    = load the method/instructions (a skill).
  */
 export type CapabilityAction = 'execute' | 'load';
-/** Stable identifier prefixes: MCP tools keep `mcp__...`, skills use `skill:<name>`. */
-export declare const SKILL_ID_PREFIX = "skill:";
+/**
+ * Tool id prefixes are part of the REAL registered tool name: MCP tools are
+ * registered as `mcp__<server>__<raw>` by the harness MCP client and natives
+ * keep their bare name (`bash`/`read`/…), so tool records are keyed by that
+ * name. Skills have no name-level namespace: a skill's id IS its bare name and
+ * `kind` disambiguates it from a same-named tool.
+ */
 export declare const MCP_ID_PREFIX = "mcp__";
 /**
  * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
@@ -59,7 +64,7 @@ export interface CapabilityStats {
 }
 /** One indexed capability. */
 export interface CapabilityRecord {
-    /** Stable identifier: `mcp__<server>__<raw>` or `skill:<name>`. */
+    /** Stable identifier: `mcp__<server>__<raw>`, a native tool name, or a bare skill name. */
     readonly id: string;
     readonly kind: CapabilityKind;
     /** The canonical invocation action(s) this capability exposes. */
@@ -143,10 +148,17 @@ export interface SkillDirEntry {
 export interface CapabilityService {
     /** Enumerate the current catalog (optionally filtered). */
     search(options?: MetaSearchOptions): CapabilitySummary[];
-    /** Resolve one record by id, or undefined. */
-    get(id: string): CapabilityRecord | undefined;
-    /** Resolve one record's full detail (schema, output; skill body optional). */
-    getDetail(id: string, context?: MetaLookupContext): Promise<CapabilityDetail | undefined>;
+    /**
+     * Resolve one record by id, or undefined. Pass `kind` when the caller knows
+     * it (tools and skills may share a bare name, e.g. a skill named `bash`);
+     * without `kind` a same-name tool/skill pair resolves to undefined.
+     */
+    get(id: string, kind?: CapabilityKind): CapabilityRecord | undefined;
+    /**
+     * Resolve one record's full detail (schema, output; skill body optional).
+     * `kind` has the same disambiguation semantics as {@link get}.
+     */
+    getDetail(id: string, kind?: CapabilityKind, context?: MetaLookupContext): Promise<CapabilityDetail | undefined>;
     /**
      * List a skill's directory children (one level deep). The directory is
      * resolved from the skill's own provider path, never from caller input;
@@ -213,8 +225,10 @@ export declare const inject: string[];
 export declare function apply(ctx: Context, config?: Config): void;
 /** Derive the server namespace from an `mcp__<server>__<raw>` name. */
 export declare function serverNameOf(publicName: string): string;
-/** Build the stable skill identifier `skill:<name>`. */
-export declare function skillId(name: string): string;
-/** Strip the `skill:` prefix from a capability id. */
+/**
+ * Normalize a skill reference to its bare name. Skill capability ids ARE the
+ * bare name now (kind disambiguates); the legacy `skill:`/`skill__` prefixes
+ * are still stripped defensively so old stored ids keep resolving.
+ */
 export declare function skillNameOf(id: string): string;
 //# sourceMappingURL=registry.d.ts.map

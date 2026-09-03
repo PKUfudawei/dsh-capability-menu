@@ -9,7 +9,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
-import { serverNameOf, type CapabilityKind } from './registry.ts'
+import { serverNameOf, skillNameOf, type CapabilityKind } from './registry.ts'
 
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
@@ -26,8 +26,8 @@ export type CapabilityClass = 'resident' | 'on-demand' | 'disabled'
 
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
- * A pattern matches a capability id (`mcp__<server>__<raw>` / `skill:<name>`)
- * or a server name (`server:<name>`).
+ * A pattern matches a capability id (`mcp__<server>__<raw>`, a native tool
+ * name, or a bare skill name) or a server name (`server:<name>`).
  */
 export interface PolicyRule {
   /** Whether the rule is a literal exact name (`*` free) or a glob pattern. */
@@ -182,9 +182,9 @@ export function compileSet(set: CapabilitySetConfig = {}): CompiledCapabilityRul
 
 /** Candidate fields a rule is matched against. */
 export interface MatchTarget {
-  /** Full capability id: `mcp__<server>__<raw>` or `skill:<name>`. */
+  /** Capability id: `mcp__<server>__<raw>`, a native tool name, or a bare skill name. */
   readonly id: string
-  /** Bare model-facing name (tool name or skill name without `skill:` prefix). */
+  /** Model-facing name (for skills it equals the id; for MCP tools the public `mcp__...` name). */
   readonly name: string
   /** Server name for tools; undefined for skills. */
   readonly server?: string
@@ -199,9 +199,13 @@ function ruleMatches(rule: PolicyRule, target: MatchTarget): boolean {
   if (rule.target === 'id') {
     if (!rule.wildcard) {
       // An exact rule matches the full id OR the bare name (e.g. `debugging`
-      // matches `skill:debugging`, `bash` matches the harness-native tool
-      // `bash` whose public name is its bare name).
-      return rule.pattern === target.id || rule.pattern === target.name
+      // matches a skill named `debugging`, `bash` matches the harness-native
+      // tool `bash` whose public name is its bare name). Legacy skill rules
+      // still spelled with a `skill:`/`skill__` prefix also match the bare name.
+      const legacySkill = target.ruleKind === 'skill'
+        ? rule.pattern === `skill:${target.name}` || rule.pattern === `skill__${target.name}`
+        : false
+      return rule.pattern === target.id || rule.pattern === target.name || legacySkill
     }
     return compileGlob(rule.pattern).test(target.id)
   }
@@ -299,12 +303,20 @@ export interface CapabilityPolicyService {
   isDisabledTool(name: string): boolean
   /** True when a skill is Disabled. */
   isDisabledSkill(name: string): boolean
-  /** True when a capability id (`mcp__...` / `skill:...`) is Disabled. */
-  isDisabledCapability(id: string): boolean
+  /**
+   * True when a capability (by id, with optional `kind` disambiguation) is
+   * Disabled. Without `kind`, a legacy `skill:`-prefixed id is treated as a
+   * skill.
+   */
+  isDisabledCapability(id: string, kind?: CapabilityKind): boolean
   /** Tool names that are always kept Resident. */
   metaTools(): readonly string[]
-  /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */
-  classifyCapability(id: string): CapabilityClass
+  /**
+   * Resolve a capability's id to a class. Pass `kind` when the caller knows it
+   * (ids are bare names now); a legacy `skill:`-prefixed id is treated as a
+   * skill when `kind` is omitted.
+   */
+  classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass
   /** Rules resident for the registry/other consumers. */
   toolRules(): CompiledCapabilityRules
   skillRules(): CompiledCapabilityRules
@@ -400,10 +412,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return classify(toolCompiled, { id: name, name, server, kind: 'tool', ruleKind: 'tool' }, metaToolSet)
     },
     classifySkill(name: string): CapabilityClass {
-      return classify(skillCompiled, { id: `skill:${name}`, name, kind: 'skill', ruleKind: 'skill' }, new Set())
+      return classify(skillCompiled, { id: name, name, kind: 'skill', ruleKind: 'skill' }, new Set())
     },
-    classifyCapability(id: string): CapabilityClass {
-      if (id.startsWith('skill:')) return service.classifySkill(id.slice('skill:'.length))
+    classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass {
+      if (kind === 'skill' || id.startsWith('skill:') || id.startsWith('skill__')) {
+        return service.classifySkill(skillNameOf(id))
+      }
       return service.classifyTool(id)
     },
     isResidentTool(name: string): boolean {
@@ -418,8 +432,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     isDisabledSkill(name: string): boolean {
       return service.classifySkill(name) === 'disabled'
     },
-    isDisabledCapability(id: string): boolean {
-      return service.classifyCapability(id) === 'disabled'
+    isDisabledCapability(id: string, kind?: CapabilityKind): boolean {
+      return service.classifyCapability(id, kind) === 'disabled'
     },
     metaTools(): readonly string[] {
       return metaTools
@@ -451,7 +465,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       // The registry default maxResults (20) would truncate the management
       // surface: enumerate every indexed capability, not just the top-20.
       return ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => {
-        const cls = service.classifyCapability(summary.id)
+        const cls = service.classifyCapability(summary.id, summary.kind)
         const mandatory = summary.kind === 'tool' && metaToolSet.has(summary.id)
         return {
           id: summary.id,

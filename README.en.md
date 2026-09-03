@@ -183,11 +183,11 @@ Key points:
 
 On-demand capabilities are materialized into **one auto-generated YAML file** the model can browse:
 
-**tools/skills change or classification change → the registry rewrites `catalogFile` → the model `grep`s/`read`s it (or calls `meta_search`) for an id → `meta_invoke(id)` runs/loads it**
+**tools/skills change or classification change → the registry rewrites `catalogFile` → the model `grep`s/`read`s it (or calls `meta_search`) for an id + kind → `meta_invoke(id, kind)` runs/loads it**
 
 - Defaults to `~/.dsh/capability-catalog.yaml` (`catalogFile` configurable; empty string disables). When nothing is On-demand, the catalog pointer is not injected (saving context).
 - A skill must first be **registered in `ctx.skills`** (a skill provider — e.g. its SKILL.md under a user/project skills root or `customSkillDirs`) and then switched to On-demand; there is **no separate user-maintained input file**.
-- Two discovery paths for the model: `grep` the catalog file / `meta_search` (structured schema). Bodies load via `ctx.skills` for skills and `ctx.tools.execute` for tools.
+- Two discovery paths for the model: `grep` the catalog file / `meta_search` (structured schema); then call `meta_invoke` with the **`kind` reported by the same entry** to load/run it — skill ids are the bare name (e.g. `frontend-design`) with no `skill:` prefix, and `kind` distinguishes tools from skills. Bodies load via `ctx.skills` for skills and `ctx.tools.execute` for tools.
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand
@@ -200,7 +200,7 @@ capabilities:
     name: mcp__km__search
     description: Search the knowledge base
     server: km
-  - id: skill:legacy_skill
+  - id: legacy_skill
     kind: skill
     name: legacy_skill
     description: A legacy migration skill, used infrequently

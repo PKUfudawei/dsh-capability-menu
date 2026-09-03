@@ -59,14 +59,14 @@ export type MetaInvokeResult = {
 /**
  * Register the `meta_invoke` tool.
  *
- * Dispatch is by `capability.kind`, not by id prefix.
+ * Dispatch is by the explicit `kind` argument (no id-prefix parsing).
  *
  * - Tools (`kind: 'tool'`, e.g. `mcp__gongfeng__create_issue` or a harness-native
  *   tool such as `bash`): forwards to the underlying tool call via the official
  *   `ctx.tools.execute` pipeline, preserving `agent`/`signal`/parent lineage.
  *   `forwardMode: 'resolve'` instead returns the target schema so the model can
  *   call the tool directly.
- * - Skills (`kind: 'skill'`, id `skill:<name>`): loads the full skill
+ * - Skills (`kind: 'skill'`, id is the bare skill name): loads the full skill
  *   instructions and returns them as `<skill_content>` — no args, no script
  *   execution (matches the existing `skill` tool semantics).
  */

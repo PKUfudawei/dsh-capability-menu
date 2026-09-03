@@ -115,16 +115,17 @@ describe('wildcard / rule matching', () => {
 
   it('classifies skills with default resident', () => {
     const rules = policy.compileSet({ resident: ['debugging'] })
-    const target = (id: string, name: string) => ({ id, name, kind: 'skill' as const, ruleKind: 'skill' as const })
-    expect(policy.classify(rules, target('skill:debugging', 'debugging'), new Set())).toBe('resident')
-    expect(policy.classify(rules, target('skill:coding', 'coding'), new Set())).toBe('resident')
-    expect(policy.classify(rules, target('skill:forbidden', 'forbidden'), new Set())).toBe('resident')
+    const target = (name: string) => ({ id: name, name, kind: 'skill' as const, ruleKind: 'skill' as const })
+    expect(policy.classify(rules, target('debugging'), new Set())).toBe('resident')
+    expect(policy.classify(rules, target('coding'), new Set())).toBe('resident')
+    expect(policy.classify(rules, target('forbidden'), new Set())).toBe('resident')
   })
 
-  it('classifies a skill disabled by an exact rule', () => {
-    const rules = policy.compileSet({ disabled: ['forbidden'] })
-    const target = { id: 'skill:forbidden', name: 'forbidden', kind: 'skill' as const, ruleKind: 'skill' as const }
-    expect(policy.classify(rules, target)).toBe('disabled')
+  it('classifies a skill disabled by an exact rule (bare name and legacy `skill:` spelling)', () => {
+    const target = { id: 'forbidden', name: 'forbidden', kind: 'skill' as const, ruleKind: 'skill' as const }
+    expect(policy.classify(policy.compileSet({ disabled: ['forbidden'] }), target)).toBe('disabled')
+    // Legacy configs that still spell skill rules with a `skill:` prefix keep matching.
+    expect(policy.classify(policy.compileSet({ disabled: ['skill:forbidden'] }), target)).toBe('disabled')
   })
 })
 
@@ -198,7 +199,7 @@ describe('capability-menu-policy plugin', () => {
     const ctx = await setup({ skills: { resident: ['debugging'] } })
     expect(ctx.capabilityPolicy.isResidentSkill('debugging')).toBe(true)
     expect(ctx.capabilityPolicy.isResidentSkill('coding')).toBe(true)
-    expect(ctx.capabilityPolicy.classifyCapability('skill:coding')).toBe('resident')
+    expect(ctx.capabilityPolicy.classifyCapability('coding', 'skill')).toBe('resident')
   })
 
   it('denies direct execution of a disabled tool at pre-execute', async () => {

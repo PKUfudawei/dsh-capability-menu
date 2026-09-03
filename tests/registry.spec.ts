@@ -132,10 +132,10 @@ describe('meta-registry', () => {
     expect(byServer.every(summary => summary.server === 'gongfeng')).toBe(true)
 
     const skill = ctx.capability.search({ kind: 'skill' })
-    expect(skill.some(summary => summary.id === 'skill:frontend-design')).toBe(true)
+    expect(skill.some(summary => summary.id === 'frontend-design')).toBe(true)
     // Skills carry their filesystem source root so the 能力管理 can group them
     // into project vs global sections (user-agents = a global user dir here).
-    expect(skill.find(summary => summary.id === 'skill:frontend-design')?.source).toBe('user-agents')
+    expect(skill.find(summary => summary.id === 'frontend-design')?.source).toBe('user-agents')
 
     // Detail for the MCP tool exposes parameters + output.
     const detail = await ctx.capability.getDetail(issue, { scope: agentStub('agent') })
@@ -144,7 +144,7 @@ describe('meta-registry', () => {
     expect((detail?.parameters as { properties?: unknown }).properties).toHaveProperty('title')
 
     // Detail for the skill does not include the body by default.
-    const skillDetail = await ctx.capability.getDetail('skill:frontend-design')
+    const skillDetail = await ctx.capability.getDetail('frontend-design')
     expect(skillDetail?.kind).toBe('skill')
     expect(skillDetail?.output).toBeUndefined()
   })
@@ -191,17 +191,17 @@ describe('meta-registry', () => {
     const ctx = await setup(home)
     await ctx.capability.refresh()
 
-    const listing = await ctx.capability.listSkillDir('skill:browse-me')
+    const listing = await ctx.capability.listSkillDir('browse-me')
     const names = listing?.map(entry => `${entry.type}:${entry.name}`)
     expect(names).toContain('directory:templates')
     expect(names).toContain('file:notes.txt')
 
-    expect(await ctx.capability.readSkillFile('skill:browse-me', 'notes.txt')).toBe('plain text\n')
-    expect(await ctx.capability.readSkillFile('skill:browse-me', 'templates/a.tmpl')).toBe('template body\n')
+    expect(await ctx.capability.readSkillFile('browse-me', 'notes.txt')).toBe('plain text\n')
+    expect(await ctx.capability.readSkillFile('browse-me', 'templates/a.tmpl')).toBe('template body\n')
     // Directory escape is rejected.
-    expect(await ctx.capability.readSkillFile('skill:browse-me', '../outside.txt')).toBeUndefined()
+    expect(await ctx.capability.readSkillFile('browse-me', '../outside.txt')).toBeUndefined()
     // A directory addressed as a file is rejected.
-    expect(await ctx.capability.readSkillFile('skill:browse-me', 'templates')).toBeUndefined()
+    expect(await ctx.capability.readSkillFile('browse-me', 'templates')).toBeUndefined()
   })
 
   it('enumerates skills across agent-preset standing scopes when agentPresets exists', async () => {
@@ -228,7 +228,7 @@ describe('meta-registry', () => {
 
     // Global-layer skill indexed as before.
     const globalSkill = ctx.capability.search({ kind: 'skill' })
-    expect(globalSkill.some(summary => summary.id === 'skill:global-skill')).toBe(true)
+    expect(globalSkill.some(summary => summary.id === 'global-skill')).toBe(true)
     // Broken presets are skipped; the mountable preset's scope was enumerated.
     expect(scopes.has('coding-plus')).toBe(true)
     expect(scopes.has('broken-preset')).toBe(false)

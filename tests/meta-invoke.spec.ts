@@ -119,7 +119,7 @@ describe('capability-menu-invoke', () => {
     })
     await ctx.capability.refresh()
 
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'hello' } })
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: { title: 'hello' } })
     expect(isError).toBe(false)
     const result = value as { ok: boolean; kind: string; id: string; detail: { forwarded: boolean; target: string } }
     expect(result.ok).toBe(true)
@@ -137,7 +137,7 @@ describe('capability-menu-invoke', () => {
     })
     await ctx.capability.refresh()
 
-    const { isError } = await runTool(ctx, 'meta_invoke', { id: failing, args: { title: 'x' } })
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: failing, kind: 'tool', args: { title: 'x' } })
     expect(isError).toBe(true)
   })
 
@@ -148,7 +148,7 @@ describe('capability-menu-invoke', () => {
     const ctx = await setup(home)
     await ctx.capability.refresh()
 
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' })
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' })
     expect(isError).toBe(false)
     const result = value as { ok: boolean; kind: string; detail: { name: string; content: string } }
     expect(result.ok).toBe(true)
@@ -167,7 +167,7 @@ describe('capability-menu-invoke', () => {
     })
     await ctx.capability.refresh()
 
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'x' } })
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: { title: 'x' } })
     expect(isError).toBe(false)
     const result = value as { ok: boolean; kind: string; detail: { target: string; parameters: unknown } }
     expect(result.kind).toBe('resolve')
@@ -186,7 +186,7 @@ describe('capability-menu-invoke', () => {
     })
     await ctx.capability.refresh()
 
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: bash, args: { command: 'echo hi' } })
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: bash, kind: 'tool', args: { command: 'echo hi' } })
     expect(isError).toBe(false)
     const result = value as { ok: boolean; kind: string; detail: { forwarded: boolean; target: string } }
     expect(result.ok).toBe(true)
@@ -218,7 +218,7 @@ describe('capability-menu-invoke', () => {
     expect(assembly.tools.map(tool => tool.name)).not.toContain(grep)
 
     // …but stay reachable through meta_invoke.
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: grep, args: { command: 'ls' } })
+    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: grep, kind: 'tool', args: { command: 'ls' } })
     expect(isError).toBe(false)
     const result = value as { ok: boolean; kind: string; detail: { forwarded: boolean; target: string } }
     expect(result.ok).toBe(true)
@@ -228,7 +228,7 @@ describe('capability-menu-invoke', () => {
   it('rejects an unknown capability id', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
-    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'mcp__nope__missing' })
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'mcp__nope__missing', kind: 'tool' })
     expect(isError).toBe(true)
   })
 
@@ -249,7 +249,7 @@ describe('capability-menu-invoke', () => {
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     await ctx.capability.refresh()
 
-    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, args: { title: 'x' } })
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: { title: 'x' } })
     expect(isError).toBe(true)
   })
 
@@ -270,7 +270,7 @@ describe('capability-menu-invoke', () => {
     await ctx.plugin(toolMetaInvoke, {})
     await ctx.capability.refresh()
 
-    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'skill:forbidden-skill' })
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'forbidden-skill', kind: 'skill' })
     expect(isError).toBe(true)
   })
 
@@ -282,12 +282,12 @@ describe('capability-menu-invoke', () => {
     // Same agent object = same session: the second load must be a short reminder.
     const agent = agentStub('agent')
 
-    const first = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agent)
+    const first = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' }, agent)
     expect(first.isError).toBe(false)
     const firstDetail = (first.value as { detail: { content: string } }).detail
     expect(firstDetail.content).toContain('Full design instructions')
 
-    const second = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agent)
+    const second = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' }, agent)
     expect(second.isError).toBe(false)
     const secondDetail = (second.value as { detail: { content: string } }).detail
     expect(secondDetail.content).not.toContain('Full design instructions')
@@ -305,9 +305,9 @@ describe('capability-menu-invoke', () => {
     const agentA = agentStub('agent-a')
     const agentB = agentStub('agent-b')
 
-    const a1 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentA)
-    const b1 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentB)
-    const a2 = await runTool(ctx, 'meta_invoke', { id: 'skill:frontend-design' }, agentA)
+    const a1 = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' }, agentA)
+    const b1 = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' }, agentB)
+    const a2 = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill' }, agentA)
 
     const content = (result: { value: unknown }): string => (result.value as { detail: { content: string } }).detail.content
     // Session A loads the full body once…

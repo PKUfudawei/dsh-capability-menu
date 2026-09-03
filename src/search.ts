@@ -129,13 +129,20 @@ export function apply(ctx: Context, config: Config = {}): void {
       // indexed for the management surface, but meta_search never surfaces
       // them to the model.
       const policy = ctx.get('capabilityPolicy')
-      const isDisabled = (id: string): boolean => policy?.isDisabledCapability(id) ?? false
+      const isDisabled = (capId: string, capKind: 'tool' | 'skill'): boolean =>
+        policy?.isDisabledCapability(capId, capKind) ?? false
+      // The kind filter doubles as a disambiguator for exact-id lookups.
+      const kindArg = kind === 'all' || kind === undefined ? undefined : kind
 
       if (id.length > 0) {
-        if (isDisabled(id)) {
+        const resolved = ctx.capability.get(id, kindArg)
+        if (resolved === undefined) {
+          throw new Error(`meta_search: capability "${id}" is unknown, unavailable, or ambiguous — pass kind: "tool" | "skill" when both exist`)
+        }
+        if (isDisabled(id, resolved.kind)) {
           throw new Error(`meta_search: capability "${id}" is disabled and cannot be inspected`)
         }
-        const result = await ctx.capability.getDetail(id, context)
+        const result = await ctx.capability.getDetail(id, resolved.kind, context)
         if (result === undefined) {
           throw new Error(`meta_search: capability "${id}" is unknown or no longer available`)
         }
@@ -149,7 +156,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         tag,
         maxResults: Math.min(requestedMax ?? maxResults, 50),
         scope,
-      }).filter(result => !isDisabled(result.id))
+      }).filter(result => !isDisabled(result.id, result.kind))
       const catalogPath = ctx.capability.catalogPath?.()
       return {
         mode: 'list' as const,

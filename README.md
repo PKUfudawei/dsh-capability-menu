@@ -183,11 +183,11 @@ config:
 
 On-demand 能力自动物化成**一个 YAML 文件**给模型检索，链路：
 
-**工具/技能变更或分类调整 → registry 自动重写 `catalogFile` → 模型 `grep`/`read`（或 `meta_search`）找到 id → `meta_invoke(id)` 执行/加载**
+**工具/技能变更或分类调整 → registry 自动重写 `catalogFile` → 模型 `grep`/`read`（或 `meta_search`）找到 id 与 kind → `meta_invoke(id, kind)` 执行/加载**
 
 - 默认 `~/.dsh/capability-catalog.yaml`（`catalogFile` 可改，置空禁用）；没有任何按需能力时不注入目录指引，省上下文。
 - 技能必须**已注册进 `ctx.skills`**（SKILL.md 放用户/项目技能根或挂 `customSkillDirs`）再切按需，即自动出现；无独立手写输入清单。
-- 模型侧两路发现：`grep` 目录文件 / `meta_search`（结构化 schema）；`meta_invoke` 加载正文——工具经 `ctx.tools.execute`，技能经 `ctx.skills`。
+- 模型侧两路发现：`grep` 目录文件 / `meta_search`（结构化 schema）；再以**同一条目返回的 `kind`** 调 `meta_invoke` 加载/执行——技能 id 即裸名（`frontend-design`），不再带 `skill:` 前缀，tool/skill 由 `kind` 区分；工具经 `ctx.tools.execute`，技能经 `ctx.skills`。
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
@@ -198,7 +198,7 @@ capabilities:
     name: mcp__km__search
     description: 搜索知识库
     server: km
-  - id: skill:legacy_skill
+  - id: legacy_skill
     kind: skill
     name: legacy_skill
     description: 旧版迁移技能，低频使用

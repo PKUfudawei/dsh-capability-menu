@@ -22,8 +22,8 @@ import { type CapabilityKind } from './registry.ts';
 export type CapabilityClass = 'resident' | 'on-demand' | 'disabled';
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
- * A pattern matches a capability id (`mcp__<server>__<raw>` / `skill:<name>`)
- * or a server name (`server:<name>`).
+ * A pattern matches a capability id (`mcp__<server>__<raw>`, a native tool
+ * name, or a bare skill name) or a server name (`server:<name>`).
  */
 export interface PolicyRule {
     /** Whether the rule is a literal exact name (`*` free) or a glob pattern. */
@@ -107,9 +107,9 @@ export interface CompiledCapabilityRules {
 export declare function compileSet(set?: CapabilitySetConfig): CompiledCapabilityRules;
 /** Candidate fields a rule is matched against. */
 export interface MatchTarget {
-    /** Full capability id: `mcp__<server>__<raw>` or `skill:<name>`. */
+    /** Capability id: `mcp__<server>__<raw>`, a native tool name, or a bare skill name. */
     readonly id: string;
-    /** Bare model-facing name (tool name or skill name without `skill:` prefix). */
+    /** Model-facing name (for skills it equals the id; for MCP tools the public `mcp__...` name). */
     readonly name: string;
     /** Server name for tools; undefined for skills. */
     readonly server?: string;
@@ -165,12 +165,20 @@ export interface CapabilityPolicyService {
     isDisabledTool(name: string): boolean;
     /** True when a skill is Disabled. */
     isDisabledSkill(name: string): boolean;
-    /** True when a capability id (`mcp__...` / `skill:...`) is Disabled. */
-    isDisabledCapability(id: string): boolean;
+    /**
+     * True when a capability (by id, with optional `kind` disambiguation) is
+     * Disabled. Without `kind`, a legacy `skill:`-prefixed id is treated as a
+     * skill.
+     */
+    isDisabledCapability(id: string, kind?: CapabilityKind): boolean;
     /** Tool names that are always kept Resident. */
     metaTools(): readonly string[];
-    /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */
-    classifyCapability(id: string): CapabilityClass;
+    /**
+     * Resolve a capability's id to a class. Pass `kind` when the caller knows it
+     * (ids are bare names now); a legacy `skill:`-prefixed id is treated as a
+     * skill when `kind` is omitted.
+     */
+    classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass;
     /** Rules resident for the registry/other consumers. */
     toolRules(): CompiledCapabilityRules;
     skillRules(): CompiledCapabilityRules;

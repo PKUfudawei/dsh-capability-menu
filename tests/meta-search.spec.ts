@@ -204,9 +204,9 @@ describe('capability-menu-search', () => {
     const list = await runTool(ctx, 'meta_search', { query: 'Forbidden' })
     expect(list.isError).toBe(false)
     const listResult = list.value as { mode: string; results: Array<{ id: string }> }
-    expect(listResult.results.some(item => item.id === 'skill:forbidden-skill')).toBe(false)
+    expect(listResult.results.some(item => item.id === 'forbidden-skill')).toBe(false)
 
-    const detail = await runTool(ctx, 'meta_search', { id: 'skill:forbidden-skill' })
+    const detail = await runTool(ctx, 'meta_search', { id: 'forbidden-skill' })
     expect(detail.isError).toBe(true)
   })
 })

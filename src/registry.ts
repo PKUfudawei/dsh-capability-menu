@@ -31,8 +31,13 @@ export type CapabilityKind = 'tool' | 'skill'
  */
 export type CapabilityAction = 'execute' | 'load'
 
-/** Stable identifier prefixes: MCP tools keep `mcp__...`, skills use `skill:<name>`. */
-export const SKILL_ID_PREFIX = 'skill:'
+/**
+ * Tool id prefixes are part of the REAL registered tool name: MCP tools are
+ * registered as `mcp__<server>__<raw>` by the harness MCP client and natives
+ * keep their bare name (`bash`/`read`/…), so tool records are keyed by that
+ * name. Skills have no name-level namespace: a skill's id IS its bare name and
+ * `kind` disambiguates it from a same-named tool.
+ */
 export const MCP_ID_PREFIX = 'mcp__'
 /**
  * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
@@ -71,7 +76,7 @@ export interface CapabilityStats {
 
 /** One indexed capability. */
 export interface CapabilityRecord {
-  /** Stable identifier: `mcp__<server>__<raw>` or `skill:<name>`. */
+  /** Stable identifier: `mcp__<server>__<raw>`, a native tool name, or a bare skill name. */
   readonly id: string
   readonly kind: CapabilityKind
   /** The canonical invocation action(s) this capability exposes. */
@@ -158,10 +163,17 @@ export interface SkillDirEntry {
 export interface CapabilityService {
   /** Enumerate the current catalog (optionally filtered). */
   search(options?: MetaSearchOptions): CapabilitySummary[]
-  /** Resolve one record by id, or undefined. */
-  get(id: string): CapabilityRecord | undefined
-  /** Resolve one record's full detail (schema, output; skill body optional). */
-  getDetail(id: string, context?: MetaLookupContext): Promise<CapabilityDetail | undefined>
+  /**
+   * Resolve one record by id, or undefined. Pass `kind` when the caller knows
+   * it (tools and skills may share a bare name, e.g. a skill named `bash`);
+   * without `kind` a same-name tool/skill pair resolves to undefined.
+   */
+  get(id: string, kind?: CapabilityKind): CapabilityRecord | undefined
+  /**
+   * Resolve one record's full detail (schema, output; skill body optional).
+   * `kind` has the same disambiguation semantics as {@link get}.
+   */
+  getDetail(id: string, kind?: CapabilityKind, context?: MetaLookupContext): Promise<CapabilityDetail | undefined>
   /**
    * List a skill's directory children (one level deep). The directory is
    * resolved from the skill's own provider path, never from caller input;
@@ -291,7 +303,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   assertPositiveInteger('maxResults', maxResults, 1)
   assertWeight('weighting', weighting)
 
-  /** Tool records keyed by tool name (MCP tools plus native tools under `built-in`); skills keyed by `skill:<name>`. */
+  /** Tool records keyed by tool name (MCP tools plus native tools under `built-in`); skills keyed by bare skill name. */
   let toolRecords = new Map<string, CapabilityRecord>()
   let skillRecords = new Map<string, CapabilityRecord>()
   /** The scope each indexed skill was collected from; undefined = global layer. */
@@ -302,13 +314,27 @@ export function apply(ctx: Context, config: Config = {}): void {
   const statsOf = (record: CapabilityRecord): CapabilityStats => record.stats
 
   /**
+   * Kind-aware record lookup. With `kind` only that table is consulted; without
+   * it a name present in BOTH tables is ambiguous and resolves to undefined
+   * (never silently pick one kind over the other).
+   */
+  const resolveRecord = (key: string, kind?: CapabilityKind): CapabilityRecord | undefined => {
+    if (kind === 'tool') return toolRecords.get(key)
+    if (kind === 'skill') return skillRecords.get(key)
+    const tool = toolRecords.get(key)
+    const skill = skillRecords.get(key)
+    if (tool !== undefined && skill !== undefined) return undefined
+    return tool ?? skill
+  }
+
+  /**
    * Resolve a skill's root directory from the live skill registry. The
    * directory comes from the skill provider's own locator (`resourceBase` for
    * bundle skills, the SKILL.md parent for flat files) — never from caller input.
    */
   const skillRootOf = async (id: string): Promise<string | undefined> => {
     const name = skillNameOf(id)
-    const scope = skillScopes.get(id)
+    const scope = skillScopes.get(name)
     const lookup = scope === undefined ? {} : { scope }
     const definition = await ctx.skills.get(name, lookup).catch(() => undefined)
     if (definition !== undefined) {
@@ -409,7 +435,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined): void => {
       if (!isModelInvocable(skill)) return
-      const id = skillId(skill.name)
+      const id = skill.name
       const existing = skillRecords.get(id)
       const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
       nextSkills.set(id, {
@@ -487,7 +513,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const policy = ctx.get('capabilityPolicy')
     if (policy === undefined) return
     const onDemand = [...toolRecords.values(), ...skillRecords.values()]
-      .filter(record => policy.classifyCapability(record.id) === 'on-demand')
+      .filter(record => policy.classifyCapability(record.id, record.kind) === 'on-demand')
       .map(record => ({
         id: record.id,
         kind: record.kind,
@@ -590,14 +616,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       })
     },
 
-    get(id: string): CapabilityRecord | undefined {
-      const key = id.trim()
-      return toolRecords.get(key) ?? skillRecords.get(key)
+    get(id: string, kind?: CapabilityKind): CapabilityRecord | undefined {
+      return resolveRecord(id.trim(), kind)
     },
 
-    async getDetail(id: string, context: MetaLookupContext = {}): Promise<CapabilityDetail | undefined> {
-      const key = id.trim()
-      const record = toolRecords.get(key) ?? skillRecords.get(key)
+    async getDetail(id: string, kind?: CapabilityKind, context: MetaLookupContext = {}): Promise<CapabilityDetail | undefined> {
+      const record = resolveRecord(id.trim(), kind)
       if (record === undefined) return undefined
 
       if (record.kind === 'tool') {
@@ -729,12 +753,13 @@ export function serverNameOf(publicName: string): string {
   return index === -1 ? rest : rest.slice(0, index)
 }
 
-/** Build the stable skill identifier `skill:<name>`. */
-export function skillId(name: string): string {
-  return `${SKILL_ID_PREFIX}${name}`
-}
-
-/** Strip the `skill:` prefix from a capability id. */
+/**
+ * Normalize a skill reference to its bare name. Skill capability ids ARE the
+ * bare name now (kind disambiguates); the legacy `skill:`/`skill__` prefixes
+ * are still stripped defensively so old stored ids keep resolving.
+ */
 export function skillNameOf(id: string): string {
-  return id.startsWith(SKILL_ID_PREFIX) ? id.slice(SKILL_ID_PREFIX.length) : id
+  return id.startsWith('skill:') ? id.slice('skill:'.length)
+    : id.startsWith('skill__') ? id.slice('skill__'.length)
+      : id
 }
