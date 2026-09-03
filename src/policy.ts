@@ -237,8 +237,8 @@ export interface CapabilityClassification {
 }
 
 const CLASS_LABELS: Record<CapabilityClass, string> = {
-  exposed: 'Exposed · 常驻（直接调用）',
-  progressive: 'Progressive · 按需（目录渐进加载）',
+  exposed: 'Resident · 常驻（直接调用）',
+  progressive: 'On-demand · 按需（目录渐进加载）',
   blocked: 'Blocked · 禁用',
 }
 
