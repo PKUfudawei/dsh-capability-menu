@@ -56,9 +56,11 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     /** Read a text file inside a skill's directory. */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
     /**
-     * 能力目录查看：返回「三档策略配置」（语义化视图：未列入 on-demand/blocked
-     * 的能力默认常驻，resident 只显示通配 *；例外按 server 分组列出具体工具名）
-     * 与按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
+     * 能力目录查看：返回「三档策略配置」语义化视图——默认全部常驻，
+     * tools.resident 按 server 各显示 '*'，例外（on-demand/blocked）按
+     * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
+     * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
+     * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
      * 两者都是只读视图——策略持久化入口仍是 cordis.patch.yml。
      */
     getCatalogDocs(): Promise<CatalogDocs>;
