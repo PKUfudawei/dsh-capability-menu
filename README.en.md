@@ -57,10 +57,8 @@ The model gets two meta tools:
 
 Once installed, a Capability Menu tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
 
-- **Two panes**: MCP tools (grouped by server, collapsible) and Skills.
-- **Three-state dot + statistics**: every capability carries a classification dot — solid = Resident, half-filled = On-demand, hollow = Blocked — and per-class counts are shown at the top of the pane.
-- **Click to cycle**: click a capability's dot or a class count to cycle its classification; if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply; clicking an MCP tool row shows its model-facing tool definition (name / description / parameters).
-- **Skill directory browsing**: expand a skill to browse its file tree; click a file to preview the content, e.g. its SKILL.md.
+- **Two panes**: MCP tools (grouped by server, collapsible; click a row to view the model-facing tool definition — name / description / parameters) and Skills (click a row to expand its directory tree; click a file to preview the content, e.g. its SKILL.md).
+- **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, half-filled = On-demand, hollow = Blocked — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification, and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
 
 ## Quick Install
 
