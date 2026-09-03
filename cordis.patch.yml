@@ -17,17 +17,17 @@
 #     name: '@daweifu/capability-menu/policy'
 #       config:
 #         tools:
-#           exposed:
+#           resident:
 #             - execute_cmd
 #             - get_session_context
 #             - search_kb
 #             - 'mcp__gongfeng__*'
-#           progressive:
+#           on-demand:
 #             - 'mcp__*'
 #             - 'server:km:*'
 #           blocked: []
 #         skills:
-#           exposed:
+#           resident:
 #             - debugging
 #             - coding
 #         metaTools:
@@ -38,7 +38,7 @@
 #   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers
 #   no model-facing tool itself. Indexes every visible tool — MCP tools by their
 #   server and harness-native tools (bash/read/write/…) under the reserved
-#   `builtin` pseudo-server — plus skills from the global layer and every
+#   `built-in` pseudo-server — plus skills from the global layer and every
 #   mountable preset's standing scope. The single on-demand catalog is emitted to
 #   `catalogFile` (default `~/.dsh/capability-catalog.yaml`) for grep/read.
 # - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
@@ -47,7 +47,7 @@
 #   view (no agent) so On-demand tools stay runnable; dedups already-loaded skills.
 #   Rejects Blocked capabilities.
 # - `capability-menu-policy` (P3): Resident/On-demand/Blocked projection
-#   strategy + 能力菜单 surface. Reads explicit exposed/progressive/blocked
+#   strategy + 能力菜单 surface. Reads explicit resident/on-demand/blocked
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
 #   `system-prompt/assemble` to Resident + meta tools only. The execution chain
 #   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
@@ -58,7 +58,7 @@
 #   `readSkillFile`) via the Typert gateway.
 #
 # Default (policy present but no config): every capability is Resident — the
-# `classify` fallback, nothing is hidden. Add explicit `progressive`/`blocked`
+# `classify` fallback, nothing is hidden. Add explicit `on-demand`/`blocked`
 # rules to pull capabilities out of the model surface.
 - insert:
     - id: capability-menu-registry
@@ -70,16 +70,16 @@
     - id: capability-menu-policy
       name: '@daweifu/capability-menu/policy'
       config:
-        # Native coding tools are cataloged under the reserved `builtin`
+        # Native coding tools are cataloged under the reserved `built-in`
         # pseudo-server and are fully manageable like MCP tools. Unlisted
-        # capabilities default to Resident; list them under `progressive`/
+        # capabilities default to Resident; list them under `on-demand`/
         # `blocked` to pull MCP servers, native tools, or skills out of the
         # model surface. On-demand native tools stay invocable through
         # `meta_search` → `meta_invoke`. The `meta_search`/`meta_invoke`
         # control-plane tools and the reserved `run_code` transport never enter
-        # the catalog. Do not name a real MCP server `builtin`.
+        # the catalog. Do not name a real MCP server `built-in`.
         tools:
-          exposed:
+          resident:
             - bash
             - read
             - write

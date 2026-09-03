@@ -10,7 +10,7 @@ import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools';
 /**
  * Kinds of capability the catalog can hold.
  * - `tool`:   action capability — executes a concrete action (an MCP tool or a
- *   harness-native tool cataloged under the reserved `builtin` server).
+ *   harness-native tool cataloged under the reserved `built-in` server).
  * - `skill`:  action capability — loads the method/instructions for a task.
  */
 export type CapabilityKind = 'tool' | 'skill';
@@ -31,7 +31,7 @@ export declare const MCP_ID_PREFIX = "mcp__";
  * tools — same `server` dimension — so the 能力菜单 can group them, classify
  * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
  */
-export declare const BUILTIN_SERVER = "builtin";
+export declare const BUILT_IN_SERVER = "built-in";
 /**
  * Tool names that never enter the capability catalog: this plugin's own
  * control plane (`meta_search`/`meta_invoke`, always Resident) and the
@@ -40,9 +40,9 @@ export declare const BUILTIN_SERVER = "builtin";
 export declare const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string>;
 /** Capability-stable origin metadata used by search filters and detail views. */
 export interface CapabilityOrigin {
-    /** Human/namespace label: an MCP server name, the reserved `builtin` for native tools, or a skill provider. */
+    /** Human/namespace label: an MCP server name, the reserved `built-in` for native tools, or a skill provider. */
     readonly provider: string;
-    /** Server namespace, present only for `kind: 'tool'` (`builtin` for native tools). */
+    /** Server namespace, present only for `kind: 'tool'` (`built-in` for native tools). */
     readonly serverName?: string;
     /** Local skill path, present only for `kind: 'skill'`. */
     readonly path?: string;
@@ -117,7 +117,7 @@ export interface MetaSearchOptions {
     readonly maxResults?: number;
     /**
      * Viewing scope. Retained for caller ergonomics and optional authorization
-     * checks, but the policy does NOT use it to filter visibility — Progressive
+     * checks, but the policy does NOT use it to filter visibility — On-demand
      * capabilities must remain searchable regardless of the caller's projection.
      */
     readonly scope?: ScopeKey | undefined;
@@ -163,17 +163,17 @@ export interface CapabilityService {
     /** Return the current number of indexed capabilities. */
     size(): number;
     /**
-     * Absolute path of the on-demand (Progressive) capability catalog YAML, when
-     * emission is enabled. The model can browse this file with grep/read instead
-     * of only reaching the catalog through `meta_search`.
+     * Absolute path of the on-demand capability catalog YAML, when emission is
+     * enabled. The model can browse this file with grep/read instead of only
+     * reaching the catalog through `meta_search`.
      */
     catalogPath(): string | undefined;
     /**
-     * Number of Progressive capabilities in the latest catalog emission. Used by
+     * Number of On-demand capabilities in the latest catalog emission. Used by
      * the policy's assemble hook to skip the catalog pointer when there is
-     * nothing Progressive to browse.
+     * nothing On-demand to browse.
      */
-    progressiveCount(): number;
+    onDemandCount(): number;
     /**
      * Rebuild the catalog from the current tool/skill registries; resolves when
      * done. In production the registry rebuilds automatically on `tools/change`
@@ -198,8 +198,8 @@ export interface Config {
     /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
     weighting?: number;
     /**
-     * Optional path for the on-demand (On-demand/Progressive) capability catalog
-     * emitted as a YAML file for model-side grep/read browsing. Defaults to
+     * Optional path for the on-demand capability catalog emitted as a YAML file
+     * for model-side grep/read browsing. Defaults to
      * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
      * emission. Blocked capabilities are never written.
      */

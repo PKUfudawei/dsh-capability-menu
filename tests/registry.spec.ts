@@ -77,7 +77,7 @@ function registerNativeTool(ctx: Context, name: string, description: string): st
 }
 
 describe('meta-registry', () => {
-  it('indexes harness-native tools under the builtin pseudo-server and keeps the control plane out', async () => {
+  it('indexes harness-native tools under the built-in pseudo-server and keeps the control plane out', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create a new issue/ticket/bug report in a Gongfeng project')
@@ -88,12 +88,12 @@ describe('meta-registry', () => {
     registerNativeTool(ctx, 'meta_invoke', 'Execute a capability')
     await ctx.capability.refresh()
 
-    // Natives are discoverable and grouped under the reserved builtin server.
-    const byBuiltin = ctx.capability.search({ server: 'builtin' })
-    const builtinIds = byBuiltin.map(summary => summary.id)
-    expect(builtinIds).toContain(bash)
-    expect(builtinIds).toContain(grep)
-    expect(byBuiltin.every(summary => summary.server === 'builtin')).toBe(true)
+    // Natives are discoverable and grouped under the reserved built-in server.
+    const byBuiltIn = ctx.capability.search({ server: 'built-in' })
+    const builtInIds = byBuiltIn.map(summary => summary.id)
+    expect(builtInIds).toContain(bash)
+    expect(builtInIds).toContain(grep)
+    expect(byBuiltIn.every(summary => summary.server === 'built-in')).toBe(true)
 
     // Control-plane tools stay out of list/detail.
     const allTools = ctx.capability.search({ kind: 'tool', maxResults: 100 })
@@ -105,7 +105,7 @@ describe('meta-registry', () => {
     // Detail for a native resolves through the tool registry.
     const detail = await ctx.capability.getDetail(bash)
     expect(detail?.kind).toBe('tool')
-    expect(detail?.origin.serverName).toBe('builtin')
+    expect(detail?.origin.serverName).toBe('built-in')
   })
 
 
@@ -234,7 +234,7 @@ describe('meta-registry', () => {
     expect(scopes.has('broken-preset')).toBe(false)
   })
 
-  it('emits the on-demand catalog YAML with only Progressive capabilities', async () => {
+  it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { readFile } = await import('node:fs/promises')
     const { join } = await import('node:path')
@@ -251,8 +251,8 @@ describe('meta-registry', () => {
     await ctx.plugin(registry, { catalogFile })
     await ctx.plugin(policy, {
       tools: {
-        exposed: ['mcp__gongfeng__create_issue'],
-        progressive: ['mcp__km__search'],
+        resident: ['mcp__gongfeng__create_issue'],
+        'on-demand': ['mcp__km__search'],
         blocked: ['mcp__secret__read'],
       },
     })
@@ -275,7 +275,7 @@ describe('meta-registry', () => {
     expect(raw).toContain('- id: mcp__km__search')
     expect(raw).not.toMatch(/capabilities:\s*\[/)
 
-    // C2: reclassifying the Progressive capability to blocked must remove it
+    // C2: reclassifying the On-demand capability to blocked must remove it
     // from the disk catalog — the grep-able file must not keep exposing it
     // after the in-memory classification changed. updateConfig is awaited, so
     // the disk rewrite is complete by the time it returns.

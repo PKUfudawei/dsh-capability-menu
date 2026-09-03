@@ -176,7 +176,7 @@ describe('capability-menu-invoke', () => {
     expect(executed).toBe(false)
   })
 
-  it('forwards a harness-native tool (builtin server) through the tool pipeline', async () => {
+  it('forwards a harness-native tool (built-in server) through the tool pipeline', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
     let received: unknown
@@ -208,7 +208,7 @@ describe('capability-menu-invoke', () => {
       watch: false,
     })
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { tools: { progressive: ['grep'] } })
+    await ctx.plugin(policy, { tools: { 'on-demand': ['grep'] } })
     await ctx.plugin(toolMetaInvoke, {})
     const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions', args => ({ ok: true, received: args }))
     await ctx.capability.refresh()

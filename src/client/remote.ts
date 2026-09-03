@@ -23,7 +23,7 @@ export interface CapabilityRow {
   readonly server?: string
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string
-  readonly class: 'exposed' | 'progressive' | 'blocked'
+  readonly class: 'resident' | 'on-demand' | 'blocked'
   readonly classLabel?: string
   readonly mandatory: boolean
 }
@@ -61,7 +61,7 @@ const capabilityRow$schema = z.object({
   name: z.string().readonly(),
   server: z.string().optional().readonly(),
   source: z.string().optional().readonly(),
-  class: z.union([z.literal('exposed'), z.literal('progressive'), z.literal('blocked')]).readonly(),
+  class: z.union([z.literal('resident'), z.literal('on-demand'), z.literal('blocked')]).readonly(),
   classLabel: z.string().optional().readonly(),
   mandatory: z.boolean().readonly(),
 })

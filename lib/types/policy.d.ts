@@ -1,5 +1,5 @@
 /**
- * Exposed / Progressive / Blocked capability projection policy for the DeepSeek
+ * Resident / On-demand / Blocked capability projection policy for the DeepSeek
  * Harness.
  *
  * @module @daweifu/capability-menu (policy plugin)
@@ -11,15 +11,15 @@ import { type CapabilityKind } from './registry.ts';
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
- * - `exposed`: the capability is on the dsh-native exposure surface — tools in
+ * - `resident`: the capability is on the dsh-native exposure surface — tools in
  *   `assembly.tools` (the request `tools` payload), skills in the
  *   `<available_skills>` catalog — so the model can call/load it single-hop.
- * - `progressive`: absent from the native surface but discoverable in the
+ * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
  *   `meta_invoke` (catalog-resident, load/execute on demand).
- * - `blocked`: neither exposed nor discoverable nor executable.
+ * - `blocked`: neither resident nor discoverable nor executable.
  */
-export type CapabilityClass = 'exposed' | 'progressive' | 'blocked';
+export type CapabilityClass = 'resident' | 'on-demand' | 'blocked';
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
  * A pattern matches a capability id (`mcp__<server>__<raw>` / `skill:<name>`)
@@ -36,33 +36,50 @@ export interface PolicyRule {
     readonly target: 'id' | 'server';
 }
 /**
- * Per-kind explicit configuration. `exposed`/`progressive`/`blocked` are
+ * Per-kind explicit configuration. `resident`/`on-demand`/`blocked` are
  * ordered lists of exact-name / glob rules. Empty lists mean "nothing
- * explicitly classified", so the default (`exposed`) applies.
+ * explicitly classified", so the default (`resident`) applies.
  */
 export interface CapabilitySetConfig {
-    /** Explicitly-Exposed rule list (exact name or glob). */
-    exposed?: string[];
-    /** Explicitly-Progressive rule list (exact name or glob). */
-    progressive?: string[];
+    /** Explicitly-Resident rule list (exact name or glob). */
+    resident?: string[];
+    /** Explicitly-On-demand rule list (exact name or glob). */
+    'on-demand'?: string[];
     /** Explicitly-Blocked rule list (exact name or glob); wins over everything. */
     blocked?: string[];
+    /**
+     * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
+     * profiles keep working without an on-disk rewrite.
+     */
+    exposed?: string[];
+    /**
+     * @deprecated pre-rename alias of `on-demand`; accepted and mapped so legacy
+     * profiles keep working without an on-disk rewrite.
+     */
+    progressive?: string[];
 }
-/** Exposed / Progressive / Blocked projection policy configuration. */
+/** Resident / On-demand / Blocked projection policy configuration. */
 export interface Config {
-    /** Tool classification: `tools.exposed` / `tools.progressive` / `tools.blocked`. */
+    /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.blocked`. */
     tools?: CapabilitySetConfig;
-    /** Skill classification: `skills.exposed` / `skills.progressive` / `skills.blocked`. */
+    /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.blocked`. */
     skills?: CapabilitySetConfig;
     /**
-     * Tool names that are ALWAYS kept exposed and can never be classified
-     * Progressive or Blocked. Default `[meta_search, meta_invoke]`.
+     * Tool names that are ALWAYS kept resident and can never be classified
+     * On-demand or Blocked. Default `[meta_search, meta_invoke]`.
      */
     metaTools?: string[];
 }
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;
 export declare const DEFAULT_META_TOOLS: readonly ["meta_search", "meta_invoke"];
+/**
+ * Map a legacy rule set (old keys `exposed`/`progressive`) onto the current
+ * key names, so already-deployed `cordis.patch.yml` profiles keep working
+ * without an on-disk rewrite. New keys win when they carry rules; a legacy
+ * key fills in when the matching new list is empty.
+ */
+export declare function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined;
 /**
  * Convert a user-facing rule string into a normalized {@link PolicyRule}.
  * - `server:<name>` → server-targeted rule (`target: 'server'`).
@@ -75,8 +92,8 @@ export declare function parseRule(rule: string): PolicyRule;
 export declare function compileGlob(pattern: string): RegExp;
 /** A compiled rule set for one capability kind. */
 export interface CompiledCapabilityRules {
-    readonly exposed: readonly PolicyRule[];
-    readonly progressive: readonly PolicyRule[];
+    readonly resident: readonly PolicyRule[];
+    readonly onDemand: readonly PolicyRule[];
     readonly blocked: readonly PolicyRule[];
 }
 /** Compile a {@link CapabilitySetConfig} into fast-matchable rules. */
@@ -96,13 +113,13 @@ export interface MatchTarget {
 }
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > exposed-exact > progressive-exact >
- * exposed-wildcard > progressive-wildcard > default (exposed). `blocked` is a
- * control decision, so it beats an explicit `exposed` rule. Within
- * exposed/progressive an exact name beats a wildcard, so the management UI can
+ * blocked-exact > blocked-wildcard > resident-exact > on-demand-exact >
+ * resident-wildcard > on-demand-wildcard > default (resident). `blocked` is a
+ * control decision, so it beats an explicit `resident` rule. Within
+ * resident/on-demand an exact name beats a wildcard, so the management UI can
  * pin a single capability to a class even when a broader wildcard rule says
- * otherwise (e.g. `tools.exposed: ['mcp__gongfeng__*']` must not silently win
- * over an explicit per-tool `progressive` rule).
+ * otherwise (e.g. `tools.resident: ['mcp__gongfeng__*']` must not silently win
+ * over an explicit per-tool `on-demand` rule).
  */
 export declare function classify(compiled: CompiledCapabilityRules, target: MatchTarget, metaTools?: ReadonlySet<string> | readonly string[]): CapabilityClass;
 /**
@@ -115,14 +132,14 @@ export interface CapabilityClassification {
     readonly kind: CapabilityKind;
     /** Model-facing name (tool name or skill bare name). */
     readonly name: string;
-    /** Server namespace for tools (`builtin` for harness-native tools); undefined for skills. */
+    /** Server namespace for tools (`built-in` for harness-native tools); undefined for skills. */
     readonly server?: string;
     /** Skill source root label, present only for skills. */
     readonly source?: string;
     readonly class: CapabilityClass;
     /** Human-friendly display label for the classification. */
     readonly classLabel: string;
-    /** True when this capability is a mandatory meta tool (always Exposed). */
+    /** True when this capability is a mandatory meta tool (always Resident). */
     readonly mandatory: boolean;
 }
 /**
@@ -133,21 +150,21 @@ export interface CapabilityPolicyService {
     classifyTool(name: string): CapabilityClass;
     /** Classify a skill by its bare name. */
     classifySkill(name: string): CapabilityClass;
-    /** True when a tool is Exposed (or a mandatory meta tool). */
-    isExposedTool(name: string): boolean;
-    /** True when a skill is Exposed. */
-    isExposedSkill(name: string): boolean;
+    /** True when a tool is Resident (or a mandatory meta tool). */
+    isResidentTool(name: string): boolean;
+    /** True when a skill is Resident. */
+    isResidentSkill(name: string): boolean;
     /** True when a tool is Blocked. */
     isBlockedTool(name: string): boolean;
     /** True when a skill is Blocked. */
     isBlockedSkill(name: string): boolean;
     /** True when a capability id (`mcp__...` / `skill:...`) is Blocked. */
     isBlockedCapability(id: string): boolean;
-    /** Tool names that are always kept Exposed. */
+    /** Tool names that are always kept Resident. */
     metaTools(): readonly string[];
     /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */
     classifyCapability(id: string): CapabilityClass;
-    /** Rules exposed for the registry/other consumers. */
+    /** Rules resident for the registry/other consumers. */
     toolRules(): CompiledCapabilityRules;
     skillRules(): CompiledCapabilityRules;
     /** Current (resolved) policy config. */
@@ -166,7 +183,7 @@ declare module '@deepseek-ai/cordis' {
     }
 }
 /**
- * Build the projection listener for one assembly: keep only Exposed tools plus
+ * Build the projection listener for one assembly: keep only Resident tools plus
  * the mandatory meta tools.
  */
 export declare function projectAssemblyTools(assembly: PromptAssembly, service: CapabilityPolicyService): PromptAssembly;

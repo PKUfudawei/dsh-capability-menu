@@ -17,7 +17,7 @@ import { dirname, join, resolve, sep } from 'node:path'
 /**
  * Kinds of capability the catalog can hold.
  * - `tool`:   action capability — executes a concrete action (an MCP tool or a
- *   harness-native tool cataloged under the reserved `builtin` server).
+ *   harness-native tool cataloged under the reserved `built-in` server).
  * - `skill`:  action capability — loads the method/instructions for a task.
  */
 export type CapabilityKind = 'tool' | 'skill'
@@ -40,7 +40,7 @@ export const MCP_ID_PREFIX = 'mcp__'
  * tools — same `server` dimension — so the 能力菜单 can group them, classify
  * them Resident/On-demand/Blocked, and `meta_invoke` can dispatch them.
  */
-export const BUILTIN_SERVER = 'builtin'
+export const BUILT_IN_SERVER = 'built-in'
 /**
  * Tool names that never enter the capability catalog: this plugin's own
  * control plane (`meta_search`/`meta_invoke`, always Resident) and the
@@ -50,9 +50,9 @@ export const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string> = new Set(['meta_search
 
 /** Capability-stable origin metadata used by search filters and detail views. */
 export interface CapabilityOrigin {
-  /** Human/namespace label: an MCP server name, the reserved `builtin` for native tools, or a skill provider. */
+  /** Human/namespace label: an MCP server name, the reserved `built-in` for native tools, or a skill provider. */
   readonly provider: string
-  /** Server namespace, present only for `kind: 'tool'` (`builtin` for native tools). */
+  /** Server namespace, present only for `kind: 'tool'` (`built-in` for native tools). */
   readonly serverName?: string
   /** Local skill path, present only for `kind: 'skill'`. */
   readonly path?: string
@@ -129,7 +129,7 @@ export interface MetaSearchOptions {
   readonly maxResults?: number
   /**
    * Viewing scope. Retained for caller ergonomics and optional authorization
-   * checks, but the policy does NOT use it to filter visibility — Progressive
+   * checks, but the policy does NOT use it to filter visibility — On-demand
    * capabilities must remain searchable regardless of the caller's projection.
    */
   readonly scope?: ScopeKey | undefined
@@ -178,17 +178,17 @@ export interface CapabilityService {
   /** Return the current number of indexed capabilities. */
   size(): number
   /**
-   * Absolute path of the on-demand (Progressive) capability catalog YAML, when
-   * emission is enabled. The model can browse this file with grep/read instead
-   * of only reaching the catalog through `meta_search`.
+   * Absolute path of the on-demand capability catalog YAML, when emission is
+   * enabled. The model can browse this file with grep/read instead of only
+   * reaching the catalog through `meta_search`.
    */
   catalogPath(): string | undefined
   /**
-   * Number of Progressive capabilities in the latest catalog emission. Used by
+   * Number of On-demand capabilities in the latest catalog emission. Used by
    * the policy's assemble hook to skip the catalog pointer when there is
-   * nothing Progressive to browse.
+   * nothing On-demand to browse.
    */
-  progressiveCount(): number
+  onDemandCount(): number
   /**
    * Rebuild the catalog from the current tool/skill registries; resolves when
    * done. In production the registry rebuilds automatically on `tools/change`
@@ -215,8 +215,8 @@ export interface Config {
   /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
   weighting?: number
   /**
-   * Optional path for the on-demand (On-demand/Progressive) capability catalog
-   * emitted as a YAML file for model-side grep/read browsing. Defaults to
+   * Optional path for the on-demand capability catalog emitted as a YAML file
+   * for model-side grep/read browsing. Defaults to
    * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
    * emission. Blocked capabilities are never written.
    */
@@ -291,13 +291,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   assertPositiveInteger('maxResults', maxResults, 1)
   assertWeight('weighting', weighting)
 
-  /** Tool records keyed by tool name (MCP tools plus native tools under `builtin`); skills keyed by `skill:<name>`. */
+  /** Tool records keyed by tool name (MCP tools plus native tools under `built-in`); skills keyed by `skill:<name>`. */
   let toolRecords = new Map<string, CapabilityRecord>()
   let skillRecords = new Map<string, CapabilityRecord>()
   /** The scope each indexed skill was collected from; undefined = global layer. */
   let skillScopes = new Map<string, ScopeKey | undefined>()
-  /** Progressive count of the latest catalog emission (0 until first write). */
-  let progressiveCount = 0
+  /** On-demand count of the latest catalog emission (0 until first write). */
+  let onDemandCount = 0
 
   const statsOf = (record: CapabilityRecord): CapabilityStats => record.stats
 
@@ -326,13 +326,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     for (const schema of ctx.tools.schemas()) {
       // 全部可见工具都进编目，仅排除 meta_search/meta_invoke（本插件控制面，
       // 恒常驻）与 run_code（Code Mode 保留传输层）。mcp__ 工具按真实 server
-      // 分组；原生工具（无 mcp__ 前缀）统一归入保留的 builtin server，使能力
+      // 分组；原生工具（无 mcp__ 前缀）统一归入保留的 built-in server，使能力
       // 菜单能统一按 server 分组、三档管理，meta_invoke 也能派发它们。
       if (CATALOG_EXCLUDED_TOOLS.has(schema.name)) continue
       const existing = toolRecords.get(schema.name)
       const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
       const isMcp = schema.name.startsWith(MCP_ID_PREFIX)
-      const serverName = isMcp ? serverNameOf(schema.name) : BUILTIN_SERVER
+      const serverName = isMcp ? serverNameOf(schema.name) : BUILT_IN_SERVER
       next.set(schema.name, {
         id: schema.name,
         kind: 'tool',
@@ -431,19 +431,19 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   /**
-   * Emit the on-demand (Progressive) capability catalog as a YAML file the
-   * model can browse with grep/read. Only Progressive capabilities are written;
-   * Exposed ones are already in the model surface and Blocked ones must stay
-   * undiscoverable. Skips emission when the policy plugin is not mounted (no
-   * classification) or the file path is disabled.
+   * Emit the on-demand capability catalog as a YAML file the model can browse
+   * with grep/read. Only On-demand capabilities are written; Resident ones are
+   * already in the model surface and Blocked ones must stay undiscoverable.
+   * Skips emission when the policy plugin is not mounted (no classification) or
+   * the file path is disabled.
    */
   const writeCatalog = async (): Promise<void> => {
-    progressiveCount = 0
+    onDemandCount = 0
     if (catalogFile.length === 0) return
     const policy = ctx.get('capabilityPolicy')
     if (policy === undefined) return
-    const progressive = [...toolRecords.values(), ...skillRecords.values()]
-      .filter(record => policy.classifyCapability(record.id) === 'progressive')
+    const onDemand = [...toolRecords.values(), ...skillRecords.values()]
+      .filter(record => policy.classifyCapability(record.id) === 'on-demand')
       .map(record => ({
         id: record.id,
         kind: record.kind,
@@ -455,9 +455,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
         ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
       }))
-    progressiveCount = progressive.length
+    onDemandCount = onDemand.length
     try {
-      await writeFile(catalogFile, yaml.dump({ capabilities: progressive }), 'utf8')
+      await writeFile(catalogFile, yaml.dump({ capabilities: onDemand }), 'utf8')
     } catch (error) {
       ctx.logger.warn(`capability-registry: on-demand catalog write failed (${catalogFile}): ${String(error)}`)
     }
@@ -493,8 +493,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       const all: CapabilityRecord[] = []
       // Index/source is the GLOBAL registry — no visibility filter here.
-      // Exposed/Progressive is a projection-layer concern (`dsh-capability-policy`),
-      // so a Progressive tool hidden from the model's exposure surface must still
+      // Resident/On-demand is a projection-layer concern (`dsh-capability-policy`),
+      // so an On-demand tool hidden from the model's exposure surface must still
       // be searchable so `meta_search` can return it for `meta_invoke`. Blocked
       // enforcement lives at the model-facing tools (meta_search/meta_invoke),
       // keeping the management surface able to list Blocked capabilities.
@@ -640,8 +640,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       return catalogFile.length === 0 ? undefined : catalogFile
     },
 
-    progressiveCount(): number {
-      return progressiveCount
+    onDemandCount(): number {
+      return onDemandCount
     },
 
     refresh(): Promise<void> {

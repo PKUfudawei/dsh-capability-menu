@@ -1,5 +1,5 @@
 /**
- * Exposed / Progressive / Blocked capability projection policy for the DeepSeek
+ * Resident / On-demand / Blocked capability projection policy for the DeepSeek
  * Harness.
  *
  * @module @daweifu/capability-menu (policy plugin)
@@ -14,15 +14,15 @@ import { serverNameOf, type CapabilityKind } from './registry.ts'
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
- * - `exposed`: the capability is on the dsh-native exposure surface — tools in
+ * - `resident`: the capability is on the dsh-native exposure surface — tools in
  *   `assembly.tools` (the request `tools` payload), skills in the
  *   `<available_skills>` catalog — so the model can call/load it single-hop.
- * - `progressive`: absent from the native surface but discoverable in the
+ * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
  *   `meta_invoke` (catalog-resident, load/execute on demand).
- * - `blocked`: neither exposed nor discoverable nor executable.
+ * - `blocked`: neither resident nor discoverable nor executable.
  */
-export type CapabilityClass = 'exposed' | 'progressive' | 'blocked'
+export type CapabilityClass = 'resident' | 'on-demand' | 'blocked'
 
 /**
  * A single classify rule: an exact name or a `*`-glob pattern.
@@ -41,28 +41,38 @@ export interface PolicyRule {
 }
 
 /**
- * Per-kind explicit configuration. `exposed`/`progressive`/`blocked` are
+ * Per-kind explicit configuration. `resident`/`on-demand`/`blocked` are
  * ordered lists of exact-name / glob rules. Empty lists mean "nothing
- * explicitly classified", so the default (`exposed`) applies.
+ * explicitly classified", so the default (`resident`) applies.
  */
 export interface CapabilitySetConfig {
-  /** Explicitly-Exposed rule list (exact name or glob). */
-  exposed?: string[]
-  /** Explicitly-Progressive rule list (exact name or glob). */
-  progressive?: string[]
+  /** Explicitly-Resident rule list (exact name or glob). */
+  resident?: string[]
+  /** Explicitly-On-demand rule list (exact name or glob). */
+  'on-demand'?: string[]
   /** Explicitly-Blocked rule list (exact name or glob); wins over everything. */
   blocked?: string[]
+  /**
+   * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
+   * profiles keep working without an on-disk rewrite.
+   */
+  exposed?: string[]
+  /**
+   * @deprecated pre-rename alias of `on-demand`; accepted and mapped so legacy
+   * profiles keep working without an on-disk rewrite.
+   */
+  progressive?: string[]
 }
 
-/** Exposed / Progressive / Blocked projection policy configuration. */
+/** Resident / On-demand / Blocked projection policy configuration. */
 export interface Config {
-  /** Tool classification: `tools.exposed` / `tools.progressive` / `tools.blocked`. */
+  /** Tool classification: `tools.resident` / `tools.on-demand` / `tools.blocked`. */
   tools?: CapabilitySetConfig
-  /** Skill classification: `skills.exposed` / `skills.progressive` / `skills.blocked`. */
+  /** Skill classification: `skills.resident` / `skills.on-demand` / `skills.blocked`. */
   skills?: CapabilitySetConfig
   /**
-   * Tool names that are ALWAYS kept exposed and can never be classified
-   * Progressive or Blocked. Default `[meta_search, meta_invoke]`.
+   * Tool names that are ALWAYS kept resident and can never be classified
+   * On-demand or Blocked. Default `[meta_search, meta_invoke]`.
    */
   metaTools?: string[]
 }
@@ -70,20 +80,45 @@ export interface Config {
 /** Validate and default the policy configuration. */
 export const Config: z<Config> = z.object({
   tools: z.object({
-    exposed: z.array(z.string()).default([]),
-    progressive: z.array(z.string()).default([]),
+    resident: z.array(z.string()).default([]),
+    'on-demand': z.array(z.string()).default([]),
     blocked: z.array(z.string()).default([]),
+    // Deprecated pre-rename aliases: kept in the schema so a config cast keeps
+    // them available for `normalizeSetConfig` instead of stripping them.
+    exposed: z.array(z.string()),
+    progressive: z.array(z.string()),
   }),
   skills: z.object({
-    exposed: z.array(z.string()).default([]),
-    progressive: z.array(z.string()).default([]),
+    resident: z.array(z.string()).default([]),
+    'on-demand': z.array(z.string()).default([]),
     blocked: z.array(z.string()).default([]),
+    exposed: z.array(z.string()),
+    progressive: z.array(z.string()),
   }),
   metaTools: z.array(z.string()).default(['meta_search', 'meta_invoke']),
   // schemastery object properties are optional-by-default; no `.optional()` needed.
 })
 
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
+
+/**
+ * Map a legacy rule set (old keys `exposed`/`progressive`) onto the current
+ * key names, so already-deployed `cordis.patch.yml` profiles keep working
+ * without an on-disk rewrite. New keys win when they carry rules; a legacy
+ * key fills in when the matching new list is empty.
+ */
+export function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined {
+  if (set === undefined) return undefined
+  const next: CapabilitySetConfig = {}
+  const resident = set.resident !== undefined && set.resident.length > 0 ? set.resident : undefined
+  if (resident !== undefined) next.resident = resident
+  else if (set.exposed !== undefined && set.exposed.length > 0) next.resident = set.exposed
+  const onDemand = set['on-demand'] !== undefined && set['on-demand'].length > 0 ? set['on-demand'] : undefined
+  if (onDemand !== undefined) next['on-demand'] = onDemand
+  else if (set.progressive !== undefined && set.progressive.length > 0) next['on-demand'] = set.progressive
+  if (set.blocked !== undefined && set.blocked.length > 0) next.blocked = set.blocked
+  return next
+}
 
 /**
  * Convert a user-facing rule string into a normalized {@link PolicyRule}.
@@ -120,16 +155,16 @@ export function compileGlob(pattern: string): RegExp {
 
 /** A compiled rule set for one capability kind. */
 export interface CompiledCapabilityRules {
-  readonly exposed: readonly PolicyRule[]
-  readonly progressive: readonly PolicyRule[]
+  readonly resident: readonly PolicyRule[]
+  readonly onDemand: readonly PolicyRule[]
   readonly blocked: readonly PolicyRule[]
 }
 
 /** Compile a {@link CapabilitySetConfig} into fast-matchable rules. */
 export function compileSet(set: CapabilitySetConfig = {}): CompiledCapabilityRules {
   return {
-    exposed: (set.exposed ?? []).map(parseRule),
-    progressive: (set.progressive ?? []).map(parseRule),
+    resident: (set.resident ?? []).map(parseRule),
+    onDemand: (set['on-demand'] ?? []).map(parseRule),
     blocked: (set.blocked ?? []).map(parseRule),
   }
 }
@@ -167,13 +202,13 @@ function ruleMatches(rule: PolicyRule, target: MatchTarget): boolean {
 
 /**
  * Classify a capability against compiled rules. Priority (hit stops the walk):
- * blocked-exact > blocked-wildcard > exposed-exact > progressive-exact >
- * exposed-wildcard > progressive-wildcard > default (exposed). `blocked` is a
- * control decision, so it beats an explicit `exposed` rule. Within
- * exposed/progressive an exact name beats a wildcard, so the management UI can
+ * blocked-exact > blocked-wildcard > resident-exact > on-demand-exact >
+ * resident-wildcard > on-demand-wildcard > default (resident). `blocked` is a
+ * control decision, so it beats an explicit `resident` rule. Within
+ * resident/on-demand an exact name beats a wildcard, so the management UI can
  * pin a single capability to a class even when a broader wildcard rule says
- * otherwise (e.g. `tools.exposed: ['mcp__gongfeng__*']` must not silently win
- * over an explicit per-tool `progressive` rule).
+ * otherwise (e.g. `tools.resident: ['mcp__gongfeng__*']` must not silently win
+ * over an explicit per-tool `on-demand` rule).
  */
 export function classify(
   compiled: CompiledCapabilityRules,
@@ -182,27 +217,27 @@ export function classify(
 ): CapabilityClass {
   const meta = metaTools instanceof Set ? metaTools : new Set<string>(metaTools)
   const id = target.id
-  // metaTools can never be Progressive/Blocked for tools.
-  if (target.kind === 'tool' && meta.has(id)) return 'exposed'
+  // metaTools can never be On-demand/Blocked for tools.
+  if (target.kind === 'tool' && meta.has(id)) return 'resident'
   for (const rule of compiled.blocked) {
     if (!rule.wildcard && ruleMatches(rule, target)) return 'blocked'
   }
   for (const rule of compiled.blocked) {
     if (rule.wildcard && ruleMatches(rule, target)) return 'blocked'
   }
-  for (const rule of compiled.exposed) {
-    if (!rule.wildcard && ruleMatches(rule, target)) return 'exposed'
+  for (const rule of compiled.resident) {
+    if (!rule.wildcard && ruleMatches(rule, target)) return 'resident'
   }
-  for (const rule of compiled.progressive) {
-    if (!rule.wildcard && ruleMatches(rule, target)) return 'progressive'
+  for (const rule of compiled.onDemand) {
+    if (!rule.wildcard && ruleMatches(rule, target)) return 'on-demand'
   }
-  for (const rule of compiled.exposed) {
-    if (rule.wildcard && ruleMatches(rule, target)) return 'exposed'
+  for (const rule of compiled.resident) {
+    if (rule.wildcard && ruleMatches(rule, target)) return 'resident'
   }
-  for (const rule of compiled.progressive) {
-    if (rule.wildcard && ruleMatches(rule, target)) return 'progressive'
+  for (const rule of compiled.onDemand) {
+    if (rule.wildcard && ruleMatches(rule, target)) return 'on-demand'
   }
-  return 'exposed'
+  return 'resident'
 }
 
 /** True when any rule in the list matches the target (used for fail-loud validation). */
@@ -220,20 +255,20 @@ export interface CapabilityClassification {
   readonly kind: CapabilityKind
   /** Model-facing name (tool name or skill bare name). */
   readonly name: string
-  /** Server namespace for tools (`builtin` for harness-native tools); undefined for skills. */
+  /** Server namespace for tools (`built-in` for harness-native tools); undefined for skills. */
   readonly server?: string
   /** Skill source root label, present only for skills. */
   readonly source?: string
   readonly class: CapabilityClass
   /** Human-friendly display label for the classification. */
   readonly classLabel: string
-  /** True when this capability is a mandatory meta tool (always Exposed). */
+  /** True when this capability is a mandatory meta tool (always Resident). */
   readonly mandatory: boolean
 }
 
 const CLASS_LABELS: Record<CapabilityClass, string> = {
-  exposed: 'Resident · 常驻（直接调用）',
-  progressive: 'On-demand · 按需（目录渐进加载）',
+  resident: 'Resident · 常驻（直接调用）',
+  'on-demand': 'On-demand · 按需（目录渐进加载）',
   blocked: 'Blocked · 禁用',
 }
 
@@ -245,21 +280,21 @@ export interface CapabilityPolicyService {
   classifyTool(name: string): CapabilityClass
   /** Classify a skill by its bare name. */
   classifySkill(name: string): CapabilityClass
-  /** True when a tool is Exposed (or a mandatory meta tool). */
-  isExposedTool(name: string): boolean
-  /** True when a skill is Exposed. */
-  isExposedSkill(name: string): boolean
+  /** True when a tool is Resident (or a mandatory meta tool). */
+  isResidentTool(name: string): boolean
+  /** True when a skill is Resident. */
+  isResidentSkill(name: string): boolean
   /** True when a tool is Blocked. */
   isBlockedTool(name: string): boolean
   /** True when a skill is Blocked. */
   isBlockedSkill(name: string): boolean
   /** True when a capability id (`mcp__...` / `skill:...`) is Blocked. */
   isBlockedCapability(id: string): boolean
-  /** Tool names that are always kept Exposed. */
+  /** Tool names that are always kept Resident. */
   metaTools(): readonly string[]
   /** Resolve a capability's id (e.g. `skill:<name>`) to a class. */
   classifyCapability(id: string): CapabilityClass
-  /** Rules exposed for the registry/other consumers. */
+  /** Rules resident for the registry/other consumers. */
   toolRules(): CompiledCapabilityRules
   skillRules(): CompiledCapabilityRules
 
@@ -282,14 +317,14 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Build the projection listener for one assembly: keep only Exposed tools plus
+ * Build the projection listener for one assembly: keep only Resident tools plus
  * the mandatory meta tools.
  */
 export function projectAssemblyTools(
   assembly: PromptAssembly,
   service: CapabilityPolicyService,
 ): PromptAssembly {
-  const kept = assembly.tools.filter(tool => service.isExposedTool(tool.name))
+  const kept = assembly.tools.filter(tool => service.isResidentTool(tool.name))
   if (kept.length === assembly.tools.length) return assembly
   return { ...assembly, tools: kept }
 }
@@ -303,10 +338,22 @@ export const name = 'capability-menu-policy'
 export const inject = ['capability', 'tools', 'skills']
 
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  // Accept legacy rule keys (`exposed`/`progressive`) with the same meaning as
+  // the current `resident`/`on-demand`, so pre-rename profiles keep working
+  // without a disk rewrite. The management UI always writes the new keys.
+  const normalized: Config = { ...config }
+  const legacyTools = config.tools?.exposed !== undefined || config.tools?.progressive !== undefined
+  const legacySkills = config.skills?.exposed !== undefined || config.skills?.progressive !== undefined
+  normalized.tools = normalizeSetConfig(config.tools)
+  normalized.skills = normalizeSetConfig(config.skills)
+  if (legacyTools || legacySkills) {
+    ctx.logger.warn('capability-policy: legacy rule keys `exposed`/`progressive` were auto-mapped to `resident`/`on-demand`; edit the profile patch to persist the new keys')
+  }
+
   // Mutable runtime state so the management surface (能力菜单) can live-update
   // the policy without a reload.
-  let current = { ...config }
-  let metaTools = [...(config.metaTools ?? DEFAULT_META_TOOLS)]
+  let current = normalized
+  let metaTools = [...(normalized.metaTools ?? DEFAULT_META_TOOLS)]
   let metaToolSet = new Set<string>(metaTools)
   let toolCompiled: CompiledCapabilityRules
   let skillCompiled: CompiledCapabilityRules
@@ -316,13 +363,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     const skillRules = compileSet(current.skills)
     // Normalize tool/skill rule kinds for matching.
     toolCompiled = {
-      exposed: toolRules.exposed.map(rule => ({ ...rule, kind: 'tool' as const })),
-      progressive: toolRules.progressive.map(rule => ({ ...rule, kind: 'tool' as const })),
+      resident: toolRules.resident.map(rule => ({ ...rule, kind: 'tool' as const })),
+      onDemand: toolRules.onDemand.map(rule => ({ ...rule, kind: 'tool' as const })),
       blocked: toolRules.blocked.map(rule => ({ ...rule, kind: 'tool' as const })),
     }
     skillCompiled = {
-      exposed: skillRules.exposed.map(rule => ({ ...rule, kind: 'skill' as const })),
-      progressive: skillRules.progressive.map(rule => ({ ...rule, kind: 'skill' as const })),
+      resident: skillRules.resident.map(rule => ({ ...rule, kind: 'skill' as const })),
+      onDemand: skillRules.onDemand.map(rule => ({ ...rule, kind: 'skill' as const })),
       blocked: skillRules.blocked.map(rule => ({ ...rule, kind: 'skill' as const })),
     }
     // Meta tools are the control-plane escape hatch: blocking one is a
@@ -348,11 +395,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       if (id.startsWith('skill:')) return service.classifySkill(id.slice('skill:'.length))
       return service.classifyTool(id)
     },
-    isExposedTool(name: string): boolean {
-      return service.classifyTool(name) === 'exposed'
+    isResidentTool(name: string): boolean {
+      return service.classifyTool(name) === 'resident'
     },
-    isExposedSkill(name: string): boolean {
-      return service.classifySkill(name) === 'exposed'
+    isResidentSkill(name: string): boolean {
+      return service.classifySkill(name) === 'resident'
     },
     isBlockedTool(name: string): boolean {
       return service.classifyTool(name) === 'blocked'
@@ -412,7 +459,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // Blocked capabilities are a hard deny at the execution surface, not just a
   // projection concern: a hallucinated direct call to a blocked tool (or to the
   // `skill` loader for a blocked skill) must never reach the underlying server.
-  // Progressive tools stay executable — meta_invoke forwards through this same
+  // On-demand tools stay executable — meta_invoke forwards through this same
   // pipeline, so only Blocked is rejected here.
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (service.isBlockedTool(exec.name)) {
@@ -428,12 +475,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return next()
   })
 
-  // Progressive/Blocked skills must not appear in the model-facing
+  // On-demand/Blocked skills must not appear in the model-facing
   // `<available_skills>` catalog injected by `dsh-tool-skill`. The catalog is a
   // user-role message whose `source.kind === 'skill-catalog'`; rewrite it every
-  // pre-step to keep only Exposed skills. dsh-tool-skill republishes the full
+  // pre-step to keep only Resident skills. dsh-tool-skill republishes the full
   // catalog earlier on the same chain, so this filter is idempotent: whatever
-  // it publishes, only the Exposed subset reaches the model.
+  // it publishes, only the Resident subset reaches the model.
   ctx.on('agent/pre-step', async (_payload, next) => {
     const decision = await next()
     if (decision.kind !== 'enter') return decision
@@ -446,7 +493,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             typeof entry === 'object' && entry !== null && typeof (entry as { name?: unknown }).name === 'string')
         : []
       const kept = entries
-        .filter(entry => service.isExposedSkill(entry.name))
+        .filter(entry => service.isResidentSkill(entry.name))
         .map(entry => ({ name: entry.name, description: entry.description ?? '' }))
       if (kept.length === entries.length) return message
       changed = true
@@ -461,20 +508,20 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
 
   // Project the model-visible tool list, then append a one-line pointer to the
-  // on-demand (Progressive) catalog so the model knows it exists without having
-  // to "think of" meta_search first. Skills keep the dsh-native catalog, but
-  // filtered to Exposed by the `agent/pre-step` hook above.
+  // on-demand catalog so the model knows it exists without having to "think of"
+  // meta_search first. Skills keep the dsh-native catalog, but filtered to
+  // Resident by the `agent/pre-step` hook above.
   ctx.on('system-prompt/assemble', async (_assembly: PromptAssembly, _context, next) => {
     const resolved = await next()
     const projected = projectAssemblyTools(resolved, service)
     const catalogPath = ctx.capability.catalogPath?.()
-    // Skip the pointer when there is nothing Progressive to browse: an empty
+    // Skip the pointer when there is nothing On-demand to browse: an empty
     // hint wastes ~77 tokens of context and points at an empty file.
-    if (catalogPath === undefined || (ctx.capability.progressiveCount?.() ?? 0) === 0) return projected
+    if (catalogPath === undefined || (ctx.capability.onDemandCount?.() ?? 0) === 0) return projected
     const pointer = {
       name: 'capability-menu-catalog',
       text: [
-        'On-demand capabilities (Progressive) are not in the exposed tool list above. Their catalog is a YAML file you can browse with grep/read:',
+        'On-demand capabilities are not in the resident tool list above. Their catalog is a YAML file you can browse with grep/read:',
         `  ${catalogPath}`,
         'Search it (e.g. grep -n "name:" <path>) or call meta_search with an exact id for a schema, then meta_invoke to run/load the capability.',
       ].join('\n'),

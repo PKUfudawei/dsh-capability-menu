@@ -137,7 +137,7 @@ describe('capability-menu-search', () => {
     expect(isError).toBe(true)
   })
 
-  it('searches and details harness-native tools via the builtin server', async () => {
+  it('searches and details harness-native tools via the built-in server', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions')
@@ -147,8 +147,8 @@ describe('capability-menu-search', () => {
     const { value, isError } = await runTool(ctx, 'meta_search', { query: 'regular expressions' })
     expect(isError).toBe(false)
     const result = value as { mode: string; results: Array<{ id: string; server?: string }> }
-    // The native is ranked and carries the reserved builtin server on the wire.
-    expect(result.results.some(item => item.id === grep && item.server === 'builtin')).toBe(true)
+    // The native is ranked and carries the reserved built-in server on the wire.
+    expect(result.results.some(item => item.id === grep && item.server === 'built-in')).toBe(true)
 
     const detail = await runTool(ctx, 'meta_search', { id: grep })
     expect(detail.isError).toBe(false)

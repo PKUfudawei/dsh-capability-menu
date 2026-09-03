@@ -12,7 +12,7 @@
  *                       per-class count chip and each tool's class chip are
  *                       clickable to cycle Resident → On-demand → Blocked.
  *                       Harness-native tools (no real MCP server) share the
- *                       reserved `builtin` group, shown as 「系统内置工具」.
+ *                       reserved `built-in` group, shown as 「系统内置工具」.
  *   - Skills tab      → split into Project/Global sections, each with flat
  *                       skill rows carrying the same clickable class chip
  *                       plus a directory tree / file preview
@@ -39,8 +39,8 @@ export type CapabilityKey =
   | 'nav'
   | 'title'
   | 'desc'
-  | 'exposed'
-  | 'progressive'
+  | 'resident'
+  | 'on-demand'
   | 'blocked'
   | 'kind'
   | 'class'
@@ -50,14 +50,14 @@ export type CapabilityKey =
   | 'rules'
   | 'toolsGroup'
   | 'skillsGroup'
-  | 'builtinGroup'
+  | 'builtInGroup'
   | 'globalSkills'
   | 'projectSkills'
   | 'emptyTools'
   | 'emptySkills'
   | 'toolCount'
-  | 'exposedShort'
-  | 'progressiveShort'
+  | 'residentShort'
+  | 'onDemandShort'
   | 'blockedShort'
   | 'cycleHint'
   | 'notPreviewable'
@@ -70,14 +70,21 @@ type ViewState =
   | { status: 'error'; message: string }
   | { status: 'ready'; snapshot: CapabilitySnapshot }
 
-const CLASS_KEYS = ['exposed', 'progressive', 'blocked'] as const
+const CLASS_KEYS = ['resident', 'on-demand', 'blocked'] as const
 type CapabilityClass = (typeof CLASS_KEYS)[number]
 
 /** Click-cycle order on machine values (displayed as On-demand → Blocked → Resident). */
 const NEXT_CLASS: Record<CapabilityClass, CapabilityClass> = {
-  progressive: 'blocked',
-  blocked: 'exposed',
-  exposed: 'progressive',
+  'on-demand': 'blocked',
+  blocked: 'resident',
+  resident: 'on-demand',
+}
+
+/** i18n keys for the short display labels, keyed by the machine class value. */
+const CLASS_SHORT_KEYS: Record<CapabilityClass, CapabilityKey> = {
+  resident: 'residentShort',
+  'on-demand': 'onDemandShort',
+  blocked: 'blockedShort',
 }
 
 /** Scoped stylesheet: injected once at module scope, like every official bundle. */
@@ -91,18 +98,18 @@ const CSS = `
 /* 三态圆点：常驻=实心、按需=半实心、禁用=空心。
    色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用——红绿色盲下三者仍可区分。 */
 .mc-dot{width:10px;height:10px;border-radius:50%;flex:none;box-sizing:border-box}
-.mc-dot--exposed{--mc-dot:#527a9c;background:var(--mc-dot)}
-.mc-dot--progressive{--mc-dot:#a57c33;background:linear-gradient(180deg,var(--mc-dot) 0 50%,transparent 50% 100%);border:1px solid var(--mc-dot)}
+.mc-dot--resident{--mc-dot:#527a9c;background:var(--mc-dot)}
+.mc-dot--on-demand{--mc-dot:#a57c33;background:linear-gradient(180deg,var(--mc-dot) 0 50%,transparent 50% 100%);border:1px solid var(--mc-dot)}
 .mc-dot--blocked{--mc-dot:#7e7477;background:transparent;border:1px solid var(--mc-dot)}
-body[data-ds-dark-theme] .mc-dot--exposed{--mc-dot:#96b6d1}
-body[data-ds-dark-theme] .mc-dot--progressive{--mc-dot:#d4b26b}
+body[data-ds-dark-theme] .mc-dot--resident{--mc-dot:#96b6d1}
+body[data-ds-dark-theme] .mc-dot--on-demand{--mc-dot:#d4b26b}
 body[data-ds-dark-theme] .mc-dot--blocked{--mc-dot:#b8abad}
 /* 同上色系（低饱和灰调）：仅文字着色，不加背景，浅/深主题各一档。 */
-.mc-chip--exposed{color:#527a9c}
-.mc-chip--progressive{color:#a57c33}
+.mc-chip--resident{color:#527a9c}
+.mc-chip--on-demand{color:#a57c33}
 .mc-chip--blocked{color:#7e7477}
-body[data-ds-dark-theme] .mc-chip--exposed{color:#96b6d1}
-body[data-ds-dark-theme] .mc-chip--progressive{color:#d4b26b}
+body[data-ds-dark-theme] .mc-chip--resident{color:#96b6d1}
+body[data-ds-dark-theme] .mc-chip--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-chip--blocked{color:#b8abad}
 .mc-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;justify-content:space-between;gap:22px}
 .mc-tab-group{display:flex;align-items:flex-end;gap:22px}
@@ -125,11 +132,11 @@ body[data-ds-dark-theme] .mc-chip--blocked{color:#b8abad}
 .mc-count{font-size:11px;line-height:18px;padding:0 8px;border-radius:999px;border:1px solid transparent;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .mc-count:hover{border-color:var(--dsw-alias-border-l3)}
 .mc-count:disabled{cursor:default;opacity:.6}
-.mc-count--exposed{color:#527a9c}
-.mc-count--progressive{color:#a57c33}
+.mc-count--resident{color:#527a9c}
+.mc-count--on-demand{color:#a57c33}
 .mc-count--blocked{color:#7e7477}
-body[data-ds-dark-theme] .mc-count--exposed{color:#96b6d1}
-body[data-ds-dark-theme] .mc-count--progressive{color:#d4b26b}
+body[data-ds-dark-theme] .mc-count--resident{color:#96b6d1}
+body[data-ds-dark-theme] .mc-count--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-count--blocked{color:#b8abad}
 .mc-tools{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
 .mc-tool{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 26px;font-size:13px;line-height:20px;cursor:pointer}
@@ -183,7 +190,7 @@ interface Grouped {
 }
 
 /** The reserved server key grouping harness-native (non-MCP) tools. */
-const BUILTIN_SERVER = 'builtin'
+const BUILT_IN_SERVER = 'built-in'
 
 /** Skills whose source root lives inside the current project. */
 const PROJECT_SOURCES = new Set(['project-dsh', 'project-agents'])
@@ -196,7 +203,7 @@ function groupRows(rows: readonly CapabilityRow[]): Grouped {
       skills.push(row)
       continue
     }
-    const server = row.server ?? BUILTIN_SERVER
+    const server = row.server ?? BUILT_IN_SERVER
     const list = byServer.get(server)
     if (list === undefined) byServer.set(server, [row])
     else list.push(row)
@@ -253,8 +260,8 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       const key = kind === 'skill' ? 'skills' : 'tools'
       const set = config[key]
       const lists: Record<CapabilityClass, string[]> = {
-        exposed: [],
-        progressive: [],
+        resident: [],
+        'on-demand': [],
         blocked: [],
       }
       for (const cls of CLASS_KEYS) {
@@ -263,14 +270,16 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       }
       const first = ids.map(id => state.status === 'ready' ? state.snapshot.rows.find(r => r.id === id)?.class : undefined)
         .find((c): c is CapabilityClass => c !== undefined)
-      const from: CapabilityClass = first ?? 'progressive'
+      const from: CapabilityClass = first ?? 'on-demand'
       const to = NEXT_CLASS[from]
       // Remove moved ids from every list, then append to the destination list.
       for (const cls of CLASS_KEYS) {
         lists[cls] = lists[cls].filter(id => !ids.includes(id))
       }
       lists[to] = [...lists[to], ...ids]
-      await remote.updateConfig({ [key]: { exposed: lists.exposed, progressive: lists.progressive, blocked: lists.blocked } })
+      const nextLists: Record<string, string[]> = {}
+      for (const cls of CLASS_KEYS) nextLists[cls] = lists[cls]
+      await remote.updateConfig({ [key]: nextLists })
       const next = await loadSnapshot(remote)
       setState({ status: 'ready', snapshot: next })
       // Detect silently-overridden changes: a broader wildcard rule (or a hard
@@ -385,7 +394,7 @@ function ReadyBody(props: {
           {summary.map(({ cls, count }) => (
             <span key={cls} className={`mc-chip mc-chip--${cls}`}>
               <span className={`mc-dot mc-dot--${cls}`} aria-hidden="true" />
-              {t(`${cls}Short` as CapabilityKey)} · {count}
+              {t(CLASS_SHORT_KEYS[cls])} · {count}
             </span>
           ))}
         </div>
@@ -416,7 +425,7 @@ function ReadyBody(props: {
                       }}
                     >
                       <IconTriangleRightFill14 size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
-                      <span className="mc-server-name">{server === BUILTIN_SERVER ? t('builtinGroup') : server}</span>
+                      <span className="mc-server-name">{server === BUILT_IN_SERVER ? t('builtInGroup') : server}</span>
                       <span className="mc-server-count">{t('toolCount', { count: tools.length })}</span>
                       <span className="mc-server-meta">
                         <span className="mc-counts">
@@ -433,7 +442,7 @@ function ReadyBody(props: {
                               }}
                             >
                               <span className={`mc-dot mc-dot--${cls}`} aria-hidden="true" />
-                              {t(`${cls}Short` as CapabilityKey)} {count}
+                              {t(CLASS_SHORT_KEYS[cls])} {count}
                             </button>
                           ))}
                         </span>
@@ -713,7 +722,7 @@ function SkillList(props: {
                   }}
                 >
                   <span className={`mc-dot mc-dot--${skill.class}`} aria-hidden="true" />
-                  {t(`${skill.class}Short` as CapabilityKey)}
+                  {t(CLASS_SHORT_KEYS[skill.class as CapabilityClass])}
                 </button>
               </span>
             </div>
