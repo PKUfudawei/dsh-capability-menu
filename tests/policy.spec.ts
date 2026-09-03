@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -205,7 +205,7 @@ describe('capability-menu-policy plugin', () => {
     const ctx = await setup({ tools: { blocked: ['mcp__secret__read'] } })
     registerTool(ctx, 'mcp__secret__read')
     const decision = await ctx.waterfall('tools/pre-execute', {
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       name: 'mcp__secret__read',
       arguments: {},
       signal: new AbortController().signal,
@@ -216,7 +216,7 @@ describe('capability-menu-policy plugin', () => {
   it('denies the skill loader for a blocked skill at pre-execute', async () => {
     const ctx = await setup({ skills: { blocked: ['forbidden-skill'] } })
     const decision = await ctx.waterfall('tools/pre-execute', {
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       name: 'skill',
       arguments: { name: 'forbidden-skill' },
       signal: new AbortController().signal,
@@ -228,7 +228,7 @@ describe('capability-menu-policy plugin', () => {
     const ctx = await setup({ tools: { blocked: ['bash'] } })
     registerTool(ctx, 'bash')
     const decision = await ctx.waterfall('tools/pre-execute', {
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       name: 'bash',
       arguments: {},
       signal: new AbortController().signal,
@@ -239,7 +239,7 @@ describe('capability-menu-policy plugin', () => {
   it('does not deny On-demand tools so meta_invoke can still execute them', async () => {
     const ctx = await setup({ tools: { 'on-demand': ['mcp__km__search'] } })
     const decision = await ctx.waterfall('tools/pre-execute', {
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       name: 'mcp__km__search',
       arguments: {},
       signal: new AbortController().signal,

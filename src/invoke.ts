@@ -6,9 +6,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { ToolRunContext, JsonValue } from '@deepseek-ai/dsh-tools'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, renderSkillContent, type SkillResourceBase } from '@deepseek-ai/dsh-skill'
 import { SKILL_ID_PREFIX, skillNameOf } from './registry.ts'
@@ -216,7 +217,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         // keeps Progressive tools runnable; the target tool's own guards still apply
         // (no permission bypass — see README).
         const result = await ctx.tools.execute({
-          callId: CallId(`${exec.callId}:meta:${id}`),
+          callId: ToolCallId(`${exec.callId}:meta:${id}`),
           name: capability.name,
           arguments: args.args,
           signal: exec.signal,

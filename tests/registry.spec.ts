@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -167,7 +167,7 @@ describe('meta-registry', () => {
     const before = ctx.capability.get(issue)?.stats.uses ?? 0
 
     const exec = {
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       name: issue,
       arguments: { title: 'x' },
       signal: testSignal,
