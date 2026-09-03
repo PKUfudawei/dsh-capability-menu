@@ -17,6 +17,7 @@ import type {
   Config as CapabilityPolicyConfig,
 } from '../policy.ts'
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
+import { BUILT_IN_SERVER } from '../registry.ts'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -93,21 +94,57 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   }
 
   /**
-   * 能力目录查看：返回当前生效的三档策略配置 YAML，以及按需能力目录
-   * 物化文件（~/.dsh/capability-catalog.yaml）的路径与内容。两者都是
-   * 只读视图——策略持久化入口仍是 cordis.patch.yml。
+   * 能力目录查看：返回「三档策略配置」（语义化视图：未列入 on-demand/blocked
+   * 的能力默认常驻，resident 只显示通配 *；例外按 server 分组列出具体工具名）
+   * 与按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
+   * 两者都是只读视图——策略持久化入口仍是 cordis.patch.yml。
    */
   @Remote('getCatalogDocs')
   async getCatalogDocs(): Promise<CatalogDocs> {
-    const config = this.ctx.capabilityPolicy.getConfig()
+    const effective = [...this.ctx.capabilityPolicy.classifyAll()]
+    const toolRows = effective.filter(row => row.kind === 'tool')
+    const skillRows = effective.filter(row => row.kind === 'skill')
+
+    const count = (rows: ReadonlyArray<{ readonly class: string }>, cls: string): number =>
+      rows.filter(row => row.class === cls).length
+
+    /** 例外档（on-demand/blocked）的生效工具，按 server 分组为 server → 短名列表。 */
+    const toolGroups = (cls: 'on-demand' | 'blocked'): Record<string, string[]> => {
+      const groups = new Map<string, string[]>()
+      for (const row of toolRows.filter(r => r.class === cls)) {
+        const server = row.server ?? BUILT_IN_SERVER
+        const prefix = row.server === undefined ? undefined : `mcp__${row.server}__`
+        const short = prefix !== undefined && row.name.startsWith(prefix) ? row.name.slice(prefix.length) : row.name
+        const list = groups.get(server)
+        if (list === undefined) groups.set(server, [short])
+        else list.push(short)
+      }
+      return Object.fromEntries([...groups.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([server, names]) => [server, names.sort((a, b) => a.localeCompare(b))]))
+    }
+    /** 例外档技能的生效短名（技能无 server 维度，平铺列表）。 */
+    const skillNames = (cls: 'on-demand' | 'blocked'): string[] =>
+      skillRows.filter(row => row.class === cls).map(row => row.name).sort((a, b) => a.localeCompare(b))
+
     const policyYaml = [
-      '# 能力菜单 · 当前生效策略（实时视图，只读；持久化入口：cordis.patch.yml）',
-      '# 未在规则列表中的能力默认 Resident（常驻）。',
+      '# 能力菜单 · 当前生效策略（只读；持久化入口：cordis.patch.yml）',
+      '# 语义：未列入 on-demand / blocked 的能力默认 Resident（常驻）。',
+      `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'blocked')}；` +
+        `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'blocked')}`,
       yaml.dump({
         metaTools: [...this.ctx.capabilityPolicy.metaTools()],
-        tools: config.tools ?? {},
-        skills: config.skills ?? {},
-      }),
+        tools: {
+          resident: '*',
+          'on-demand': toolGroups('on-demand'),
+          blocked: toolGroups('blocked'),
+        },
+        skills: {
+          resident: '*',
+          'on-demand': skillNames('on-demand'),
+          blocked: skillNames('blocked'),
+        },
+      }).trimEnd(),
     ].join('\n')
     const catalogPath = this.ctx.capability.catalogPath?.()
     if (catalogPath === undefined) {
