@@ -108,12 +108,14 @@ const CSS = `
 .mc-catalog-tabs{padding:8px 16px 0}
 .mc-catalog-path{padding:8px 16px 0;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
-/* 三态圆点：常驻=实心、按需=半实心、禁用=空心。
-   色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用——红绿色盲下三者仍可区分。 */
-.mc-dot{width:10px;height:10px;border-radius:50%;flex:none;box-sizing:border-box}
+/* 三态圆点：常驻=实心、按需=半实心、禁用=圆环+斜杠（禁行标志）。
+   形状区分之外仍保留色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用。
+   禁用不用空心圆：在「禁用 · 0」这类计数旁，空心圆容易被误读成数字 0。 */
+.mc-dot{position:relative;width:10px;height:10px;border-radius:50%;flex:none;box-sizing:border-box}
 .mc-dot--resident{--mc-dot:#527a9c;background:var(--mc-dot)}
 .mc-dot--on-demand{--mc-dot:#a57c33;background:linear-gradient(180deg,var(--mc-dot) 0 50%,transparent 50% 100%);border:1px solid var(--mc-dot)}
 .mc-dot--blocked{--mc-dot:#7e7477;background:transparent;border:1px solid var(--mc-dot)}
+.mc-dot--blocked::after{content:"";position:absolute;top:50%;left:50%;width:10px;height:1.5px;margin:-0.75px 0 0 -5px;background:var(--mc-dot);border-radius:1px;transform:rotate(-45deg)}
 body[data-ds-dark-theme] .mc-dot--resident{--mc-dot:#96b6d1}
 body[data-ds-dark-theme] .mc-dot--on-demand{--mc-dot:#d4b26b}
 body[data-ds-dark-theme] .mc-dot--blocked{--mc-dot:#b8abad}
