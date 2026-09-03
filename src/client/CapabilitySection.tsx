@@ -428,15 +428,16 @@ function ReadyBody(props: {
           </button>
         </div>
         <div className="mc-summary">
-          <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
-            {t('viewCatalog')}
-          </button>
           {summary.map(({ cls, count }) => (
             <span key={cls} className={`mc-chip mc-chip--${cls}`}>
               <span className={`mc-dot mc-dot--${cls}`} aria-hidden="true" />
               {t(CLASS_SHORT_KEYS[cls])} · {count}
             </span>
           ))}
+          {/* 固定在最右侧：计数 chips 增减时按钮位置不漂移。 */}
+          <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
+            {t('viewCatalog')}
+          </button>
         </div>
       </div>
 
