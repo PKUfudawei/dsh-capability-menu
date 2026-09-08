@@ -150,7 +150,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [],
       result: { mode: 'strict', typeSymbol: 'Record<string, unknown>', schema: z.record(z.string(), z.unknown()) },
-      sourceLocation: { file: 'src/server/remote.ts', line: 60, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 61, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/updateConfig',
@@ -162,7 +162,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'partial', wire: 'partial', source: 'json', codec: { mode: 'strict', typeSymbol: 'Record<string, unknown>', schema: z.record(z.string(), z.unknown()) } },
       ],
       result: { mode: 'strict', typeSymbol: 'void', schema: z.undefined() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 66, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 67, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/classifyAll',
@@ -172,7 +172,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#CapabilityRow', schema: z.array(capabilityRow$schema) },
-      sourceLocation: { file: 'src/server/remote.ts', line: 72, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 73, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/listSkillDir',
@@ -185,7 +185,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'relPath', wire: 'relPath', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() } },
       ],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#SkillFileEntry[]', schema: z.array(skillFileEntry$schema).optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 84, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 85, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/readSkillFile',
@@ -198,7 +198,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'relPath', wire: 'relPath', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
       ],
       result: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 90, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 91, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/getDetail',
@@ -210,7 +210,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
         { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
       ],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#ToolDetail', schema: toolDetail$schema.optional() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 78, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 79, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/getCatalogDocs',
@@ -220,7 +220,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#CatalogDocs', schema: catalogDocs$schema },
-      sourceLocation: { file: 'src/server/remote.ts', line: 100, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 104, column: 3 },
     },
   ],
 }

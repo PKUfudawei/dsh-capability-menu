@@ -8,61 +8,25 @@
  * `ctx.remote.pluginInventory`.
  */
 
-/** One capability's Resident/On-demand/Disabled row, as surfaced by the server. */
-export interface CapabilityRow {
-  readonly id: string
-  readonly kind: 'tool' | 'skill'
-  readonly name: string
-  /** Server namespace for tools (`built-in` groups harness-native tools); undefined for skills. */
-  readonly server?: string
-  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
-  readonly source?: string
-  readonly class: 'resident' | 'on-demand' | 'disabled'
-  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Disabled · 禁用`. */
-  readonly classLabel?: string
-  readonly mandatory: boolean
-}
+// The row/detail/payload shapes live in `./remote.ts`: that is where the Typert
+// wire schemas are declared, so re-exporting keeps the UI types and the
+// validated wire types from drifting apart.
+export type {
+  CapabilityRow,
+  CatalogDocs,
+  SkillFileEntry,
+  ToolDetail,
+} from './remote.ts'
+import type {
+  CapabilityRow,
+  CatalogDocs,
+  SkillFileEntry,
+  ToolDetail,
+} from './remote.ts'
 
 /** Snapshot of the management surface. */
 export interface CapabilitySnapshot {
   readonly rows: readonly CapabilityRow[]
-}
-
-/** One direct child in a skill directory listing. */
-export interface SkillFileEntry {
-  readonly name: string
-  readonly type: 'file' | 'directory'
-}
-
-/** Full detail projection of one capability (schema, description, stats). */
-export interface ToolDetail {
-  readonly id: string
-  readonly kind: 'tool' | 'skill'
-  readonly actions: readonly string[]
-  readonly name: string
-  readonly description: string
-  readonly whenToUse?: string
-  readonly parameters: Record<string, unknown>
-  readonly output?: Record<string, unknown>
-  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string }
-  readonly tags: readonly string[]
-  readonly stats: {
-    readonly uses: number
-    readonly successes: number
-    readonly failures: number
-    readonly totalMs: number
-    readonly lastUsedAt?: number
-  }
-}
-
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
-export interface CatalogDocs {
-  /** 当前生效的三档策略配置 YAML。 */
-  readonly policyYaml: string
-  /** 按需能力目录物化文件（path + content）。 */
-  readonly catalog?: { readonly path: string; readonly content: string }
-  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed'
 }
 
 /** The Host `capabilityPolicy` remote face (generated contribution). */

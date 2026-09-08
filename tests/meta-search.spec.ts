@@ -184,6 +184,32 @@ describe('capability-menu-search', () => {
     expect(detail.isError).toBe(true)
   })
 
+  it('does not let disabled hits consume result slots', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    await ctx.plugin(registry, {})
+    await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__blocked_issue'] } })
+    await ctx.plugin(toolMetaSearch, {})
+    // Registered first, so it ranks first for the shared keyword — and used to
+    // eat the only result slot before being filtered out.
+    registerMcpTool(ctx, 'gongfeng', 'blocked_issue', 'Issue tool that is disabled')
+    const allowed = registerMcpTool(ctx, 'gongfeng', 'open_issue', 'Issue tool that stays resident')
+    await ctx.capability.refresh()
+
+    const { value, isError } = await runTool(ctx, 'meta_search', { query: 'issue', max_results: 1 })
+    expect(isError).toBe(false)
+    const result = value as { mode: string; results: Array<{ id: string }> }
+    expect(result.results.map(item => item.id)).toEqual([allowed])
+  })
+
   it('hides disabled skills from list and rejects disabled skill detail', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     await writeSkill(`${home}/.agents/skills`, 'forbidden-skill', 'Forbidden skill body', 'Body text.')

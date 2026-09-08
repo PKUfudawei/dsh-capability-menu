@@ -23,6 +23,9 @@ export default defineConfig([{
     // NOTE: `zod` is deliberately NOT external — the real client bundles (e.g.
     // @deepseek-ai/dsh-api-remotes) inline it, and it is not a platform seed
     // word, so an external `require("zod")` would miss the module table.
+    // It also has to stay in `devDependencies`: tsdown externalizes
+    // `dependencies` by default, and moving it there silently turns this into
+    // `require("zod")` in the browser bundle (verified — it breaks at runtime).
     /^@deepseek-ai\//,
   ],
   // The dsh ModuleLoader invokes the factory with only `require` — the bundle

@@ -374,6 +374,22 @@ describe('capability-policy management surface (能力管理)', () => {
     expect(service.classifyAll().find(c => c.id === 'grep')?.classLabel).toContain('On-demand')
   })
 
+  it('rejects an update that would disable a meta tool and commits nothing', async () => {
+    const ctx = await setup({ tools: { resident: ['bash'] } })
+    registerTool(ctx, 'bash')
+    const service = ctx.capabilityPolicy
+
+    await expect(service.updateConfig({ tools: { disabled: ['meta_search'] } }))
+      .rejects.toThrow(/cannot be disabled/)
+
+    // Compilation happens before the commit, so the rejected config is not
+    // observable anywhere: neither in getConfig nor in classification.
+    expect(service.getConfig().tools?.disabled).toBeUndefined()
+    expect(service.getConfig().tools?.resident).toEqual(['bash'])
+    expect(service.isDisabledTool('meta_search')).toBe(false)
+    expect(service.classifyTool('meta_search')).toBe('resident')
+  })
+
   it('classifyAll is not truncated by the registry maxResults default', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

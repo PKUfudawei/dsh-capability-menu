@@ -10,9 +10,13 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts'
+
+// Re-exported for the package's public surface (`/registry` subpath).
+export { BUILT_IN_SERVER, MCP_ID_PREFIX }
 
 /**
  * Kinds of capability the catalog can hold.
@@ -32,24 +36,15 @@ export type CapabilityKind = 'tool' | 'skill'
 export type CapabilityAction = 'execute' | 'load'
 
 /**
- * Tool id prefixes are part of the REAL registered tool name: MCP tools are
- * registered as `mcp__<server>__<raw>` by the harness MCP client and natives
- * keep their bare name (`bash`/`read`/…), so tool records are keyed by that
- * name. Skills have no name-level namespace: a skill's id IS its bare name and
- * `kind` disambiguates it from a same-named tool.
- */
-export const MCP_ID_PREFIX = 'mcp__'
-/**
- * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
- * management surface. Native tools (bash/read/write/…) are cataloged like MCP
- * tools — same `server` dimension — so the 能力管理 can group them, classify
- * them Resident/On-demand/Disabled, and `meta_invoke` can dispatch them.
- */
-export const BUILT_IN_SERVER = 'built-in'
-/**
  * Tool names that never enter the capability catalog: this plugin's own
  * control plane (`meta_search`/`meta_invoke`, always Resident) and the
  * reserved Code Mode presentation transport (`run_code`).
+ *
+ * Tool ids (the key everything else uses) are the REAL registered tool name:
+ * MCP tools are registered as `mcp__<server>__<raw>` by the harness MCP client
+ * and natives keep their bare name (`bash`/`read`/…). Skills have no
+ * name-level namespace: a skill's id IS its bare name and `kind` disambiguates
+ * it from a same-named tool.
  */
 export const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string> = new Set(['meta_search', 'meta_invoke', 'run_code'])
 
@@ -222,7 +217,12 @@ export interface Config {
   summaryMaxChars?: number
   /** Whether to include the skill body in `getDetail` results (default false). */
   detailIncludesBody?: boolean
-  /** Maximum search results returned (default 20, max 100). */
+  /**
+   * Maximum search results returned (default 20). No upper bound is enforced:
+   * callers that need the whole catalog (the policy's `classifyAll`) pass a
+   * very large value on purpose, so capping here would silently truncate the
+   * management surface.
+   */
   maxResults?: number
   /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
   weighting?: number
@@ -256,6 +256,26 @@ function assertWeight(name: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new Error(`${name} must be a number in [0, 1]`)
   }
+}
+
+/** True when `target` is `root` itself or sits below it. */
+function isUnder(root: string, target: string): boolean {
+  return target === root || target.startsWith(`${root}${sep}`)
+}
+
+/**
+ * Containment check for skill-directory access: `target` must stay inside
+ * `root`, both lexically (`resolve` already collapsed `..`) and physically —
+ * a symlink inside the skill directory must not lead out of it. Paths that do
+ * not exist yet cannot be resolved physically; those stay governed by the
+ * lexical check and the caller's own stat/read failure handling.
+ */
+async function isInside(root: string, target: string): Promise<boolean> {
+  if (!isUnder(root, target)) return false
+  const realRoot = await realpath(root).catch(() => undefined)
+  const realTarget = await realpath(target).catch(() => undefined)
+  if (realRoot === undefined || realTarget === undefined) return true
+  return isUnder(realRoot, realTarget)
 }
 
 /** Trim a description to a model-friendly summary. */
@@ -346,25 +366,26 @@ export function apply(ctx: Context, config: Config = {}): void {
     return undefined
   }
 
-  /** Next-catalog accumulator shared by the global and preset-scope passes. */
-  let nextToolRecords = new Map<string, CapabilityRecord>()
-
   /**
-   * Index one visible tool schema into the next catalog, deduped by name.
+   * Index one visible tool schema into `next`, the accumulator owned by the
+   * current rebuild pass, deduped by name.
    * 全部可见工具都进编目，仅排除 meta_search/meta_invoke（本插件控制面，
    * 恒常驻）与 run_code（Code Mode 保留传输层）。mcp__ 工具按真实 server
    * 分组；原生工具（无 mcp__ 前缀）统一归入保留的 built-in server，使能力
    * 菜单能统一按 server 分组、三档管理，meta_invoke 也能派发它们。
    * A schema may surface from several preset scope views; the first wins.
    */
-  const indexToolSchema = (schema: { name: string; description: string; parameters: JsonSchemaNode }): void => {
+  const indexToolSchema = (
+    next: Map<string, CapabilityRecord>,
+    schema: { name: string; description: string; parameters: JsonSchemaNode },
+  ): void => {
     if (CATALOG_EXCLUDED_TOOLS.has(schema.name)) return
-    if (nextToolRecords.has(schema.name)) return
+    if (next.has(schema.name)) return
     const existing = toolRecords.get(schema.name)
     const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
     const isMcp = schema.name.startsWith(MCP_ID_PREFIX)
     const serverName = isMcp ? serverNameOf(schema.name) : BUILT_IN_SERVER
-    nextToolRecords.set(schema.name, {
+    next.set(schema.name, {
       id: schema.name,
       kind: 'tool',
       actions: ['execute'],
@@ -390,12 +411,14 @@ export function apply(ctx: Context, config: Config = {}): void {
    */
   // Rebuilds can overlap (eager mount-time run vs. a change-event refresh);
   // the epoch guard drops a superseded run so its older snapshot never
-  // clobbers a newer one.
+  // clobbers a newer one. The accumulator is local to each run for the same
+  // reason: a shared one would be reset by the newer run mid-flight, letting
+  // the older run publish a partial catalog when it wins the epoch check.
   let toolIndexEpoch = 0
   const rebuildTools = async (): Promise<void> => {
     const epoch = ++toolIndexEpoch
-    nextToolRecords = new Map<string, CapabilityRecord>()
-    for (const schema of ctx.tools.schemas()) indexToolSchema(schema)
+    const nextToolRecords = new Map<string, CapabilityRecord>()
+    for (const schema of ctx.tools.schemas()) indexToolSchema(nextToolRecords, schema)
 
     const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as
       | { list(): Promise<Array<{ id: string; broken?: string }>>; standingKeyFor(id?: string): Promise<ScopeKey> }
@@ -411,7 +434,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (preset.broken !== undefined) continue
         try {
           const scope = await agentPresets.standingKeyFor(preset.id)
-          for (const schema of ctx.tools.schemas(scope)) indexToolSchema(schema)
+          for (const schema of ctx.tools.schemas(scope)) indexToolSchema(nextToolRecords, schema)
         } catch (error) {
           ctx.logger.warn(`meta-registry: preset "${preset.id}" tool scope unavailable: ${String(error)}`)
         }
@@ -428,8 +451,13 @@ export function apply(ctx: Context, config: Config = {}): void {
    * registers into that preset's layer, so the host-plane global read alone
    * sees nothing). The management catalog enumerates the global layer and then
    * every mountable preset's standing scope, so preset-scoped skills surface.
+   *
+   * Same epoch guard as the tool side: overlapping refreshes resolve out of
+   * order, and a stale snapshot must not overwrite a newer one.
    */
+  let skillIndexEpoch = 0
   const refreshSkills = async (): Promise<void> => {
+    const epoch = ++skillIndexEpoch
     const nextSkills = new Map<string, CapabilityRecord>()
     const nextSkillScopes = new Map<string, ScopeKey | undefined>()
 
@@ -496,6 +524,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
     }
 
+    if (epoch !== skillIndexEpoch) return
     skillRecords = nextSkills
     skillScopes = nextSkillScopes
   }
@@ -670,8 +699,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       const root = await skillRootOf(id)
       if (root === undefined) return undefined
       const target = relPath.length === 0 ? root : resolve(root, relPath)
-      // Containment: the resolved path must stay inside the skill root.
-      if (target !== root && !target.startsWith(`${root}${sep}`)) return undefined
+      // Containment: the resolved path must stay inside the skill root, both
+      // lexically (`..`) and after resolving symlinks (a link inside the skill
+      // directory must not lead out of it).
+      if (!(await isInside(root, target))) return undefined
       try {
         const entries = await readdir(target, { withFileTypes: true })
         return entries.map(entry => ({
@@ -688,8 +719,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       const root = await skillRootOf(id)
       if (root === undefined) return undefined
       const target = resolve(root, relPath)
-      // Containment: the resolved path must stay inside the skill root.
-      if (target !== root && !target.startsWith(`${root}${sep}`)) return undefined
+      // Containment: see `listSkillDir` — lexical `..` and symlinks both checked.
+      if (!(await isInside(root, target))) return undefined
       try {
         const info = await stat(target)
         if (!info.isFile()) return undefined

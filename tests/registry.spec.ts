@@ -269,6 +269,42 @@ describe('meta-registry', () => {
     expect(builtIn.map(summary => summary.id)).toContain('bash')
   })
 
+  it('keeps the catalog complete when refreshes overlap', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    await writeSkill(`${home}/.agents/skills`, 'overlap-skill', 'A skill indexed while refreshes overlap', 'Body.')
+    const ctx = await setup(home)
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    const bash = registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
+
+    // Gate the first preset enumeration so that refresh suspends mid-flight and
+    // a second refresh starts (and finishes) before it resumes — the overlap
+    // the tool/skill epoch guards exist for.
+    let release: (() => void) | undefined
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        if (listCalls === 1) await gate
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+
+    const first = ctx.capability.refresh()
+    const second = ctx.capability.refresh()
+    await second
+    release?.()
+    await first
+
+    const ids = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => summary.id)
+    expect(ids).toContain(issue)
+    expect(ids).toContain(bash)
+    expect(ids).toContain('overlap-skill')
+  })
+
   it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { readFile } = await import('node:fs/promises')

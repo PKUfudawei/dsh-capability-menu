@@ -69,6 +69,9 @@ if (configIndex === -1) {
 // config block ends.
 let changed = 0
 let currentKind = ''
+// Indent width of the config's top-level keys (`tools:` / `skills:`), learned
+// from the first key line — patches are not guaranteed to use 2 spaces.
+let kindIndent = -1
 for (let i = configIndex + 1; i < lines.length; i += 1) {
   const line = lines[i]
   const indent = /^\s*/.exec(line)?.[0] ?? ''
@@ -79,7 +82,13 @@ for (let i = configIndex + 1; i < lines.length; i += 1) {
   // Track the top-level config key (`tools:` / `skills:` / `metaTools:`) so
   // skill-prefix stripping only applies inside `skills:*` rule lists.
   const keyMatch = /^([\w-]+):$/.exec(trimmed)
-  if (indent.length === configIndent.length + 2 && keyMatch) currentKind = keyMatch[1]
+  // A key at the top-level key indent (or the first key seen, at any depth
+  // deeper than `config:`) starts a new kind; nested keys (`resident:` …) sit
+  // deeper and leave `currentKind` alone.
+  if (keyMatch && (kindIndent === -1 || indent.length <= kindIndent)) {
+    currentKind = keyMatch[1]
+    kindIndent = indent.length
+  }
 
   let replaced = KEY_RENAME.reduce(
     (acc, [pattern, replacement]) => acc.replace(pattern, replacement),

@@ -372,30 +372,52 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   let toolCompiled: CompiledCapabilityRules
   let skillCompiled: CompiledCapabilityRules
 
-  const recompile = (): void => {
-    const toolRules = compileSet(current.tools)
-    const skillRules = compileSet(current.skills)
+  /**
+   * Compile a candidate config into rule sets without touching live state.
+   * Meta tools are the control-plane escape hatch: blocking one is a
+   * misconfiguration that must fail loud, never silently disable the surface.
+   * Throws before anything is committed when validation fails.
+   */
+  const compileConfig = (
+    candidate: Config,
+    meta: readonly string[],
+  ): { tools: CompiledCapabilityRules; skills: CompiledCapabilityRules } => {
+    const toolRules = compileSet(candidate.tools)
+    const skillRules = compileSet(candidate.skills)
     // Normalize tool/skill rule kinds for matching.
-    toolCompiled = {
+    const tools: CompiledCapabilityRules = {
       resident: toolRules.resident.map(rule => ({ ...rule, kind: 'tool' as const })),
       onDemand: toolRules.onDemand.map(rule => ({ ...rule, kind: 'tool' as const })),
       disabled: toolRules.disabled.map(rule => ({ ...rule, kind: 'tool' as const })),
     }
-    skillCompiled = {
+    const skills: CompiledCapabilityRules = {
       resident: skillRules.resident.map(rule => ({ ...rule, kind: 'skill' as const })),
       onDemand: skillRules.onDemand.map(rule => ({ ...rule, kind: 'skill' as const })),
       disabled: skillRules.disabled.map(rule => ({ ...rule, kind: 'skill' as const })),
     }
-    // Meta tools are the control-plane escape hatch: blocking one is a
-    // misconfiguration that must fail loud, never silently disable the surface.
-    for (const name of metaTools) {
+    for (const name of meta) {
       const target = { id: name, name, server: serverNameOf(name), kind: 'tool' as const, ruleKind: 'tool' as const }
-      if (anyRuleMatches(toolCompiled.disabled, target)) {
+      if (anyRuleMatches(tools.disabled, target)) {
         throw new Error(`meta tool "${name}" cannot be disabled; remove it from tools.disabled`)
       }
     }
+    return { tools, skills }
   }
-  recompile()
+
+  /**
+   * Compile, then commit. Compiling first keeps a rejected update from landing
+   * half-applied: `current`, `metaTools` and the rule sets move together or not
+   * at all.
+   */
+  const applyConfig = (candidate: Config, meta: readonly string[]): void => {
+    const compiled = compileConfig(candidate, meta)
+    current = candidate
+    metaTools = [...meta]
+    metaToolSet = new Set<string>(metaTools)
+    toolCompiled = compiled.tools
+    skillCompiled = compiled.skills
+  }
+  applyConfig(normalized, [...(normalized.metaTools ?? DEFAULT_META_TOOLS)])
 
   const service: CapabilityPolicyService = {
     classifyTool(name: string): CapabilityClass {
@@ -437,12 +459,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return { ...current }
     },
     async updateConfig(partial: Partial<Config>): Promise<void> {
-      current = { ...current, ...partial }
-      if (partial.metaTools !== undefined) {
-        metaTools = [...(partial.metaTools ?? DEFAULT_META_TOOLS)]
-        metaToolSet = new Set<string>(metaTools)
-      }
-      recompile()
+      // Validate first, commit second (see `applyConfig`): a rejected update
+      // leaves the live policy exactly as it was.
+      applyConfig(
+        { ...current, ...partial },
+        partial.metaTools !== undefined ? [...(partial.metaTools ?? DEFAULT_META_TOOLS)] : metaTools,
+      )
       // Classification changed → the on-demand catalog on disk is stale (a
       // capability reclassified to disabled must disappear from the grep-able
       // YAML). Await the registry refresh so callers get a completion signal:
@@ -500,12 +522,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     if (decision.kind !== 'enter') return decision
     let changed = false
     const messages = decision.messages.map(message => {
-      const source = message.source as { kind?: unknown; entries?: unknown }
-      if (source.kind !== 'skill-catalog') return message
-      const entries = Array.isArray(source.entries)
-        ? source.entries.filter((entry): entry is { name: string; description?: string } =>
-            typeof entry === 'object' && entry !== null && typeof (entry as { name?: unknown }).name === 'string')
-        : []
+      const source = message.source as { kind?: unknown; entries?: unknown } | undefined
+      if (source?.kind !== 'skill-catalog') return message
+      if (!Array.isArray(source.entries)) {
+        // Cannot tell which skills the message lists, so it stays untouched —
+        // but say so: silently skipping the filter would leak Disabled skills
+        // into the model surface with no trace.
+        ctx.logger.warn('capability-policy: skill-catalog message has no entries array; leaving it unfiltered')
+        return message
+      }
+      const entries = source.entries.filter((entry): entry is { name: string; description?: string } =>
+        typeof entry === 'object' && entry !== null && typeof (entry as { name?: unknown }).name === 'string')
       const kept = entries
         .filter(entry => service.isResidentSkill(entry.name))
         .map(entry => ({ name: entry.name, description: entry.description ?? '' }))

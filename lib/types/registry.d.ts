@@ -7,6 +7,8 @@ import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import type { ScopeKey } from '@deepseek-ai/dsh-scope';
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools';
+import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts';
+export { BUILT_IN_SERVER, MCP_ID_PREFIX };
 /**
  * Kinds of capability the catalog can hold.
  * - `tool`:   action capability — executes a concrete action (an MCP tool or a
@@ -23,24 +25,15 @@ export type CapabilityKind = 'tool' | 'skill';
  */
 export type CapabilityAction = 'execute' | 'load';
 /**
- * Tool id prefixes are part of the REAL registered tool name: MCP tools are
- * registered as `mcp__<server>__<raw>` by the harness MCP client and natives
- * keep their bare name (`bash`/`read`/…), so tool records are keyed by that
- * name. Skills have no name-level namespace: a skill's id IS its bare name and
- * `kind` disambiguates it from a same-named tool.
- */
-export declare const MCP_ID_PREFIX = "mcp__";
-/**
- * Reserved pseudo-server that groups harness-native (non-MCP) tools in the
- * management surface. Native tools (bash/read/write/…) are cataloged like MCP
- * tools — same `server` dimension — so the 能力管理 can group them, classify
- * them Resident/On-demand/Disabled, and `meta_invoke` can dispatch them.
- */
-export declare const BUILT_IN_SERVER = "built-in";
-/**
  * Tool names that never enter the capability catalog: this plugin's own
  * control plane (`meta_search`/`meta_invoke`, always Resident) and the
  * reserved Code Mode presentation transport (`run_code`).
+ *
+ * Tool ids (the key everything else uses) are the REAL registered tool name:
+ * MCP tools are registered as `mcp__<server>__<raw>` by the harness MCP client
+ * and natives keep their bare name (`bash`/`read`/…). Skills have no
+ * name-level namespace: a skill's id IS its bare name and `kind` disambiguates
+ * it from a same-named tool.
  */
 export declare const CATALOG_EXCLUDED_TOOLS: ReadonlySet<string>;
 /** Capability-stable origin metadata used by search filters and detail views. */
@@ -205,7 +198,12 @@ export interface Config {
     summaryMaxChars?: number;
     /** Whether to include the skill body in `getDetail` results (default false). */
     detailIncludesBody?: boolean;
-    /** Maximum search results returned (default 20, max 100). */
+    /**
+     * Maximum search results returned (default 20). No upper bound is enforced:
+     * callers that need the whole catalog (the policy's `classifyAll`) pass a
+     * very large value on purpose, so capping here would silently truncate the
+     * management surface.
+     */
     maxResults?: number;
     /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
     weighting?: number;

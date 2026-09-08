@@ -3,33 +3,31 @@ var module = { exports: {} };
 var exports = module.exports;
 
 import { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
-//#region src/client/store.d.ts
-/**
- * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
- *
- * Types + small helpers for the 能力管理 (Capability Management) settings
- * section. The component reads/writes the Host `ctx.capabilityPolicy` through
- * the generated `remote.capabilityPolicy` face (see `./remote.ts`), mirroring
- * how `dsh-client-ui-settings-plugin-inventory` consumes
- * `ctx.remote.pluginInventory`.
- */
-/** One capability's Resident/On-demand/Disabled row, as surfaced by the server. */
+import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
+//#region src/client/remote.d.ts
+/** Read-only row: one capability's Resident/On-demand/Disabled classification. */
 interface CapabilityRow {
   readonly id: string;
   readonly kind: 'tool' | 'skill';
   readonly name: string;
-  /** Server namespace for tools (`built-in` groups harness-native tools); undefined for skills. */
   readonly server?: string;
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string;
   readonly class: 'resident' | 'on-demand' | 'disabled';
-  /** Human-friendly display: `Resident · 常驻（直接调用）` / `On-demand · 按需（目录渐进加载）` / `Disabled · 禁用`. */
   readonly classLabel?: string;
   readonly mandatory: boolean;
 }
-/** Snapshot of the management surface. */
-interface CapabilitySnapshot {
-  readonly rows: readonly CapabilityRow[];
+/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+interface CatalogDocs {
+  /** 当前生效的三档策略配置 YAML。 */
+  readonly policyYaml: string;
+  /** 按需能力目录物化文件（path + content）。 */
+  readonly catalog?: {
+    readonly path: string;
+    readonly content: string;
+  };
+  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
+  readonly catalogMissing?: 'disabled' | 'read-failed';
 }
 /** One direct child in a skill directory listing. */
 interface SkillFileEntry {
@@ -61,17 +59,34 @@ interface ToolDetail {
     readonly lastUsedAt?: number;
   };
 }
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
-interface CatalogDocs {
-  /** 当前生效的三档策略配置 YAML。 */
-  readonly policyYaml: string;
-  /** 按需能力目录物化文件（path + content）。 */
-  readonly catalog?: {
-    readonly path: string;
-    readonly content: string;
-  };
-  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed';
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
+    getConfig: () => Promise<RemoteResult<Record<string, unknown>>>;
+    updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
+    classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>;
+    listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
+    readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
+    getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>;
+  }
+  interface TypertRemoteMap {
+    'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>;
+    'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
+    'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>;
+    'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
+    'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
+    'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>;
+  }
+  interface TypertRemoteNamespaceMap {
+    'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379;
+  }
+}
+//#endregion
+//#region src/client/store.d.ts
+/** Snapshot of the management surface. */
+interface CapabilitySnapshot {
+  readonly rows: readonly CapabilityRow[];
 }
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 interface CapabilityPolicyRemote {
