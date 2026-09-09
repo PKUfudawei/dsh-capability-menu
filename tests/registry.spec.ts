@@ -276,16 +276,11 @@ describe('meta-registry', () => {
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     const bash = registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
 
-    // Gate the first preset enumeration so that refresh suspends mid-flight and
-    // a second refresh starts (and finishes) before it resumes — the overlap
-    // the tool/skill epoch guards exist for.
-    let release: (() => void) | undefined
-    const gate = new Promise<void>(resolve => { release = resolve })
-    let listCalls = 0
+    // Single-flight scheduling: the second refresh cannot start its own run;
+    // it coalesces into the follow-up and resolves only once a rebuild that
+    // covers its registration state has finished.
     ctx.provide('agentPresets', {
       async list(): Promise<Array<{ id: string; broken?: string }>> {
-        listCalls += 1
-        if (listCalls === 1) await gate
         return [{ id: 'coding-plus' }]
       },
       async standingKeyFor(id?: string): Promise<unknown> {
@@ -295,14 +290,105 @@ describe('meta-registry', () => {
 
     const first = ctx.capability.refresh()
     const second = ctx.capability.refresh()
-    await second
-    release?.()
-    await first
+    await Promise.all([first, second])
+    // The coalesced follow-up (if scheduled) must also have settled by now.
+    await new Promise(resolve => setTimeout(resolve, 50))
 
     const ids = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => summary.id)
     expect(ids).toContain(issue)
     expect(ids).toContain(bash)
     expect(ids).toContain('overlap-skill')
+  })
+
+  it('coalesces a change-event burst into at most one rebuild per debounce window', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 20 })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        return []
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    // Settle the eager mount-time rebuild and any mount-time change events so
+    // the baseline is stable.
+    await ctx.capability.refresh()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const baseline = listCalls
+
+    // A burst that once produced one full preset re-scan per event must cost
+    // at most one debounced rebuild (plus the coalesced follow-up when events
+    // land while that rebuild runs) — never one rebuild per event. Each
+    // rebuild calls `list` twice (tools pass + skills pass).
+    for (let i = 0; i < 20; i += 1) ctx.emit('skills/change')
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(listCalls).toBeLessThanOrEqual(baseline + 4)
+  })
+
+  it('coalesces events landing during a rebuild into one follow-up rebuild', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 0 })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        await new Promise(resolve => setTimeout(resolve, 15))
+        return []
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    await ctx.capability.refresh()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const baseline = listCalls
+
+    const run = ctx.capability.refresh()
+    // Events that land while the rebuild runs collapse into ONE follow-up.
+    await new Promise(resolve => setTimeout(resolve, 5))
+    for (let i = 0; i < 10; i += 1) ctx.emit('skills/change')
+    await run
+    await new Promise(resolve => setTimeout(resolve, 300))
+    // One run + one coalesced follow-up; each rebuild calls `list` twice.
+    expect(listCalls).toBeLessThanOrEqual(baseline + 4)
+  })
+
+  it('stops scheduled rebuilds on teardown', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      watch: false,
+    })
+    const fiber = ctx.plugin(registry, { refreshDebounceMs: 20 })
+    await fiber
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        return []
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    await ctx.capability.refresh()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    const baseline = listCalls
+
+    // Teardown must cancel the pending debounce, stop queued work, and
+    // unsubscribe the change-event listeners.
+    await fiber.dispose()
+    ctx.emit('skills/change')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(listCalls).toBe(baseline)
   })
 
   it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {

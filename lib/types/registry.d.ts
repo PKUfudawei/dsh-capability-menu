@@ -214,6 +214,13 @@ export interface Config {
      * emission. Disabled capabilities are never written.
      */
     catalogFile?: string;
+    /**
+     * Debounce window in milliseconds for change-event triggered rebuilds
+     * (default 200). Event bursts coalesce into one rebuild per window; a
+     * change source that re-triggers itself therefore cannot loop faster than
+     * one rebuild per window. 0 disables the debounce delay.
+     */
+    refreshDebounceMs?: number;
 }
 /** Validate and default the registry configuration. */
 export declare const Config: z<Config>;

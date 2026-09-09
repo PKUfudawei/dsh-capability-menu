@@ -233,6 +233,13 @@ export interface Config {
    * emission. Disabled capabilities are never written.
    */
   catalogFile?: string
+  /**
+   * Debounce window in milliseconds for change-event triggered rebuilds
+   * (default 200). Event bursts coalesce into one rebuild per window; a
+   * change source that re-triggers itself therefore cannot loop faster than
+   * one rebuild per window. 0 disables the debounce delay.
+   */
+  refreshDebounceMs?: number
 }
 
 /** Validate and default the registry configuration. */
@@ -244,6 +251,7 @@ export const Config: z<Config> = z.object({
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
   catalogFile: z.string(),
+  refreshDebounceMs: z.number().default(200),
 })
 
 function assertPositiveInteger(name: string, value: number, min: number): void {
@@ -319,8 +327,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
   const catalogFile = (config.catalogFile ?? join(homedir(), '.dsh', 'capability-catalog.yaml')).trim()
+  const refreshDebounceMs = config.refreshDebounceMs ?? 200
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
+  assertPositiveInteger('refreshDebounceMs', refreshDebounceMs, 0)
   assertWeight('weighting', weighting)
 
   /** Tool records keyed by tool name (MCP tools plus native tools under `built-in`); skills keyed by bare skill name. */
@@ -569,18 +579,113 @@ export function apply(ctx: Context, config: Config = {}): void {
     await writeCatalog()
   }
 
+  // --- Refresh scheduling --------------------------------------------------
+  // Change events (`tools/change` / `skills/change`) arrive in bursts: the
+  // skill/preset lifecycle invalidates caches and re-registers providers in
+  // quick succession, and a rebuild's own registry access can emit further
+  // change events. Rebuilding once per event produced an unbounded CPU storm
+  // (a full preset re-scan per event; see the 2026-09-09 web-profile
+  // performance incident). The scheduler therefore:
+  //   1. runs at most one rebuild at a time (single flight);
+  //   2. coalesces every event that lands during a run into at most ONE
+  //      follow-up run;
+  //   3. debounces event bursts while idle, so a change source that keeps
+  //      re-triggering itself costs at most one rebuild per window.
+  // Teardown cancels the pending debounce and stops queued work.
+  let refreshRunning = false
+  let refreshQueued = false
+  let disposed = false
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  /** Requests that arrived before a covering rebuild finishes; resolved when it settles. */
+  const refreshWaiters: Array<() => void> = []
+
+  /** One rebuild pass; never rejects (failures are logged, not propagated). */
+  const rebuild = async (): Promise<void> => {
+    try {
+      await refresh()
+    } catch (error) {
+      ctx.logger.warn(`capability-registry: catalog rebuild failed: ${String(error)}`)
+    }
+  }
+
+  /** Start the single in-flight rebuild; resolve waiters and chain the follow-up. */
+  const startRun = (): void => {
+    refreshRunning = true
+    refreshQueued = false
+    void rebuild().then(() => {
+      refreshRunning = false
+      if (!disposed && refreshQueued) {
+        refreshQueued = false
+        scheduleRebuild()
+        // Requests that arrived during this run are covered by the follow-up,
+        // so their waiters carry over and resolve at the end of that run.
+        return
+      }
+      for (const waiter of refreshWaiters.splice(0)) waiter()
+    })
+  }
+
+  /** Arm the debounce timer (one timer per burst; later events don't extend it). */
+  const scheduleRebuild = (): void => {
+    if (debounceTimer !== undefined) return
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined
+      if (disposed || refreshRunning) return
+      startRun()
+    }, refreshDebounceMs)
+    if (refreshDebounceMs === 0) debounceTimer.unref?.()
+  }
+
+  /** Change-event handler: coalesce while running, debounce while idle. */
+  const onChange = (): void => {
+    if (disposed) return
+    if (refreshRunning) {
+      refreshQueued = true
+      return
+    }
+    scheduleRebuild()
+  }
+
+  /**
+   * Force a rebuild immediately (bypasses the debounce); resolves when the
+   * rebuild chain that covers this call fully settles — including a coalesced
+   * follow-up if change events land while the run is in flight.
+   */
+  const refreshNow = (): Promise<void> => {
+    if (disposed) return Promise.resolve()
+    if (debounceTimer !== undefined) {
+      clearTimeout(debounceTimer)
+      debounceTimer = undefined
+    }
+    return new Promise(resolve => {
+      refreshWaiters.push(resolve)
+      if (refreshRunning) {
+        refreshQueued = true
+        return
+      }
+      startRun()
+    })
+  }
+
   /** Register once; also subscribe to change events. */
   const disposers: Array<() => void> = []
-  disposers.push(ctx.on('tools/change', () => void refresh()))
-  disposers.push(ctx.on('skills/change', () => void refresh()))
+  disposers.push(ctx.on('tools/change', onChange))
+  disposers.push(ctx.on('skills/change', onChange))
   // Index the global tool view eagerly (the synchronous part of
   // `rebuildTools`); preset standing scopes and skills are enumerated by the
-  // first explicit `refresh()` (policy mounts it before the surface is used)
-  // or a change event, so an eager load never snapshots — and caches inside the
-  // tool/skill registries — an incomplete catalog.
+  // first scheduled rebuild (policy mounts it before the surface is used)
+  // or a change event, so an eager load never snapshots — and caches inside
+  // the tool/skill registries — an incomplete catalog.
   void rebuildTools()
-  void refreshSkills()
+  void refreshNow()
   ctx.effect(() => () => {
+    disposed = true
+    refreshQueued = false
+    if (debounceTimer !== undefined) {
+      clearTimeout(debounceTimer)
+      debounceTimer = undefined
+    }
+    for (const waiter of refreshWaiters.splice(0)) waiter()
     for (const dispose of disposers) dispose()
   })
 
@@ -746,7 +851,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
 
     refresh(): Promise<void> {
-      return refresh()
+      return refreshNow()
     },
   }
 
