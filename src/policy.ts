@@ -502,12 +502,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         { ...current, ...partial },
         partial.metaTools !== undefined ? [...(partial.metaTools ?? DEFAULT_META_TOOLS)] : metaTools,
       )
-      // Classification changed → the on-demand catalog on disk is stale (a
-      // capability reclassified to disabled must disappear from the grep-able
-      // YAML). Await the registry refresh so callers get a completion signal:
-      // the disk catalog is rewritten before the call returns, closing the
-      // window where a disabled capability stayed visible on disk.
-      await ctx.capability.refresh()
+      // Classification changed, so the on-demand catalog on disk is stale (a
+      // capability reclassified to Disabled must disappear from the grep-able
+      // YAML). Request a rebuild, but do NOT await it: rules are already
+      // recompiled synchronously above, so every classification read after
+      // this point is correct, and the disk file only feeds the model's
+      // grep/read path. Awaiting a full rebuild here made each click in the
+      // management UI wait for a complete tool+skill re-enumeration.
+      ctx.capability.requestRefresh()
     },
     classifyAll(): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management

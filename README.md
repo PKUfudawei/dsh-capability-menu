@@ -48,7 +48,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | `meta_search` | 检索能力目录（Tool / Skill），list/detail 双模式 | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
 
-### 能力管理
+### 能力菜单
 
 <p align="center">
   <img src="assets/screenshot-tools.png" alt="Tools 页" width="48%"/>
@@ -59,12 +59,16 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
   <img src="assets/screenshot-catalog.png" alt="查看能力目录 · 按需能力目录" width="48%"/>
 </p>
 
-安装后，「设置 / 通用设置」下出现「能力管理」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
+安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
 - **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计和「查看能力目录」按钮。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
 - **Skills 页签**：内部再分「全局技能 / 项目技能」两个子页签（始终显示，空的一侧显示空态提示），顶部数量统计跟随当前子页签。点击技能行展开目录树，点文件预览 SKILL.md 等正文。
 - **三态圆点与循环切换**：每个能力带一个分类圆点——实心 = 常驻、上半实心圆环 = 按需、圆环 + 斜杠（禁行标志）= 禁用；点击能力旁圆点或分类计数即可循环切换（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
 - **查看能力目录**：点右上角按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`disabled` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
+- **刷新**：点右上角「刷新」按钮重建能力目录并重新拉取列表。登记新位置后会自动刷新一次，通常不必手动点；手动刷新主要用于你在 dsh 之外改动了来源（手改 patch 文件、手动软链 skill 目录）之后。
+- **已登记位置**：面板底部列出能力来源，可增删改：
+  - **MCP 服务器**：登记即写入 patch 文件里的 `@deepseek-ai/dsh-mcp-client` 条目，**由 dsh 原生挂载**（插件不自己管连接）。与手写的声明式条目同文件、同一张表，一视同仁可启停、可移除，且无需重启 dsh（live profile 下改动热重载生效）。
+  - **Skill 目录**：登记即在 `~/.dsh/skills/` 下建软链，与 dsh 原生的 skill 发现机制完全一致，零配置即时生效。
 
 ## 快速安装
 
@@ -72,7 +76,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 ### 从 npm 安装（推荐）
 
-单包同时提供服务端插件与前端「能力管理」tab，装完即可在「设置 / 通用设置」下看到：
+单包同时提供服务端插件与前端「能力菜单」tab，装完即可在「设置 / 通用设置」下看到：
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
@@ -131,7 +135,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 
 > **覆盖与保留**：
 > - `tool` 档同时覆盖 `mcp__` 编目工具与内置原生工具——原生工具统一以保留的 `built-in` server 归组，与 MCP 工具一样三档可管。**请勿把真实 MCP server 命名为 `built-in`。**
-> - `meta_search`/`meta_invoke` 是本插件的控制面：恒常驻、不可被禁用（在规则里禁用它们会在启动时报错）。`run_code` 是 Code Mode 保留传输层：不进目录、不在「能力管理」出现，请勿为它配置三档规则。
+> - `meta_search`/`meta_invoke` 是本插件的控制面：恒常驻、不可被禁用（在规则里禁用它们会在启动时报错）。`run_code` 是 Code Mode 保留传输层：不进目录、不在「能力菜单」出现，请勿为它配置三档规则。
 > - **不建议把高频核心工具设为按需**：按需的内置工具会退出模型常驻视野，使用时需要 `meta_search` → `meta_invoke` 两跳调用。
 
 ## 配置文件
@@ -166,6 +170,16 @@ config:
 
 > 配置键即档位英文词：`resident`（常驻）/ `on-demand`（按需）/ `disabled`（禁用）。
 
+### 全部配置项
+
+| 配置项 | 归属 entry | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | 三档分类规则；只影响运行时内存，不落盘 |
+| `catalogFile` | `capability-menu-registry` | `~/.dsh/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
+| `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
+| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 位置登记写入的 patch 文件 |
+| `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill 目录登记的技能根 |
+
 **规则优先级**（从上到下命中即停；同档内精确规则优先于通配）：
 
 | 优先级 | 规则 | 示例 | 效果 |
@@ -173,15 +187,18 @@ config:
 | 1 | `disabled` 精确 | `disabled: [forbidden_skill]` | 最硬禁用，压过一切 |
 | 2 | `disabled` 通配 | `disabled: ['mcp__secret__*']` | 整组禁用 |
 | 3 | `resident` 精确 | `resident: [bash]` | 单个能力显式常驻 |
-| 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力管理点击写入的就是这类） |
+| 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力菜单点击写入的就是这类） |
 | 5 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` | 整组常驻 |
 | 6 | `on-demand` 通配 | `on-demand: ['mcp__*']` | 兜底批量按需 |
 | 默认 | 未命中任何规则 | — | 常驻 |
 
 要点：
-- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力管理」把某工具点成按需会写入一条精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级规则覆盖，界面提示「分类未生效」。
+- **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力菜单」把某工具点成按需会写入一条精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级规则覆盖，界面提示「分类未生效」。
 
-> 「能力管理」tab 的改动只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是持久化入口，无需额外的导入/导出按钮。
+> **两类改动，持久化方式不同**：
+>
+> - **三档分类**只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是分类的持久化入口，无需额外的导入/导出按钮。
+> - **已登记位置**（MCP 服务器、Skill 目录）由插件直接落盘：MCP 写进 patch 文件、Skill 在 `~/.dsh/skills/` 建软链，重启后仍在。
 
 ### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 

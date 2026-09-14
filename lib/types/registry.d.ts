@@ -186,6 +186,12 @@ export interface CapabilityService {
      * that want to force a rebuild.
      */
     refresh(): Promise<void>;
+    /**
+     * Ask for a rebuild without waiting for it. The scheduler coalesces bursts,
+     * so a caller that changes something repeatedly (the management UI cycling
+     * a classification) triggers one rebuild, not one per call.
+     */
+    requestRefresh(): void;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

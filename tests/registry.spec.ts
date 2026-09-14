@@ -138,7 +138,7 @@ describe('meta-registry', () => {
 
     const skill = ctx.capability.search({ kind: 'skill' })
     expect(skill.some(summary => summary.id === 'frontend-design')).toBe(true)
-    // Skills carry their filesystem source root so the 能力管理 can group them
+    // Skills carry their filesystem source root so the 能力菜单 can group them
     // into project vs global sections (user-agents = a global user dir here).
     expect(skill.find(summary => summary.id === 'frontend-design')?.source).toBe('user-agents')
 
@@ -319,6 +319,25 @@ describe('meta-registry', () => {
     expect(maxInFlight).toBe(1)
   })
 
+  it('does not rewrite the catalog file when a rebuild changes nothing', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const { join } = await import('node:path')
+    const { stat } = await import('node:fs/promises')
+    const catalogFile = join(home, 'capability-catalog.yaml')
+    const ctx = await setup(home, { catalogFile, refreshDebounceMs: 5 })
+    // The catalog is only emitted while a policy is mounted (it supplies the
+    // classification that decides what counts as On-demand).
+    await ctx.plugin(policy, { tools: { 'on-demand': ['mcp__gongfeng__create_issue'] } })
+    registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+
+    await ctx.capability.refresh()
+    const first = (await stat(catalogFile)).mtimeNs
+    // A second rebuild that finds the same capabilities must not touch disk.
+    await ctx.capability.refresh()
+    const second = (await stat(catalogFile)).mtimeNs
+    expect(second).toBe(first)
+  })
+
   it('coalesces a burst of change events into a single rebuild', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home, { refreshDebounceMs: 5 })
@@ -382,6 +401,32 @@ describe('meta-registry', () => {
 
     // The suspended run (2 calls) plus exactly ONE coalesced follow-up (2).
     expect(listCalls).toBe(4)
+  })
+
+  it('stops chaining when rebuilds keep reproducing the same catalog', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        // Simulate the self-sustaining loop this guard exists to break: every
+        // scan emits a change event, so an unbounded chain would rebuild at the
+        // debounce rate forever.
+        ctx.emit('tools/change')
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+
+    await ctx.capability.refresh()
+    await wait(150)
+    const settled = listCalls
+    await wait(300)
+    // The chain stopped: no further enumeration happens while nothing changes.
+    expect(listCalls).toBe(settled)
   })
 
   it('stops scheduling after teardown', async () => {
@@ -452,9 +497,15 @@ describe('meta-registry', () => {
 
     // C2: reclassifying the On-demand capability to disabled must remove it
     // from the disk catalog — the grep-able file must not keep exposing it
-    // after the in-memory classification changed. updateConfig is awaited, so
-    // the disk rewrite is complete by the time it returns.
+    // after the in-memory classification changed.
+    //
+    // updateConfig no longer awaits the rebuild (that made every click in the
+    // management UI wait for a full re-enumeration); it requests one, so the
+    // disk file catches up on the next rebuild. The in-memory classification
+    // is already correct the moment updateConfig returns.
     await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
+    expect(ctx.capabilityPolicy.classifyCapability('mcp__km__search')).toBe('disabled')
+    await ctx.capability.refresh()
     const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
     expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
   })

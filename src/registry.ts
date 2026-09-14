@@ -203,6 +203,12 @@ export interface CapabilityService {
    * that want to force a rebuild.
    */
   refresh(): Promise<void>
+  /**
+   * Ask for a rebuild without waiting for it. The scheduler coalesces bursts,
+   * so a caller that changes something repeatedly (the management UI cycling
+   * a classification) triggers one rebuild, not one per call.
+   */
+  requestRefresh(): void
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -344,6 +350,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   let skillScopes = new Map<string, ScopeKey | undefined>()
   /** On-demand count of the latest catalog emission (0 until first write). */
   let onDemandCount = 0
+  /** Last emitted catalog text, so an unchanged rebuild skips the write. */
+  let lastCatalogContent: string | undefined
 
   const statsOf = (record: CapabilityRecord): CapabilityStats => record.stats
 
@@ -569,8 +577,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
       }))
     onDemandCount = onDemand.length
+    const content = yaml.dump({ capabilities: onDemand })
+    // A rebuild that changed nothing must not touch the disk: at debounce rate
+    // this was rewriting the file several times a second.
+    if (content === lastCatalogContent) return
     try {
-      await writeFile(catalogFile, yaml.dump({ capabilities: onDemand }), 'utf8')
+      await writeFile(catalogFile, content, 'utf8')
+      lastCatalogContent = content
     } catch (error) {
       ctx.logger.warn(`capability-registry: on-demand catalog write failed (${catalogFile}): ${String(error)}`)
     }
@@ -607,15 +620,48 @@ export function apply(ctx: Context, config: Config = {}): void {
     for (const waiter of ready) waiter.resolve()
   }
 
-  /** Queue a coalesced rebuild after the debounce window. */
+  /**
+   * Consecutive rebuilds that reproduced the previous catalog. A noisy event
+   * stream that never changes anything (session re-registrations, the skill
+   * watcher) would otherwise keep the scheduler at the debounce rate, and each
+   * rebuild re-enumerates every preset's tools and skills — measured at ~1.5s
+   * CPU each, enough to starve the event loop and stall unrelated UI calls.
+   */
+  let idleStreak = 0
+  /** Upper bound for the backoff, so a real change is never pending long. */
+  const BACKOFF_MAX_MS = 10_000
+  const currentDelay = (): number => {
+    // The ceiling can never fall below the configured base, or a large
+    // `refreshDebounceMs` would be clamped *down* into a faster schedule.
+    const ceiling = Math.max(BACKOFF_MAX_MS, refreshDebounceMs)
+    return Math.min(refreshDebounceMs * 2 ** idleStreak, ceiling)
+  }
+
+  /** Queue a coalesced rebuild after the (possibly backed-off) window. */
   const schedule = (): void => {
     if (stopped || rebuilding || timer !== undefined) return
     timer = setTimeout(() => {
       timer = undefined
       if (stopped || rebuilding) return
       void runRebuild()
-    }, refreshDebounceMs)
+    }, currentDelay())
   }
+
+  /**
+   * Fingerprint of the indexed catalog — capability ids only, order-insensitive.
+   * Used to tell a rebuild that found something new from one that merely
+   * reproduced the previous catalog.
+   */
+  const catalogSignature = (): string => {
+    const ids: string[] = []
+    for (const id of toolRecords.keys()) ids.push(`t:${id}`)
+    for (const id of skillRecords.keys()) ids.push(`s:${id}`)
+    ids.sort()
+    return ids.join('\u0000')
+  }
+  let lastSignature: string | undefined
+  /** Consecutive follow-up runs that reproduced the previous catalog. */
+  let unchangedChain = 0
 
   /** One full rebuild; never rejects (a failed run must not hang waiters). */
   const runRebuild = async (): Promise<void> => {
@@ -632,8 +678,28 @@ export function apply(ctx: Context, config: Config = {}): void {
       rebuilding = false
       if (seqAtStart > appliedSeq) appliedSeq = seqAtStart
       settleWaiters()
-      // Requests that landed mid-run are not covered yet: one follow-up.
-      if (!stopped && eventSeq > appliedSeq) schedule()
+
+      // Requests that landed mid-run are not covered yet, so chain a
+      // follow-up — but never indefinitely. Two runs in a row that reproduce
+      // the same catalog mean the pending events carried no new capability:
+      // our own registry reads can emit change events, and dsh's skill watcher
+      // can stream them, so chaining on would spin at the debounce rate
+      // forever. One follow-up is still allowed before stopping, because a
+      // real change that lands mid-run is only visible to the *next* run.
+      const signature = catalogSignature()
+      const changed = signature !== lastSignature
+      lastSignature = signature
+      if (changed) idleStreak = 0
+      else if (idleStreak < 10) idleStreak += 1
+      if (!stopped && eventSeq > appliedSeq) {
+        if (changed) {
+          unchangedChain = 0
+          schedule()
+        } else if (unchangedChain === 0) {
+          unchangedChain = 1
+          schedule()
+        }
+      }
     }
   }
 
@@ -849,6 +915,12 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     refresh(): Promise<void> {
       return refresh()
+    },
+
+    requestRefresh(): void {
+      if (stopped) return
+      eventSeq++
+      schedule()
     },
   }
 
