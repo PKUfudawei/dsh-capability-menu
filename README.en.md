@@ -59,20 +59,27 @@ The model gets two meta tools:
   <img src="assets/screenshot-catalog.png" alt="Policy &amp; catalog · On-demand catalog" width="48%"/>
 </p>
 
-Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
+Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It is where you view and adjust a capability's exposure tier; changes apply immediately, no restart needed.
 
-- **Tools / Skills tabs**: the top tab bar shows `Tools` and `Skills`, with per-tier counts, Refresh and Register capability on its right; the read-only Policy & catalog entry sits on the header's description row. The Tools tab groups by server and folds: MCP tools under their own server, harness-native tools together under the built-in group. Click a row for the tool's model-facing definition.
-- **Skills tab**: split into "Global skills" / "Project skills" sub-tabs, with the counts following the active one. Click a skill row to expand its directory tree; click a file to preview it.
-- **Three-state dot**: filled = Resident, half-filled ring = On-demand, ring with a slash (a no-entry sign) = Disabled. Click a dot or a tier count to cycle — native and MCP tools are equally manageable; if a higher-priority rule (a wildcard, say) overrides it, the UI reports that the classification did not apply.
-- **Policy &amp; catalog**: the button on the header's description row opens a read-only modal with two files — the effective policy in a semantic view, and the materialized On-demand catalog (`catalogFile`, On-demand capabilities only). Rules are changed by clicking on the page; a change is written back to this plugin's entry `config` (`patchFile`, the home layer's `~/.dsh/cordis.patch.yml` by default — see "Configuration").
-- **Register capability**: the top-right button opens a form with "MCP server" / "Skill directory" sub-tabs, defaulting to the tab you are on. The modal holds the form only — registered entries are in the list, each with its own Edit.
-  - **MCP server**: registering one writes an `@deepseek-ai/dsh-mcp-client` row into the patch file, **mounted natively by dsh** (this plugin never manages the connection) — the same file and the same table as hand-written entries, no restart needed. Fields: `serverName`, transport (the form picks `streamable-http` by default), stdio's command / args / cwd / env, http's URL / headers, and a timeout in seconds; the form explains what each field takes.
-    > **Headers** carry the credentials: one `Key: Value` per line, `Authorization: Bearer …` and the like. They are stored in **plain text** in `~/.dsh/cordis.patch.yml`, exactly as with hand-written entries.
-  - **Skill directory**: two locations — **Global** (`~/.dsh/skills/`, visible to every session) or **Project** (`<projectRoot>/.dsh/skills/`, visible only to sessions whose cwd sits inside that project). For a project you only supply any existing path inside it; the project root is derived the way dsh derives it, and the panel reports the path actually written. Either way it is a symlink, exactly matching dsh's own skill discovery. Registration validates the `SKILL.md` the way dsh's loader does and reports failures, so a directory can no longer register here and then be silently skipped by dsh. The skill's name is the one declared in `SKILL.md`; the directory name only names the symlink.
-- **Edit**: every MCP server group header in the Tools tab and every skill row with a manageable entry (project skills included) carries an Edit button that opens the current configuration prefilled, to change, save or remove. `serverName` is read-only when editing (it forms the `mcp__<serverName>__<tool>` prefix), and a skill's location cannot be changed — moving between roots is remove + register.
-- **Remove**: removal asks for confirmation first and states what this particular removal costs — an MCP server loses its patch row, while a skill's cost depends on whether the entry is a symlink or a real directory (the latter is deleted recursively and cannot be recovered). The built-in group has no Edit button, because it is not a real MCP server.
-- **Adopt**: for skills in user-level roots such as `~/.agents/skills` / `customSkillDirs`, the row offers Adopt; the confirmation names the directory the skill currently lives in, and confirming links it into `~/.dsh/skills/` (**content untouched**). Rows that cannot be adopted show their source instead — a specific directory, or a category such as "custom skill dirs" / "bundled with dsh"; the action and the source never both appear.
-- **Refresh**: the Refresh button rebuilds the capability catalog and re-pulls the list. Registering a source refreshes once automatically; the manual button is for when you changed a source outside dsh (edited the patch file by hand, linked a skill directory yourself).
+| What you want to do | Where |
+| --- | --- |
+| Change a tier | Click the dot on a capability row, or a tier count at the top to switch the whole group |
+| Register an MCP server / skill directory | Register capability, top right |
+| Edit or remove a registered entry | Edit on an MCP server's group header (Tools) or a skill row (Skills) |
+| See the effective policy and the On-demand catalog | Policy &amp; catalog, on the header's description row |
+| The list is stale (you changed a source outside dsh) | Refresh, at the top |
+
+**The tier is that dot**: filled = Resident (the model calls it directly), half-filled ring = On-demand (reached through `meta_search` → `meta_invoke`), ring with a slash (a no-entry sign) = Disabled. If a higher-priority rule (a wildcard, say) overrides it, the UI reports that the classification did not apply.
+
+**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills". Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
+
+**Three behaviours worth knowing**:
+
+- **A tier click does not hit disk immediately**: it changes memory first (so it feels instant) and is written back to `patchFile` (the home layer's `~/.dsh/cordis.patch.yml` by default) once you stop for ~1.5s — writing that file makes dsh hot-reload this plugin, so it cannot happen on every click.
+- **Registering writes files**: an MCP server goes into the same patch file (an `@deepseek-ai/dsh-mcp-client` row, mounted natively by dsh — this plugin never manages the connection), and a skill directory becomes a symlink under the skill root. Credentials such as headers are stored there in **plain text**.
+- **Some skill rows offer Adopt rather than Edit**: those are skills in user-level roots such as `~/.agents/skills` / `customSkillDirs`. The confirmation names the directory it currently lives in, and confirming links it into `~/.dsh/skills/` with the **content untouched**; rows that cannot be adopted show their source instead.
+
+What each form field means, how visible a global versus a project skill is, what a removal actually costs, and how `SKILL.md` is validated are all stated where you act on them — no need to repeat them here.
 
 ## Quick Install
 
