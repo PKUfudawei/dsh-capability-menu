@@ -38,11 +38,15 @@
 #   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
 #   `system-prompt/assemble` to Resident + meta tools only. The execution chain
 #   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
-#   via `meta_invoke`. Exposes `ctx.capabilityPolicy` with
-#   `classifyAll`/`getConfig`/`updateConfig` for the frontend 能力菜单 tab
-#   (Resident/On-demand/Disabled rules + click-to-cycle classification +
-#   read-only list), plus skill file browsing (`getDetail`/`listSkillDir`/
-#   `readSkillFile`) via the Typert gateway.
+#   via `meta_invoke`. Exposes `ctx.capabilityPolicy` to the 能力菜单 tab through
+#   the Typert gateway: the tier surface (`classifyAll`/`getConfig`/
+#   `updateConfig`), the registered-location surface (`listLocations`/`addLocation`/
+#   `updateLocation`/`removeLocation` and `listSkillLocations`/`addSkillLocation`/
+#   `updateSkillLocation`/`removeSkillLocation`/`adoptSkillLocation`), the
+#   read-only catalog docs (`getCatalogDocs`), a rebuild trigger (`refresh`), and
+#   skill browsing (`getDetail`/`listSkillDir`/`readSkillFile`). Tier clicks land
+#   in this entry's own `config` after `persistDebounceMs`; registered MCP servers
+#   land in `patchFile` and skill directories as links under `skillsDir`.
 #
 # Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`

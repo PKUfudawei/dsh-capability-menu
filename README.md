@@ -8,7 +8,7 @@
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=0969DA&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/dt/@daweifu/capability-menu.svg?style=flat-square&color=0969DA&labelColor=161b22" alt="downloads"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://img.shields.io/github/stars/PKUfudawei/dsh-capability-menu.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
-  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.2--rc.1-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.1.2-rc.1"/></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.5--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.1.5-rc.2"/></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://img.shields.io/badge/featured%20in-awesome--dsh--plugin-8250DF?style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="featured in awesome-dsh-plugin"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
 </p>
@@ -68,8 +68,8 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 - **注册能力**：点右上角「注册能力」按钮弹出注册表单，内含「MCP 服务器 / Skill 目录」两个子页签，**默认停在你当前所在的页签**（Tools → MCP，Skills → Skill）。弹窗里只放表单，不重复罗列已注册项——那些在列表里就有，且各带「编辑」入口。
   - **MCP 服务器**：注册即写入 patch 文件里的 `@deepseek-ai/dsh-mcp-client` 条目，**由 dsh 原生挂载**（插件不自己管连接）。与手写的声明式条目同文件、同一张表，无需重启 dsh（live profile 下改动热重载生效）。字段：`serverName`、传输方式（在 `dsh-mcp-client` 中为必填、无默认值，表单代为选定默认 `streamable-http`：该 MCP server 作为独立进程运行，客户端经 HTTP 端点连接，只需 URL；`stdio`：由客户端将该 server 作为本地子进程启动，需给出命令等启动信息）、stdio 的命令 / 参数 / 工作目录 / 环境变量、http 的 URL / **请求头**、超时（秒）。
     > **请求头**用于认证：每行 `Key: Value`，`Authorization: Bearer …` 等凭据填写于此。明文存入 `~/.dsh/cordis.patch.yml`（与手写条目一致）。
-  - **Skill 目录**：可选两种位置——**全局**（`~/.dsh/skills/`，所有会话可见）或**项目**（`<项目根>/.dsh/skills/`，只对 cwd 落在该项目内的会话可见）。选项目时只需填项目内**任意一个已存在的路径**，项目根按 dsh 的规则确定（从该路径向上找最近的 `.git`；一路没有 `.git` 时就用该路径本身），面板会回报实际写入的路径——所以不会出现「注册成功但 dsh 从不扫描那个目录」。两种情况都是建软链，与 dsh 原生的 skill 发现机制一致。注册时会按 dsh 加载器的口径校验 `SKILL.md`——frontmatter 必须能解析成 YAML 映射、含字符串 `name`（仅小写字母、数字与连字符，如 `my-skill`）与 `description`，且 `disable-model-invocation` / `user-invocable` 若出现必须是可读作布尔的值（`true`/`false`/`1`/`0`/`on`/`off`…）。不合格直接报错，不会出现「注册成功但 dsh 静默不加载」；废弃的旧字段名（`disableModelInvocation` 等）也会被指出并给出规范写法。技能名取自目录名；重命名须先移除、再重新注册。
-- **编辑**：Tools 页每个 MCP server 分组头右侧、Skills 页每个已注册技能行右侧都有「编辑」，点开预填当前配置，可改、可存、可移除。**移除前会先确认**，并说明这次移除的实际后果：MCP 即删除其 patch 行（配置与 headers 一并删除，`mcp__<serverName>__*` 工具随之失效）；Skill 分两种——软链仅删除 `~/.dsh/skills/` 下的链接、源目录不受影响，若该项是 skills 根下的**真实目录**（非软链），则连同文件递归删除、且不可恢复。**系统内置分组没有编辑按钮**——它不是真实 MCP 服务器，没有可编辑的条目；不在 `~/.dsh/skills/` 下注册的技能（项目技能、内置技能）同理。技能行**没有「编辑」时**只显示下面二者之一——能纳管的显示动作，不能纳管的显示它来自哪儿，不会同时出现（那等于把同一件事说两遍）。对 `~/.agents/skills` / `customSkillDirs` 这类**用户级根**里的技能提供「纳入管理」：点击先确认（会在 dsh 的技能根目录下建一条指向它的软链，**内容不动**，与现有条目的做法一致）。不能纳管的（随 dsh 预置、无文件系统目录的）显示来源：命名单一目录的显示该路径（如 `~/.agents/skills`），成类的显示「自定义技能目录」「随 dsh 预置」。项目技能条目同样带「编辑」（其所属根由条目自己带回，无需你重填路径）；**位置不可改**——把技能从一个根挪到另一个根等于「移除 + 重新注册」。MCP 的 `serverName` 编辑时**只读**：它构成工具名前缀 `mcp__<serverName>__<tool>`，并已被既有会话历史与权限规则引用，修改后这些记录将不再匹配。
+  - **Skill 目录**：可选两种位置——**全局**（`~/.dsh/skills/`，所有会话可见）或**项目**（`<项目根>/.dsh/skills/`，只对 cwd 落在该项目内的会话可见）。选项目时只需填项目内**任意一个已存在的路径**，项目根按 dsh 的规则确定（从该路径向上找最近的 `.git`；一路没有 `.git` 时就用该路径本身），面板会回报实际写入的路径——所以不会出现「注册成功但 dsh 从不扫描那个目录」。两种情况都是建软链，与 dsh 原生的 skill 发现机制一致。注册时会按 dsh 加载器的口径校验 `SKILL.md`——frontmatter 必须能解析成 YAML 映射、含字符串 `name`（仅小写字母、数字与连字符，如 `my-skill`）与 `description`，且 `disable-model-invocation` / `user-invocable` 若出现必须是可读作布尔的值（`true`/`false`/`1`/`0`/`on`/`off`…）。不合格直接报错，不会出现「注册成功但 dsh 静默不加载」；废弃的旧字段名（`disableModelInvocation` 等）也会被指出并给出规范写法。**技能名以 `SKILL.md` 里声明的为准**，目录名只决定注册时创建的软链名——两者不同也能注册，面板按声明名索引；想让两者一致，改名需先移除、再重新注册（改名要落盘到 `SKILL.md`，不是改软链名）。
+- **编辑**：Tools 页每个 MCP server 分组头右侧、Skills 页每个已注册技能行右侧都有「编辑」，点开预填当前配置，可改、可存、可移除。**移除前会先确认**，并说明这次移除的实际后果：MCP 即删除其 patch 行（配置与 headers 一并删除，`mcp__<serverName>__*` 工具随之失效）；Skill 分两种——软链仅删除 `~/.dsh/skills/` 下的链接、源目录不受影响，若该项是 skills 根下的**真实目录**（非软链），则连同文件递归删除、且不可恢复。**系统内置分组没有编辑按钮**——它不是真实 MCP 服务器，没有可编辑的条目；不在 `~/.dsh/skills/` 下注册的技能（项目技能、内置技能）同理。技能行**没有「编辑」时**只显示下面二者之一——能纳管的显示动作，不能纳管的显示它来自哪儿，不会同时出现（那等于把同一件事说两遍）。对 `~/.agents/skills` / `customSkillDirs` 这类**用户级根**里的技能提供「纳入管理」：点击先确认，确认框里写明该技能**当前所在的目录**（行内那个位置让给了按钮，弹窗才放得下）；确认后在 `~/.dsh/skills/` 下建一条指向它的软链，**内容不动**，与现有条目的做法一致。不能纳管的（随 dsh 预置、无文件系统目录的）显示来源：命名单一目录的显示该路径（如 `~/.agents/skills`），成类的显示「自定义技能目录」「随 dsh 预置」。项目技能条目同样带「编辑」（其所属根由条目自己带回，无需你重填路径）；**位置不可改**——把技能从一个根挪到另一个根等于「移除 + 重新注册」。MCP 的 `serverName` 编辑时**只读**：它构成工具名前缀 `mcp__<serverName>__<tool>`，并已被既有会话历史与权限规则引用，修改后这些记录将不再匹配。
 - **刷新**：点「刷新」按钮重建能力目录并重新拉取列表。注册来源后会自动刷新一次，通常不必手动点；手动刷新主要用于你在 dsh 之外改动了来源（手改 patch 文件、手动软链 skill 目录）之后。
 
 ## 快速安装
@@ -198,10 +198,10 @@ config:
 要点：
 - **精确规则优先于通配（跨档也成立）**：例如存在 `resident: ['mcp__gongfeng__*']` 时，在「能力菜单」把某工具点成按需会写入一条精确 `on-demand` 规则并生效，不会被通配压回；若仍被更高优先级规则覆盖，界面提示「分类未生效」。
 
-> **两类改动，持久化方式不同**：
+> **两类改动，落盘位置不同**：
 >
-> - **三档分类**只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是分类的持久化入口，无需额外的导入/导出按钮。
-> - **注册的来源**（MCP 服务器、Skill 目录）由插件直接落盘：MCP 写进 patch 文件、Skill 在 `~/.dsh/skills/` 建软链，重启后仍在。
+> - **三档分类**先只改内存（所以点击即时生效），停手约 1.5s 后自动写回 profile 的 `cordis.patch.yml` 里本插件 entry 的 `config`——写这个文件会让 dsh 热重载本插件并重跑一次能力枚举，所以不能每次点击都写。要在版本管理里批量声明规则，直接编辑同一个 entry 即可，无需额外的导入/导出按钮。
+> - **注册的来源**（MCP 服务器、Skill 目录）在点击当下就落盘：MCP 写进同一个 patch 文件（`@deepseek-ai/dsh-mcp-client` 条目），Skill 在技能根下建软链。
 
 ### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 
