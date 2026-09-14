@@ -1,7 +1,7 @@
 /**
  * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
  *
- * React section for the 能力管理 settings tab. Follows the real dsh client
+ * React section for the 能力菜单 settings tab. Follows the real dsh client
  * pattern (see `dsh-client-ui-settings-plugins`): two tabs (工具 / Skills)
  * under one heading, each listing capabilities with a clickable class chip.
  *
@@ -68,6 +68,9 @@ export type CapabilityKey =
   | 'previewClose'
   | 'detailNotFound'
   | 'cycleOverridden'
+  | 'refresh'
+  | 'refreshing'
+  | 'refreshFailed'
   | 'viewCatalog'
   | 'catalogPolicy'
   | 'catalogOnDemand'
@@ -255,6 +258,28 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     void reload()
   }, [reload])
 
+  const [refreshing, setRefreshing] = useState(false)
+
+  /**
+   * Rebuild the host catalog, then re-read the classification list. Used after
+   * registering a new source so the list reflects it without waiting for the
+   * scheduler's debounce window.
+   */
+  const refreshCatalog = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      if (remote !== undefined) unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
+      await reload()
+      setNotice(null)
+    } catch (e) {
+      console.error('[capability-menu] refresh failed:', e)
+      setNotice(t('refreshFailed'))
+    } finally {
+      setRefreshing(false)
+    }
+  }, [refreshing, remote, reload, t])
+
   const toggleServer = useCallback((server: string) => {
     setOpenServers(prev => {
       const next = new Set(prev)
@@ -330,6 +355,8 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         onTabChange={setActiveTab}
         onToggleServer={toggleServer}
         onCycle={cycleClass}
+        onRefresh={() => void refreshCatalog()}
+        refreshing={refreshing}
       />}
     </section>
   )
@@ -345,8 +372,10 @@ function ReadyBody(props: {
   onTabChange: (tab: 'tools' | 'skills') => void
   onToggleServer: (server: string) => void
   onCycle: (ids: readonly string[], kind: 'tool' | 'skill') => void
+  onRefresh: () => void
+  refreshing: boolean
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle } = props
+  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, refreshing } = props
   const { servers, skills } = groupRows(snapshot.rows)
   // Skills whose source root is inside the current project vs. everything else
   // (user/global dirs, bundled, custom, runtime); skills without a source label
@@ -439,6 +468,14 @@ function ReadyBody(props: {
             </span>
           ))}
           {/* 固定在最右侧：计数 chips 增减时按钮位置不漂移。 */}
+          <button
+            type="button"
+            className="mc-catalog-btn"
+            onClick={() => onRefresh()}
+            disabled={refreshing}
+          >
+            {refreshing ? t('refreshing') : t('refresh')}
+          </button>
           <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
             {t('viewCatalog')}
           </button>

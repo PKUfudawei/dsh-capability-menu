@@ -233,6 +233,17 @@ export interface Config {
    * emission. Disabled capabilities are never written.
    */
   catalogFile?: string
+  /**
+   * Debounce window (ms) applied to catalog rebuilds triggered by
+   * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
+   * events in bursts, and a rebuild's own registry access can emit further
+   * ones, so rebuilding once per event produced an unbounded CPU storm. The
+   * scheduler runs at most one rebuild at a time and coalesces a burst into a
+   * single follow-up after this window. Set to `0` to disable debouncing
+   * (every event still gets at most one coalesced rebuild, never a concurrent
+   * one). Default 200.
+   */
+  refreshDebounceMs?: number
 }
 
 /** Validate and default the registry configuration. */
@@ -244,6 +255,7 @@ export const Config: z<Config> = z.object({
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
   catalogFile: z.string(),
+  refreshDebounceMs: z.number().default(200),
 })
 
 function assertPositiveInteger(name: string, value: number, min: number): void {
@@ -319,8 +331,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
   const catalogFile = (config.catalogFile ?? join(homedir(), '.dsh', 'capability-catalog.yaml')).trim()
+  const refreshDebounceMs = config.refreshDebounceMs ?? 200
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
+  assertPositiveInteger('refreshDebounceMs', refreshDebounceMs, 0)
   assertWeight('weighting', weighting)
 
   /** Tool records keyed by tool name (MCP tools plus native tools under `built-in`); skills keyed by bare skill name. */
@@ -562,17 +576,100 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  /** Refresh the whole catalog: tools and skills, then re-emit the YAML. */
+  // --- Refresh scheduling --------------------------------------------------
+  // Change events (`tools/change` / `skills/change`) arrive in bursts: the
+  // skill/preset lifecycle invalidates caches and re-registers providers in
+  // quick succession, and a rebuild's own registry access can emit further
+  // change events. Rebuilding once per event produced an unbounded CPU storm
+  // (a full preset re-scan per event), so the scheduler:
+  //   1. runs at most one rebuild at a time (single flight);
+  //   2. coalesces every event landing during a run into at most one
+  //      debounced follow-up rebuild;
+  //   3. lets an explicit `refresh()` await the rebuild chain covering its own
+  //      call, so callers never observe a stale (or empty) catalog.
+  // The epoch guards inside `rebuildTools`/`refreshSkills` stay as the last
+  // line of defence for concurrent correctness.
+  /** Monotonic count of rebuild requests received (events + explicit calls). */
+  let eventSeq = 0
+  /** The `eventSeq` value fully applied by the last completed rebuild. */
+  let appliedSeq = 0
+  let rebuilding = false
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const waiters: Array<{ seq: number; resolve: () => void }> = []
+
+  /** Resolve every waiter whose snapshot is already covered by `appliedSeq`. */
+  const settleWaiters = (): void => {
+    if (waiters.length === 0) return
+    const ready = waiters.filter(waiter => waiter.seq <= appliedSeq)
+    if (ready.length === 0) return
+    for (const waiter of ready) waiters.splice(waiters.indexOf(waiter), 1)
+    for (const waiter of ready) waiter.resolve()
+  }
+
+  /** Queue a coalesced rebuild after the debounce window. */
+  const schedule = (): void => {
+    if (stopped || rebuilding || timer !== undefined) return
+    timer = setTimeout(() => {
+      timer = undefined
+      if (stopped || rebuilding) return
+      void runRebuild()
+    }, refreshDebounceMs)
+  }
+
+  /** One full rebuild; never rejects (a failed run must not hang waiters). */
+  const runRebuild = async (): Promise<void> => {
+    rebuilding = true
+    // Every request received so far is covered by this run.
+    const seqAtStart = eventSeq
+    try {
+      await rebuildTools()
+      await refreshSkills()
+      await writeCatalog()
+    } catch (error) {
+      ctx.logger.warn(`capability-registry: catalog rebuild failed: ${String(error)}`)
+    } finally {
+      rebuilding = false
+      if (seqAtStart > appliedSeq) appliedSeq = seqAtStart
+      settleWaiters()
+      // Requests that landed mid-run are not covered yet: one follow-up.
+      if (!stopped && eventSeq > appliedSeq) schedule()
+    }
+  }
+
+  /** Start a rebuild immediately, skipping the debounce window. */
+  const runNow = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    if (!stopped && !rebuilding) void runRebuild()
+  }
+
+  /**
+   * Refresh the whole catalog, resolving once the rebuild chain covering this
+   * call has converged (including any coalesced follow-up).
+   */
   const refresh = async (): Promise<void> => {
-    await rebuildTools()
-    await refreshSkills()
-    await writeCatalog()
+    if (stopped) return
+    const seq = ++eventSeq
+    runNow()
+    if (seq <= appliedSeq) return
+    await new Promise<void>(resolve => {
+      waiters.push({ seq, resolve })
+    })
   }
 
   /** Register once; also subscribe to change events. */
   const disposers: Array<() => void> = []
-  disposers.push(ctx.on('tools/change', () => void refresh()))
-  disposers.push(ctx.on('skills/change', () => void refresh()))
+  disposers.push(ctx.on('tools/change', () => {
+    eventSeq++
+    schedule()
+  }))
+  disposers.push(ctx.on('skills/change', () => {
+    eventSeq++
+    schedule()
+  }))
   // Index the global tool view eagerly (the synchronous part of
   // `rebuildTools`); preset standing scopes and skills are enumerated by the
   // first explicit `refresh()` (policy mounts it before the surface is used)
@@ -581,6 +678,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   void rebuildTools()
   void refreshSkills()
   ctx.effect(() => () => {
+    stopped = true
+    if (timer !== undefined) clearTimeout(timer)
+    // Unblock any in-flight `refresh()`: the plugin is going away and no
+    // further rebuild will run.
+    for (const waiter of waiters.splice(0)) waiter.resolve()
     for (const dispose of disposers) dispose()
   })
 

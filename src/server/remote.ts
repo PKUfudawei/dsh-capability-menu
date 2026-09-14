@@ -40,7 +40,7 @@ export interface CatalogDocs {
 }
 
 /**
- * Host-side remote face for the 能力管理 tab. Every method delegates to the
+ * Host-side remote face for the 能力菜单 tab. Every method delegates to the
  * policy service installed by `@daweifu/capability-menu/policy`; the registry
  * sibling (`capability`) must be mounted for `classifyAll` to return anything.
  *
@@ -73,6 +73,17 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('classifyAll')
   classifyAll(): CapabilityClassification[] {
     return [...this.ctx.capabilityPolicy.classifyAll()]
+  }
+
+  /**
+   * Rebuild the capability catalog now and resolve once it has converged.
+   * The UI calls this after registering a new source (an MCP server or a
+   * skill directory) so the list reflects it without waiting for the
+   * scheduler's debounce window.
+   */
+  @Remote('refresh')
+  async refresh(): Promise<void> {
+    await this.ctx.capability.refresh()
   }
 
   /** Resolve one capability's full detail (schema, description; skill body optional). */
@@ -149,7 +160,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     if (disabledSkills.length > 0) skills.disabled = disabledSkills
 
     const policyYaml = [
-      '# 能力管理 · 当前生效策略（只读；持久化入口：cordis.patch.yml）',
+      '# 能力菜单 · 当前生效策略（只读；持久化入口：cordis.patch.yml）',
       '# 语义：默认全部能力常驻；下方 on-demand / disabled 为按 server → 工具名分级的例外。',
       `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'disabled')}；` +
         `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'disabled')}`,

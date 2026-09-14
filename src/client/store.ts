@@ -1,7 +1,7 @@
 /**
  * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
  *
- * Types + small helpers for the 能力管理 (Capability Management) settings
+ * Types + small helpers for the 能力菜单 (Capability Management) settings
  * section. The component reads/writes the Host `ctx.capabilityPolicy` through
  * the generated `remote.capabilityPolicy` face (see `./remote.ts`), mirroring
  * how `dsh-client-ui-settings-plugin-inventory` consumes
@@ -34,6 +34,7 @@ export interface CapabilityPolicyRemote {
   getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
   updateConfig(partial: Record<string, unknown>): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   classifyAll(): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>
+  refresh(): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>

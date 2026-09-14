@@ -11,6 +11,11 @@ import yaml from 'js-yaml'
 
 const testSignal = new AbortController().signal
 
+/** Sleep long enough for a debounce window plus a rebuild to elapse. */
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 /** Minimal agent stub used by scope-sensitive lookups. */
 function agentStub(name: string) {
   return {
@@ -269,24 +274,32 @@ describe('meta-registry', () => {
     expect(builtIn.map(summary => summary.id)).toContain('bash')
   })
 
-  it('keeps the catalog complete when refreshes overlap', async () => {
+  it('keeps the catalog complete and serialises overlapping refreshes', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     await writeSkill(`${home}/.agents/skills`, 'overlap-skill', 'A skill indexed while refreshes overlap', 'Body.')
-    const ctx = await setup(home)
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     const bash = registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
 
-    // Gate the first preset enumeration so that refresh suspends mid-flight and
-    // a second refresh starts (and finishes) before it resumes — the overlap
-    // the tool/skill epoch guards exist for.
+    // Gate the first preset enumeration so the initial refresh suspends
+    // mid-flight and a second refresh is requested before it resumes — the
+    // overlap the epoch guards exist for.
     let release: (() => void) | undefined
     const gate = new Promise<void>(resolve => { release = resolve })
     let listCalls = 0
+    let inFlight = 0
+    let maxInFlight = 0
     ctx.provide('agentPresets', {
       async list(): Promise<Array<{ id: string; broken?: string }>> {
         listCalls += 1
-        if (listCalls === 1) await gate
-        return [{ id: 'coding-plus' }]
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        try {
+          if (listCalls === 1) await gate
+          return [{ id: 'coding-plus' }]
+        } finally {
+          inFlight -= 1
+        }
       },
       async standingKeyFor(id?: string): Promise<unknown> {
         return { agentPreset: id }
@@ -295,14 +308,105 @@ describe('meta-registry', () => {
 
     const first = ctx.capability.refresh()
     const second = ctx.capability.refresh()
-    await second
     release?.()
-    await first
+    await Promise.all([first, second])
 
     const ids = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => summary.id)
     expect(ids).toContain(issue)
     expect(ids).toContain(bash)
     expect(ids).toContain('overlap-skill')
+    // Single flight: preset enumeration never ran twice concurrently.
+    expect(maxInFlight).toBe(1)
+  })
+
+  it('coalesces a burst of change events into a single rebuild', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    // Settle the baseline first: the eager mount-time prime also enumerates.
+    await ctx.capability.refresh()
+    listCalls = 0
+
+    // 20 events in one burst; each rebuild enumerates presets twice (a tools
+    // pass and a skills pass), so one rebuild == two calls.
+    for (let i = 0; i < 20; i++) ctx.emit('tools/change')
+    await wait(80)
+    expect(listCalls).toBe(2)
+  })
+
+  it('coalesces events landing mid-run into a single follow-up rebuild', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+
+    let armed = false
+    let entered: (() => void) | undefined
+    const enteredGate = new Promise<void>(resolve => { entered = resolve })
+    let releaseRun: (() => void) | undefined
+    const runGate = new Promise<void>(resolve => { releaseRun = resolve })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        if (armed) {
+          armed = false
+          entered?.()
+          await runGate
+        }
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    await ctx.capability.refresh()
+    listCalls = 0
+
+    // Start a run that suspends inside the first preset enumeration...
+    armed = true
+    const run = ctx.capability.refresh()
+    await enteredGate
+    // ...then 10 events land while it is in flight.
+    for (let i = 0; i < 10; i++) ctx.emit('tools/change')
+    releaseRun?.()
+    await run
+    await wait(80)
+
+    // The suspended run (2 calls) plus exactly ONE coalesced follow-up (2).
+    expect(listCalls).toBe(4)
+  })
+
+  it('stops scheduling after teardown', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    await ctx.capability.refresh()
+
+    ctx.registry.delete(registry)
+    listCalls = 0
+    ctx.emit('tools/change')
+    ctx.emit('skills/change')
+    await wait(80)
+
+    // Teardown cancelled the scheduler: no rebuild ran after disposal.
+    expect(listCalls).toBe(0)
   })
 
   it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {

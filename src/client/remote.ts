@@ -120,6 +120,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>
+    refresh: () => Promise<RemoteResult<void>>
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
@@ -129,6 +130,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>
+    'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
@@ -173,6 +175,16 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#CapabilityRow', schema: z.array(capabilityRow$schema) },
       sourceLocation: { file: 'src/server/remote.ts', line: 73, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/refresh',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'refresh',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: { mode: 'strict', typeSymbol: 'void', schema: z.undefined() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 84, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/listSkillDir',
