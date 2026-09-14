@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
 import { type CapabilityKind } from './registry.ts';
+import { type McpInput, type McpLocation, type SkillLocation } from './locations.ts';
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
@@ -75,6 +76,15 @@ export interface Config {
      * On-demand or Disabled. Default `[meta_search, meta_invoke]`.
      */
     metaTools?: string[];
+    /**
+     * Patch file holding the MCP server rows the 能力菜单 UI manages. Defaults
+     * to the home-level layer (`~/.dsh/cordis.patch.yml`) — the same file as any
+     * hand-written `@deepseek-ai/dsh-mcp-client` rows, so both are managed in one
+     * place. dsh owns the mounting; this plugin only edits the file.
+     */
+    patchFile?: string;
+    /** Skill root that UI skill registration links into. Defaults to `~/.dsh/skills`. */
+    skillsDir?: string;
 }
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;
@@ -186,6 +196,20 @@ export interface CapabilityPolicyService {
      * registry sibling). Returns an empty array when the registry is not mounted.
      */
     classifyAll(): readonly CapabilityClassification[];
+    /** MCP servers declared in the patch file, in file order. */
+    listLocations(): Promise<McpLocation[]>;
+    /** Declare a new MCP server. Rejects a duplicate `serverName`. */
+    addLocation(input: McpInput): Promise<string>;
+    /** Remove a declared MCP server. */
+    removeLocation(id: string): Promise<boolean>;
+    /** Enable or disable a declared MCP server. */
+    setLocationEnabled(id: string, enabled: boolean): Promise<boolean>;
+    /** Skill directories registered under the default skill root. */
+    listSkillLocations(): Promise<SkillLocation[]>;
+    /** Register a skill directory by linking it into the default skill root. */
+    addSkillLocation(dir: string): Promise<string>;
+    /** Unregister a skill directory. */
+    removeSkillLocation(name: string): Promise<boolean>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

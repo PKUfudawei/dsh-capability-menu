@@ -214,6 +214,17 @@ export interface Config {
      * emission. Disabled capabilities are never written.
      */
     catalogFile?: string;
+    /**
+     * Debounce window (ms) applied to catalog rebuilds triggered by
+     * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
+     * events in bursts, and a rebuild's own registry access can emit further
+     * ones, so rebuilding once per event produced an unbounded CPU storm. The
+     * scheduler runs at most one rebuild at a time and coalesces a burst into a
+     * single follow-up after this window. Set to `0` to disable debouncing
+     * (every event still gets at most one coalesced rebuild, never a concurrent
+     * one). Default 200.
+     */
+    refreshDebounceMs?: number;
 }
 /** Validate and default the registry configuration. */
 export declare const Config: z<Config>;

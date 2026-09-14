@@ -65,6 +65,63 @@ export interface ToolDetail {
   }
 }
 
+/** One MCP server declared in the patch file. */
+export interface McpLocation {
+  readonly id: string
+  readonly serverName: string
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly disabled: boolean
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly url?: string
+}
+
+/** One skill directory registered under the default skill root. */
+export interface SkillLocation {
+  readonly name: string
+  readonly path: string
+  readonly linked: boolean
+  readonly valid: boolean
+}
+
+/** Input for registering a new MCP server. */
+export interface McpInput {
+  readonly serverName: string
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+const mcpLocation$schema = z.object({
+  id: z.string().readonly(),
+  serverName: z.string().readonly(),
+  transport: z.union([z.literal('stdio'), z.literal('streamable-http')]).readonly(),
+  disabled: z.boolean().readonly(),
+  command: z.string().optional().readonly(),
+  args: z.array(z.string()).optional().readonly(),
+  url: z.string().optional().readonly(),
+})
+
+const skillLocation$schema = z.object({
+  name: z.string().readonly(),
+  path: z.string().readonly(),
+  linked: z.boolean().readonly(),
+  valid: z.boolean().readonly(),
+})
+
+const mcpInput$schema = z.object({
+  serverName: z.string(),
+  transport: z.union([z.literal('stdio'), z.literal('streamable-http')]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+})
+
 const capabilityRow$schema = z.object({
   id: z.string().readonly(),
   kind: z.union([z.literal('tool'), z.literal('skill')]).readonly(),
@@ -125,6 +182,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
     getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>
+    listLocations: () => Promise<RemoteResult<McpLocation[]>>
+    addLocation: (input: McpInput) => Promise<RemoteResult<string>>
+    removeLocation: (id: string) => Promise<RemoteResult<boolean>>
+    setLocationEnabled: (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>
+    listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>
+    addSkillLocation: (dir: string) => Promise<RemoteResult<string>>
+    removeSkillLocation: (name: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteMap {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
@@ -135,6 +199,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
     'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>
+    'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>
+    'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>
+    'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/setLocationEnabled': (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>
+    'capabilityPolicy/addSkillLocation': (dir: string) => Promise<RemoteResult<string>>
+    'capabilityPolicy/removeSkillLocation': (name: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379
@@ -233,6 +304,87 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#CatalogDocs', schema: catalogDocs$schema },
       sourceLocation: { file: 'src/server/remote.ts', line: 104, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/listLocations',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'listLocations',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#McpLocation[]', schema: z.array(mcpLocation$schema) },
+      sourceLocation: { file: 'src/server/remote.ts', line: 193, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/addLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'addLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'input', wire: 'input', source: 'json', codec: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#McpInput', schema: mcpInput$schema } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'string', schema: z.string() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 199, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/removeLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'removeLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 205, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/setLocationEnabled',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'setLocationEnabled',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'enabled', wire: 'enabled', source: 'json', codec: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 211, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/listSkillLocations',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'listSkillLocations',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#SkillLocation[]', schema: z.array(skillLocation$schema) },
+      sourceLocation: { file: 'src/server/remote.ts', line: 217, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/addSkillLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'addSkillLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'dir', wire: 'dir', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'string', schema: z.string() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 223, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/removeSkillLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'removeSkillLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 229, column: 3 },
     },
   ],
 }

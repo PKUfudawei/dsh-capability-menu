@@ -10,6 +10,7 @@ import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
+import { LocationRegistry, defaultLocationConfig, type McpInput, type McpLocation, type SkillLocation } from './locations.ts'
 
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
@@ -81,6 +82,15 @@ export interface Config {
    * On-demand or Disabled. Default `[meta_search, meta_invoke]`.
    */
   metaTools?: string[]
+  /**
+   * Patch file holding the MCP server rows the 能力菜单 UI manages. Defaults
+   * to the home-level layer (`~/.dsh/cordis.patch.yml`) — the same file as any
+   * hand-written `@deepseek-ai/dsh-mcp-client` rows, so both are managed in one
+   * place. dsh owns the mounting; this plugin only edits the file.
+   */
+  patchFile?: string
+  /** Skill root that UI skill registration links into. Defaults to `~/.dsh/skills`. */
+  skillsDir?: string
 }
 
 /** Validate and default the policy configuration. */
@@ -105,6 +115,8 @@ export const Config: z<Config> = z.object({
   }),
   metaTools: z.array(z.string()).default(['meta_search', 'meta_invoke']),
   // schemastery object properties are optional-by-default; no `.optional()` needed.
+  patchFile: z.string(),
+  skillsDir: z.string(),
 })
 
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
@@ -322,6 +334,22 @@ export interface CapabilityPolicyService {
    * registry sibling). Returns an empty array when the registry is not mounted.
    */
   classifyAll(): readonly CapabilityClassification[]
+
+  // — location registry (能力菜单 · 已登记位置) —
+  /** MCP servers declared in the patch file, in file order. */
+  listLocations(): Promise<McpLocation[]>
+  /** Declare a new MCP server. Rejects a duplicate `serverName`. */
+  addLocation(input: McpInput): Promise<string>
+  /** Remove a declared MCP server. */
+  removeLocation(id: string): Promise<boolean>
+  /** Enable or disable a declared MCP server. */
+  setLocationEnabled(id: string, enabled: boolean): Promise<boolean>
+  /** Skill directories registered under the default skill root. */
+  listSkillLocations(): Promise<SkillLocation[]>
+  /** Register a skill directory by linking it into the default skill root. */
+  addSkillLocation(dir: string): Promise<string>
+  /** Unregister a skill directory. */
+  removeSkillLocation(name: string): Promise<boolean>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -371,6 +399,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   let metaToolSet = new Set<string>(metaTools)
   let toolCompiled: CompiledCapabilityRules
   let skillCompiled: CompiledCapabilityRules
+
+  // Location registry: the places capabilities come from. Editing the patch
+  // file makes dsh hot-reload and mount/unmount the server itself, so this
+  // plugin never imports or drives `dsh-mcp-client` directly.
+  const defaults = defaultLocationConfig()
+  const locations = new LocationRegistry(ctx, {
+    patchFile: (config.patchFile ?? defaults.patchFile).trim(),
+    skillsDir: (config.skillsDir ?? defaults.skillsDir).trim(),
+  })
 
   /**
    * Compile a candidate config into rule sets without touching live state.
@@ -489,6 +526,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           mandatory,
         }
       })
+    },
+
+    // — location registry —
+    listLocations(): Promise<McpLocation[]> {
+      return locations.listMcp()
+    },
+    addLocation(input: McpInput): Promise<string> {
+      return locations.addMcp(input)
+    },
+    removeLocation(id: string): Promise<boolean> {
+      return locations.removeMcp(id)
+    },
+    setLocationEnabled(id: string, enabled: boolean): Promise<boolean> {
+      return locations.setMcpEnabled(id, enabled)
+    },
+    listSkillLocations(): Promise<SkillLocation[]> {
+      return locations.listSkills()
+    },
+    addSkillLocation(dir: string): Promise<string> {
+      return locations.addSkill(dir)
+    },
+    removeSkillLocation(name: string): Promise<boolean> {
+      return locations.removeSkill(name)
     },
   }
 

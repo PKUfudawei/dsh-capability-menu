@@ -18,6 +18,7 @@ import type {
 } from '../policy.ts'
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
 import { BUILT_IN_SERVER } from '../registry.ts'
+import type { McpInput, McpLocation, SkillLocation } from '../locations.ts'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -181,6 +182,53 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
       this.ctx.logger.warn(`capability-menu-remote: on-demand catalog read failed (${catalogPath}): ${String(error)}`)
       return { policyYaml, catalogMissing: 'read-failed' }
     }
+  }
+
+  // — 已登记位置（MCP 服务器 / Skill 目录）—
+  //
+  // Every mutation edits the patch file and lets dsh hot-reload mount or
+  // unmount the source. The gateway never mounts anything itself.
+
+  /** MCP servers declared in the patch file. */
+  @Remote('listLocations')
+  async listLocations(): Promise<McpLocation[]> {
+    return this.ctx.capabilityPolicy.listLocations()
+  }
+
+  /** Declare a new MCP server. */
+  @Remote('addLocation')
+  async addLocation(input: McpInput): Promise<string> {
+    return this.ctx.capabilityPolicy.addLocation(input)
+  }
+
+  /** Remove a declared MCP server. */
+  @Remote('removeLocation')
+  async removeLocation(id: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.removeLocation(id)
+  }
+
+  /** Enable or disable a declared MCP server. */
+  @Remote('setLocationEnabled')
+  async setLocationEnabled(id: string, enabled: boolean): Promise<boolean> {
+    return this.ctx.capabilityPolicy.setLocationEnabled(id, enabled)
+  }
+
+  /** Skill directories registered under the default skill root. */
+  @Remote('listSkillLocations')
+  async listSkillLocations(): Promise<SkillLocation[]> {
+    return this.ctx.capabilityPolicy.listSkillLocations()
+  }
+
+  /** Register a skill directory by linking it into the default skill root. */
+  @Remote('addSkillLocation')
+  async addSkillLocation(dir: string): Promise<string> {
+    return this.ctx.capabilityPolicy.addSkillLocation(dir)
+  }
+
+  /** Unregister a skill directory. */
+  @Remote('removeSkillLocation')
+  async removeSkillLocation(name: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.removeSkillLocation(name)
   }
 }
 

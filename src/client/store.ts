@@ -16,12 +16,18 @@ export type {
   CatalogDocs,
   SkillFileEntry,
   ToolDetail,
+  McpLocation,
+  McpInput,
+  SkillLocation,
 } from './remote.ts'
 import type {
   CapabilityRow,
   CatalogDocs,
   SkillFileEntry,
   ToolDetail,
+  McpLocation,
+  McpInput,
+  SkillLocation,
 } from './remote.ts'
 
 /** Snapshot of the management surface. */
@@ -39,6 +45,13 @@ export interface CapabilityPolicyRemote {
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
   getCatalogDocs(): Promise<{ ok: true; value: CatalogDocs } | { ok: false; error: { code: string; message: string } }>
+  listLocations(): Promise<{ ok: true; value: McpLocation[] } | { ok: false; error: { code: string; message: string } }>
+  addLocation(input: McpInput): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
+  removeLocation(id: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  setLocationEnabled(id: string, enabled: boolean): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  listSkillLocations(): Promise<{ ok: true; value: SkillLocation[] } | { ok: false; error: { code: string; message: string } }>
+  addSkillLocation(dir: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
+  removeSkillLocation(name: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */

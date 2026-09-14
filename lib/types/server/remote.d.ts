@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts';
+import type { McpInput, McpLocation, SkillLocation } from '../locations.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         capabilityPolicy: CapabilityPolicyService;
@@ -30,7 +31,7 @@ export interface CatalogDocs {
     readonly catalogMissing?: 'disabled' | 'read-failed';
 }
 /**
- * Host-side remote face for the 能力管理 tab. Every method delegates to the
+ * Host-side remote face for the 能力菜单 tab. Every method delegates to the
  * policy service installed by `@daweifu/capability-menu/policy`; the registry
  * sibling (`capability`) must be mounted for `classifyAll` to return anything.
  *
@@ -49,6 +50,13 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     updateConfig(partial: Partial<CapabilityPolicyConfig>): Promise<void>;
     /** Classify every capability currently indexed by `ctx.capability`. */
     classifyAll(): CapabilityClassification[];
+    /**
+     * Rebuild the capability catalog now and resolve once it has converged.
+     * The UI calls this after registering a new source (an MCP server or a
+     * skill directory) so the list reflects it without waiting for the
+     * scheduler's debounce window.
+     */
+    refresh(): Promise<void>;
     /** Resolve one capability's full detail (schema, description; skill body optional). */
     getDetail(id: string): Promise<CapabilityDetail | undefined>;
     /** List a skill's directory children (one level deep; optional subpath). */
@@ -64,6 +72,20 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      * 两者都是只读视图——策略持久化入口仍是 cordis.patch.yml。
      */
     getCatalogDocs(): Promise<CatalogDocs>;
+    /** MCP servers declared in the patch file. */
+    listLocations(): Promise<McpLocation[]>;
+    /** Declare a new MCP server. */
+    addLocation(input: McpInput): Promise<string>;
+    /** Remove a declared MCP server. */
+    removeLocation(id: string): Promise<boolean>;
+    /** Enable or disable a declared MCP server. */
+    setLocationEnabled(id: string, enabled: boolean): Promise<boolean>;
+    /** Skill directories registered under the default skill root. */
+    listSkillLocations(): Promise<SkillLocation[]>;
+    /** Register a skill directory by linking it into the default skill root. */
+    addSkillLocation(dir: string): Promise<string>;
+    /** Unregister a skill directory. */
+    removeSkillLocation(name: string): Promise<boolean>;
 }
 /** Register the remote gateway on a context. */
 export declare const name = "capability-menu-remote";

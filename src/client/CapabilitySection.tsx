@@ -23,6 +23,7 @@ import type { KeyboardEvent } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, CatalogDocs, SkillFileEntry, ToolDetail } from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
+import { LocationsPanel } from './LocationsPanel.tsx'
 import { BUILT_IN_SERVER } from '../constants.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
@@ -71,6 +72,25 @@ export type CapabilityKey =
   | 'refresh'
   | 'refreshing'
   | 'refreshFailed'
+  | 'locations'
+  | 'mcpServers'
+  | 'emptyMcp'
+  | 'serverName'
+  | 'transport'
+  | 'command'
+  | 'args'
+  | 'url'
+  | 'add'
+  | 'cancel'
+  | 'addMcp'
+  | 'skillDirs'
+  | 'emptySkillDirs'
+  | 'noManifest'
+  | 'skillDirPath'
+  | 'addSkill'
+  | 'remove'
+  | 'enable'
+  | 'disable'
   | 'viewCatalog'
   | 'catalogPolicy'
   | 'catalogOnDemand'
@@ -661,6 +681,9 @@ function ReadyBody(props: {
           </div>
         </div>
       )}
+
+      {/* 已登记位置：MCP 服务器与 Skill 目录的增删改。 */}
+      <LocationsPanel remote={remote} t={t} onChanged={onRefresh} />
 
       {catalogDocs !== null && (
         <div className="mc-preview-mask" onClick={() => setCatalogDocs(null)}>
