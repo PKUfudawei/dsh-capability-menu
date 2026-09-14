@@ -500,7 +500,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...typeof skill.source === 'string' ? { source: skill.source } : {},
         },
         parameters: { type: 'object', properties: {}, additionalProperties: false },
-        invocation: { modelInvocable: true, userInvocable: skill.invocation.userInvocable },
+        invocation: { modelInvocable: skill.invocation.modelInvocable, userInvocable: skill.invocation.userInvocable },
         tags: [skill.provider, 'skill'],
         stats,
         summary: toSummary(skill.description, summaryMaxChars),

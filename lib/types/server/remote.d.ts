@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts';
-import type { McpInput, McpLocation, SkillLocation } from '../locations.ts';
+import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         capabilityPolicy: CapabilityPolicyService;
@@ -78,14 +78,16 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     addLocation(input: McpInput): Promise<string>;
     /** Remove a declared MCP server. */
     removeLocation(id: string): Promise<boolean>;
-    /** Enable or disable a declared MCP server. */
-    setLocationEnabled(id: string, enabled: boolean): Promise<boolean>;
+    /** Replace a declared MCP server's connection config. */
+    updateLocation(id: string, input: McpUpdateInput): Promise<boolean>;
     /** Skill directories registered under the default skill root. */
     listSkillLocations(): Promise<SkillLocation[]>;
     /** Register a skill directory by linking it into the default skill root. */
     addSkillLocation(dir: string): Promise<string>;
     /** Unregister a skill directory. */
     removeSkillLocation(name: string): Promise<boolean>;
+    /** Repoint a registered skill at a different directory. */
+    updateSkillLocation(name: string, dir: string): Promise<boolean>;
 }
 /** Register the remote gateway on a context. */
 export declare const name = "capability-menu-remote";

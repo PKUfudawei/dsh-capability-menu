@@ -31,7 +31,9 @@ async function setup(home: string, config: toolMetaSearch.Config = {}, registryC
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  await ctx.plugin(registry, registryConfig)
+  // Disable on-demand catalog emission by default so tests never write the
+  // real ~/.dsh; callers override via registryConfig when they test it.
+  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
   await ctx.plugin(toolMetaSearch, config)
   return ctx
 }
@@ -169,7 +171,7 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaSearch, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -195,7 +197,7 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__blocked_issue'] } })
     await ctx.plugin(toolMetaSearch, {})
     // Registered first, so it ranks first for the shared keyword — and used to
@@ -222,7 +224,7 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, {})
+    await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, { skills: { disabled: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaSearch, {})
     await ctx.capability.refresh()

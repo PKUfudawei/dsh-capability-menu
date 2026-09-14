@@ -55,20 +55,22 @@ The model gets two meta tools:
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="48%"/>
 </p>
 <p align="center">
-  <img src="assets/screenshot-policy.png" alt="View capability catalog · Policy (effective)" width="48%"/>
-  <img src="assets/screenshot-catalog.png" alt="View capability catalog · On-demand catalog" width="48%"/>
+  <img src="assets/screenshot-policy.png" alt="Policy &amp; catalog · Policy (effective)" width="48%"/>
+  <img src="assets/screenshot-catalog.png" alt="Policy &amp; catalog · On-demand catalog" width="48%"/>
 </p>
 
 Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It lets you visualize and adjust the exposure policy; changes apply immediately, no restart needed:
 
-- **Tools / Skills tabs**: the top tab bar shows `Tools` and `Skills`; its right side holds the per-class counts and the "View capability catalog" button. The Tools tab groups every tool by server (collapsible). MCP tools hang under their own server (`gongfeng`/`km`…); harness-native tools from the agent presets (`bash`/`read`/`write`/`glob`/`grep`…) hang under the reserved "System built-in" group (server key `built-in`). Click a row to view the model-facing tool definition — name / description / parameters.
+- **Tools / Skills tabs**: the top tab bar shows `Tools` and `Skills`; its right side holds the per-class counts, Refresh, and Register capability. The read-only "Policy &amp; catalog" entry sits on the description row in the page header. The Tools tab groups every tool by server (collapsible). MCP tools hang under their own server (`gongfeng`/`km`…); harness-native tools from the agent presets (`bash`/`read`/`write`/`glob`/`grep`…) hang under the reserved "System built-in" group (server key `built-in`). Click a row to view the model-facing tool definition — name / description / parameters.
 - **Skills tab**: split into "Global skills" / "Project skills" sub-tabs (both always visible; the empty side shows an empty-state hint), and the per-class counts at the top follow the active sub-tab. Click a skill row to expand its directory tree; click a file to preview its content (e.g. the SKILL.md).
 - **Three-state dot & click-to-cycle**: every capability carries a classification dot — solid = Resident, top-half-filled ring = On-demand, ring with a slash (no-entry sign) = Disabled — with per-class counts at the top of the pane; click a capability's dot or a class count to cycle its classification (built-in tools are manageable exactly like MCP tools), and if a higher-priority rule (e.g. a wildcard) overrides it, the UI reports that the classification did not apply.
-- **View capability catalog**: the top-right button opens a read-only modal with the effective policy in a semantic view — every capability defaults to Resident, so `tools.resident` lists each server as `'*'`, exceptions appear only under `on-demand`/`disabled` grouped by server → tool name (skills have no server dimension, so `skills.resident` is just `'*'`) — plus the materialized On-demand catalog file (`catalogFile`) path and content. Persistence remains via the profile's `cordis.patch.yml`.
-- **Refresh**: the top-right Refresh button rebuilds the capability catalog and re-pulls the list. Registering a location triggers this automatically, so you rarely need it by hand; use it after changing a source outside dsh (editing the patch file by hand, symlinking a skill directory yourself).
-- **Registered locations**: the bottom panel lists capability sources and lets you add, change and remove them:
-  - **MCP servers**: registering one writes an `@deepseek-ai/dsh-mcp-client` row into the patch file and lets **dsh mount it natively** (the plugin does not manage connections itself). Hand-written declarative rows live in the same file and the same table, so all of them can be enabled, disabled and removed alike — no dsh restart needed (a live profile hot-reloads the change).
-  - **Skill directories**: registering one creates a symlink under `~/.dsh/skills/`, exactly matching dsh's own skill discovery — zero configuration, effective immediately.
+- **Policy &amp; catalog**: the button on the page header's description row opens a read-only modal with the effective policy in a semantic view — every capability defaults to Resident, so `tools.resident` lists each server as `'*'`, exceptions appear only under `on-demand`/`disabled` grouped by server → tool name (skills have no server dimension, so `skills.resident` is just `'*'`) — plus the materialized On-demand catalog file (`catalogFile`) path and content. Persistence remains via the profile's `cordis.patch.yml`.
+- **Register capability**: the top-right button opens a registration form with two sub-tabs — MCP servers and skill directories — and opens on the sub-tab matching the main tab you are on (Tools → MCP, Skills → Skill). The modal holds only the form: what is already registered is visible in the list itself, each entry carrying its own Edit button.
+  - **MCP servers**: registering one writes an `@deepseek-ai/dsh-mcp-client` row into the patch file and lets **dsh mount it natively** (the plugin does not manage connections itself). Hand-written declarative rows live in the same file and the same table; no dsh restart needed (a live profile hot-reloads the change). Fields: `serverName`, transport (`stdio` / `streamable-http`), stdio command / args / working directory / environment, http URL / **headers**, timeout (seconds).
+    > **Headers** are the important ones: `Authorization: Bearer …` and friends go here, one `Key: Value` per line. They are stored in plain text in `~/.dsh/cordis.patch.yml`, exactly as hand-written rows are.
+  - **Skill directories**: registering one creates a symlink under `~/.dsh/skills/`, exactly matching dsh's own skill discovery — zero configuration, effective immediately. Registration validates the `SKILL.md` the way dsh's loader does: the frontmatter must parse as a YAML mapping carrying a string `name` (lowercase kebab-case) and a `description`, and any `disable-model-invocation` / `user-invocable` present must read as a boolean (`true`/`false`/`1`/`0`/`on`/`off`…). Failures are reported — including legacy key names such as `disableModelInvocation`, which are rejected with the canonical spelling — so a directory can no longer register here and then be silently skipped by dsh. The skill name comes from the directory name; to rename, remove and register again.
+- **Edit**: every MCP server group header in the Tools tab and every registered skill row in the Skills tab carries an Edit button that opens the current configuration prefilled, to change, save or remove. The **built-in group has no Edit button** — it is not a real MCP server, so there is no entry to edit; likewise a skill that is not registered under `~/.dsh/skills/` (a project or bundled skill). An MCP server's `serverName` is **read-only** when editing: it forms the tool name prefix `mcp__<serverName>__<tool>`, so changing it would break existing sessions and permission rules.
+- **Refresh**: the Refresh button rebuilds the capability catalog and re-pulls the list. Registering a source triggers this automatically, so you rarely need it by hand; use it after changing a source outside dsh (editing the patch file by hand, symlinking a skill directory yourself).
 
 ## Quick Install
 
@@ -177,7 +179,7 @@ config:
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | see above | Tier rules; runtime memory only, never written to disk |
 | `catalogFile` | `capability-menu-registry` | `~/.dsh/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | Debounce window (ms) for change-event rebuilds; `0` disables debouncing |
-| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that location registration writes to |
+| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
 
 **Rule priority** (first match wins; within one tier, an exact rule beats a wildcard):
@@ -198,7 +200,7 @@ Key points:
 > **Two kinds of change, two persistence models**:
 >
 > - **Tier classification** only writes to in-memory runtime state and is not persisted. To persist it (apply with the profile, version-controllable / batch-declarable), edit the profile's `cordis.patch.yml` — that is the persistence entry point; no extra import/export buttons are needed.
-> - **Registered locations** (MCP servers, skill directories) are written to disk by the plugin itself: MCP rows go into the patch file, skill directories are linked into `~/.dsh/skills/`. They survive a restart.
+> - **Registered sources** (MCP servers, skill directories) are written to disk by the plugin itself: MCP rows go into the patch file, skill directories are linked into `~/.dsh/skills/`. They survive a restart.
 
 ### On-demand capability catalog (`catalogFile`, the single materialized catalog, searchable with `grep`)
 

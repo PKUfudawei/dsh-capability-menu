@@ -10,7 +10,14 @@ import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
-import { LocationRegistry, defaultLocationConfig, type McpInput, type McpLocation, type SkillLocation } from './locations.ts'
+import {
+  LocationRegistry,
+  defaultLocationConfig,
+  type McpInput,
+  type McpLocation,
+  type McpUpdateInput,
+  type SkillLocation,
+} from './locations.ts'
 
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
@@ -335,21 +342,23 @@ export interface CapabilityPolicyService {
    */
   classifyAll(): readonly CapabilityClassification[]
 
-  // — location registry (能力菜单 · 已登记位置) —
+  // — location registry (能力菜单 · 注册能力) —
   /** MCP servers declared in the patch file, in file order. */
   listLocations(): Promise<McpLocation[]>
   /** Declare a new MCP server. Rejects a duplicate `serverName`. */
   addLocation(input: McpInput): Promise<string>
   /** Remove a declared MCP server. */
   removeLocation(id: string): Promise<boolean>
-  /** Enable or disable a declared MCP server. */
-  setLocationEnabled(id: string, enabled: boolean): Promise<boolean>
+  /** Replace a declared server's connection config (`serverName` is immutable). */
+  updateLocation(id: string, input: McpUpdateInput): Promise<boolean>
   /** Skill directories registered under the default skill root. */
   listSkillLocations(): Promise<SkillLocation[]>
   /** Register a skill directory by linking it into the default skill root. */
   addSkillLocation(dir: string): Promise<string>
   /** Unregister a skill directory. */
   removeSkillLocation(name: string): Promise<boolean>
+  /** Repoint a registered skill at a different directory. */
+  updateSkillLocation(name: string, dir: string): Promise<boolean>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -496,20 +505,23 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return { ...current }
     },
     async updateConfig(partial: Partial<Config>): Promise<void> {
+      // Only the materialized On-demand catalog on disk depends on the
+      // classification: the model-facing projection is derived from the rules
+      // on every assemble, so it needs no rebuild. Cycling a capability
+      // between Resident and Disabled changes nothing on disk, so it must not
+      // pay for a full re-enumeration.
+      const before = onDemandSignature()
       // Validate first, commit second (see `applyConfig`): a rejected update
       // leaves the live policy exactly as it was.
       applyConfig(
         { ...current, ...partial },
         partial.metaTools !== undefined ? [...(partial.metaTools ?? DEFAULT_META_TOOLS)] : metaTools,
       )
-      // Classification changed, so the on-demand catalog on disk is stale (a
-      // capability reclassified to Disabled must disappear from the grep-able
-      // YAML). Request a rebuild, but do NOT await it: rules are already
-      // recompiled synchronously above, so every classification read after
-      // this point is correct, and the disk file only feeds the model's
-      // grep/read path. Awaiting a full rebuild here made each click in the
-      // management UI wait for a complete tool+skill re-enumeration.
-      ctx.capability.requestRefresh()
+      // The On-demand set moved, so the grep-able YAML is stale (and a
+      // capability reclassified to Disabled must disappear from it). Request a
+      // rebuild but do NOT await it: rules are already recompiled above, so
+      // every classification read after this point is correct.
+      if (onDemandSignature() !== before) ctx.capability.requestRefresh()
     },
     classifyAll(): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management
@@ -540,8 +552,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     removeLocation(id: string): Promise<boolean> {
       return locations.removeMcp(id)
     },
-    setLocationEnabled(id: string, enabled: boolean): Promise<boolean> {
-      return locations.setMcpEnabled(id, enabled)
+    updateLocation(id: string, input: McpUpdateInput): Promise<boolean> {
+      return locations.updateMcp(id, input)
     },
     listSkillLocations(): Promise<SkillLocation[]> {
       return locations.listSkills()
@@ -552,6 +564,23 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     removeSkillLocation(name: string): Promise<boolean> {
       return locations.removeSkill(name)
     },
+    updateSkillLocation(name: string, dir: string): Promise<boolean> {
+      return locations.updateSkill(name, dir)
+    },
+  }
+
+  /**
+   * Fingerprint of the capability ids currently classified On-demand. This set
+   * is the only thing a classification change can invalidate on disk, so it
+   * decides whether `updateConfig` needs to request a rebuild at all.
+   */
+  const onDemandSignature = (): string => {
+    const ids = ctx.capability
+      .search({ maxResults: Number.MAX_SAFE_INTEGER })
+      .filter(summary => service.classifyCapability(summary.id, summary.kind) === 'on-demand')
+      .map(summary => `${summary.kind}:${summary.id}`)
+    ids.sort()
+    return ids.join('\u0000')
   }
 
   // Disabled capabilities are a hard deny at the execution surface, not just a

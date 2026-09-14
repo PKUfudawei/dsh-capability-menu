@@ -73,7 +73,11 @@ export interface McpLocation {
   readonly disabled: boolean
   readonly command?: string
   readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
   readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+  readonly toolCallTimeoutMs?: number
 }
 
 /** One skill directory registered under the default skill root. */
@@ -91,9 +95,16 @@ export interface McpInput {
   readonly command?: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
   readonly url?: string
   readonly headers?: Readonly<Record<string, string>>
+  readonly toolCallTimeoutMs?: number
 }
+
+/** Input for editing a declared server (`serverName` is immutable). */
+export type McpUpdateInput = Omit<McpInput, 'serverName'>
+
+const stringRecord$schema = z.record(z.string(), z.string())
 
 const mcpLocation$schema = z.object({
   id: z.string().readonly(),
@@ -102,7 +113,11 @@ const mcpLocation$schema = z.object({
   disabled: z.boolean().readonly(),
   command: z.string().optional().readonly(),
   args: z.array(z.string()).optional().readonly(),
+  env: stringRecord$schema.optional().readonly(),
+  cwd: z.string().optional().readonly(),
   url: z.string().optional().readonly(),
+  headers: stringRecord$schema.optional().readonly(),
+  toolCallTimeoutMs: z.number().optional().readonly(),
 })
 
 const skillLocation$schema = z.object({
@@ -117,9 +132,22 @@ const mcpInput$schema = z.object({
   transport: z.union([z.literal('stdio'), z.literal('streamable-http')]),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  env: stringRecord$schema.optional(),
+  cwd: z.string().optional(),
   url: z.string().optional(),
-  headers: z.record(z.string(), z.string()).optional(),
+  headers: stringRecord$schema.optional(),
+  toolCallTimeoutMs: z.number().optional(),
+})
+
+const mcpUpdateInput$schema = z.object({
+  transport: z.union([z.literal('stdio'), z.literal('streamable-http')]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: stringRecord$schema.optional(),
+  cwd: z.string().optional(),
+  url: z.string().optional(),
+  headers: stringRecord$schema.optional(),
+  toolCallTimeoutMs: z.number().optional(),
 })
 
 const capabilityRow$schema = z.object({
@@ -185,10 +213,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listLocations: () => Promise<RemoteResult<McpLocation[]>>
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>
     removeLocation: (id: string) => Promise<RemoteResult<boolean>>
-    setLocationEnabled: (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>
+    updateLocation: (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>
     addSkillLocation: (dir: string) => Promise<RemoteResult<string>>
     removeSkillLocation: (name: string) => Promise<RemoteResult<boolean>>
+    updateSkillLocation: (name: string, dir: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteMap {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
@@ -202,10 +231,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>
     'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>
-    'capabilityPolicy/setLocationEnabled': (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/updateLocation': (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>
     'capabilityPolicy/addSkillLocation': (dir: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/removeSkillLocation': (name: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/updateSkillLocation': (name: string, dir: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379
@@ -340,14 +370,14 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       sourceLocation: { file: 'src/server/remote.ts', line: 205, column: 3 },
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/setLocationEnabled',
+      id: '@daweifu/capability-menu#capabilityPolicy/updateLocation',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
-      method: 'setLocationEnabled',
+      method: 'updateLocation',
       invocation: { kind: 'direct' },
       parameters: [
         { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
-        { name: 'enabled', wire: 'enabled', source: 'json', codec: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() } },
+        { name: 'input', wire: 'input', source: 'json', codec: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#McpUpdateInput', schema: mcpUpdateInput$schema } },
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
       sourceLocation: { file: 'src/server/remote.ts', line: 211, column: 3 },
@@ -385,6 +415,19 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
       sourceLocation: { file: 'src/server/remote.ts', line: 229, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/updateSkillLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'updateSkillLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'dir', wire: 'dir', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 235, column: 3 },
     },
   ],
 }

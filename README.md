@@ -55,20 +55,22 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
   <img src="assets/screenshot-skills.png" alt="Skills 页" width="48%"/>
 </p>
 <p align="center">
-  <img src="assets/screenshot-policy.png" alt="查看能力目录 · 三档策略配置" width="48%"/>
-  <img src="assets/screenshot-catalog.png" alt="查看能力目录 · 按需能力目录" width="48%"/>
+  <img src="assets/screenshot-policy.png" alt="策略与目录 · 三档策略配置" width="48%"/>
+  <img src="assets/screenshot-catalog.png" alt="策略与目录 · 按需能力目录" width="48%"/>
 </p>
 
 安装后，「设置 / 通用设置」下出现「能力菜单」tab（位于「模型」与「插件」之间），用于可视化查看和调整暴露策略，改动即时生效、无需重启：
 
-- **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计和「查看能力目录」按钮。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
+- **Tools / Skills 页签**：顶部 Tab 栏为 `Tools` 与 `Skills`，右侧是各档数量统计、「刷新」与「注册能力」；只读的「策略与目录」入口在页头说明行右侧。Tools 页按 server 分组、可折叠：MCP 工具挂在各自 server（`gongfeng`/`km`…）下；内置原生工具（来自 agent preset 的 `bash`/`read`/`write`/`glob`/`grep`…）统一挂在保留的「系统内置」组（server 键 `built-in`）。点击某行查看模型侧工具定义 name / description / parameters。
 - **Skills 页签**：内部再分「全局技能 / 项目技能」两个子页签（始终显示，空的一侧显示空态提示），顶部数量统计跟随当前子页签。点击技能行展开目录树，点文件预览 SKILL.md 等正文。
 - **三态圆点与循环切换**：每个能力带一个分类圆点——实心 = 常驻、上半实心圆环 = 按需、圆环 + 斜杠（禁行标志）= 禁用；点击能力旁圆点或分类计数即可循环切换（内置原生工具与 MCP 工具同等可管），若被更高优先级规则（如通配）覆盖，界面会提示「分类未生效」。
-- **查看能力目录**：点右上角按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`disabled` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
-- **刷新**：点右上角「刷新」按钮重建能力目录并重新拉取列表。登记新位置后会自动刷新一次，通常不必手动点；手动刷新主要用于你在 dsh 之外改动了来源（手改 patch 文件、手动软链 skill 目录）之后。
-- **已登记位置**：面板底部列出能力来源，可增删改：
-  - **MCP 服务器**：登记即写入 patch 文件里的 `@deepseek-ai/dsh-mcp-client` 条目，**由 dsh 原生挂载**（插件不自己管连接）。与手写的声明式条目同文件、同一张表，一视同仁可启停、可移除，且无需重启 dsh（live profile 下改动热重载生效）。
-  - **Skill 目录**：登记即在 `~/.dsh/skills/` 下建软链，与 dsh 原生的 skill 发现机制完全一致，零配置即时生效。
+- **策略与目录**：点页头说明行右侧的按钮弹出只读弹层，含两份文件——「三档策略配置」是**生效策略的语义化视图**（默认全部能力常驻：`tools.resident` 每个 server 显示 `*`，例外只在 `on-demand`/`disabled` 里按 server → 工具名 分级列出；skills 无 server 维度，`skills.resident` 恒为 `*`），以及「按需能力目录」物化文件（`catalogFile`）的路径与内容；持久化入口仍是 profile 的 `cordis.patch.yml`。
+- **注册能力**：点右上角「注册能力」按钮弹出注册表单，内含「MCP 服务器 / Skill 目录」两个子页签，**默认停在你当前所在的页签**（Tools → MCP，Skills → Skill）。弹窗里只放表单，不重复罗列已注册项——那些在列表里就有，且各带「编辑」入口。
+  - **MCP 服务器**：注册即写入 patch 文件里的 `@deepseek-ai/dsh-mcp-client` 条目，**由 dsh 原生挂载**（插件不自己管连接）。与手写的声明式条目同文件、同一张表，无需重启 dsh（live profile 下改动热重载生效）。字段：`serverName`、传输方式（`stdio` / `streamable-http`）、stdio 的命令 / 参数 / 工作目录 / 环境变量、http 的 URL / **请求头**、超时（秒）。
+    > **请求头**是关键：`Authorization: Bearer …` 这类鉴权 token 写在这里，每行 `Key: Value`。明文存入 `~/.dsh/cordis.patch.yml`（与手写条目一致）。
+  - **Skill 目录**：注册即在 `~/.dsh/skills/` 下建软链，与 dsh 原生的 skill 发现机制完全一致，零配置即时生效。注册时会按 dsh 加载器的口径校验 `SKILL.md`——frontmatter 必须能解析成 YAML 映射、含字符串 `name`（小写 kebab-case）与 `description`，且 `disable-model-invocation` / `user-invocable` 若出现必须是可读作布尔的值（`true`/`false`/`1`/`0`/`on`/`off`…）。不合格直接报错，不会出现「登记成功但 dsh 静默不加载」；废弃的旧字段名（`disableModelInvocation` 等）也会被指出并给出规范写法。技能名取自目录名，改名请先移除再注册。
+- **编辑**：Tools 页每个 MCP server 分组头右侧、Skills 页每个已注册技能行右侧都有「编辑」，点开预填当前配置，可改、可存、可移除。**系统内置分组没有编辑按钮**——它不是真实 MCP 服务器，没有可编辑的条目；不在 `~/.dsh/skills/` 下注册的技能（项目技能、内置技能）同理。MCP 的 `serverName` 编辑时**只读**：它决定工具名前缀 `mcp__<serverName>__<tool>`，改了会影响已有会话与权限规则。
+- **刷新**：点「刷新」按钮重建能力目录并重新拉取列表。注册来源后会自动刷新一次，通常不必手动点；手动刷新主要用于你在 dsh 之外改动了来源（手改 patch 文件、手动软链 skill 目录）之后。
 
 ## 快速安装
 
@@ -177,8 +179,8 @@ config:
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | 三档分类规则；只影响运行时内存，不落盘 |
 | `catalogFile` | `capability-menu-registry` | `~/.dsh/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
-| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 位置登记写入的 patch 文件 |
-| `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill 目录登记的技能根 |
+| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 注册 MCP 服务器写入的 patch 文件 |
+| `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | 注册 Skill 目录的技能根 |
 
 **规则优先级**（从上到下命中即停；同档内精确规则优先于通配）：
 
@@ -198,7 +200,7 @@ config:
 > **两类改动，持久化方式不同**：
 >
 > - **三档分类**只写入运行时内存、不落盘；要持久化（随 profile 生效、可版本管理/批量声明），编辑 profile 的 `cordis.patch.yml` 即可——这就是分类的持久化入口，无需额外的导入/导出按钮。
-> - **已登记位置**（MCP 服务器、Skill 目录）由插件直接落盘：MCP 写进 patch 文件、Skill 在 `~/.dsh/skills/` 建软链，重启后仍在。
+> - **注册的来源**（MCP 服务器、Skill 目录）由插件直接落盘：MCP 写进 patch 文件、Skill 在 `~/.dsh/skills/` 建软链，重启后仍在。
 
 ### 按需能力目录（`catalogFile`，唯一物化目录，grep 可检索）
 

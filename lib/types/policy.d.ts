@@ -8,7 +8,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
 import { type CapabilityKind } from './registry.ts';
-import { type McpInput, type McpLocation, type SkillLocation } from './locations.ts';
+import { type McpInput, type McpLocation, type McpUpdateInput, type SkillLocation } from './locations.ts';
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
@@ -202,14 +202,16 @@ export interface CapabilityPolicyService {
     addLocation(input: McpInput): Promise<string>;
     /** Remove a declared MCP server. */
     removeLocation(id: string): Promise<boolean>;
-    /** Enable or disable a declared MCP server. */
-    setLocationEnabled(id: string, enabled: boolean): Promise<boolean>;
+    /** Replace a declared server's connection config (`serverName` is immutable). */
+    updateLocation(id: string, input: McpUpdateInput): Promise<boolean>;
     /** Skill directories registered under the default skill root. */
     listSkillLocations(): Promise<SkillLocation[]>;
     /** Register a skill directory by linking it into the default skill root. */
     addSkillLocation(dir: string): Promise<string>;
     /** Unregister a skill directory. */
     removeSkillLocation(name: string): Promise<boolean>;
+    /** Repoint a registered skill at a different directory. */
+    updateSkillLocation(name: string, dir: string): Promise<boolean>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

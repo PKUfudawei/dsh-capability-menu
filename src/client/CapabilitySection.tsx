@@ -21,9 +21,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { KeyboardEvent } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CapabilityPolicyRemote, CapabilitySnapshot, CapabilityRow, CatalogDocs, SkillFileEntry, ToolDetail } from './store.ts'
+import type {
+  CapabilityPolicyRemote,
+  CapabilitySnapshot,
+  CapabilityRow,
+  CatalogDocs,
+  McpLocation,
+  SkillFileEntry,
+  SkillLocation,
+  ToolDetail,
+} from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
-import { LocationsPanel } from './LocationsPanel.tsx'
+import { LocationModal } from './LocationModal.tsx'
 import { BUILT_IN_SERVER } from '../constants.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
@@ -72,25 +81,32 @@ export type CapabilityKey =
   | 'refresh'
   | 'refreshing'
   | 'refreshFailed'
-  | 'locations'
+  | 'registerCapability'
+  | 'editMcp'
+  | 'editSkill'
+  | 'edit'
+  | 'save'
+  | 'remove'
+  | 'register'
+  | 'notEditable'
+  | 'entryNotFound'
   | 'mcpServers'
-  | 'emptyMcp'
+  | 'skillDirs'
+  | 'skillName'
+  | 'skillDirPath'
+  | 'skillDirHint'
   | 'serverName'
+  | 'serverNameImmutable'
   | 'transport'
   | 'command'
   | 'args'
+  | 'cwd'
+  | 'env'
   | 'url'
-  | 'add'
-  | 'cancel'
-  | 'addMcp'
-  | 'skillDirs'
-  | 'emptySkillDirs'
-  | 'noManifest'
-  | 'skillDirPath'
-  | 'addSkill'
-  | 'remove'
-  | 'enable'
-  | 'disable'
+  | 'headers'
+  | 'headersHint'
+  | 'timeout'
+  | 'timeoutInvalid'
   | 'viewCatalog'
   | 'catalogPolicy'
   | 'catalogOnDemand'
@@ -126,6 +142,10 @@ const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
+/* 说明行右侧放只读文档入口：把它从头部的计数行挪出来，计数多（Tools 常驻 ·
+   167）时那一行不再因此折行。 */
+.mc-desc-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mc-desc-row .mc-desc{flex:1 1 auto;min-width:0}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
@@ -160,6 +180,10 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tab[data-active=true]:after,.mc-tab:focus-visible:after{background:var(--dsw-alias-label-primary);content:"";border-radius:2px 2px 0 0;height:2px;position:absolute;bottom:-1px;left:0;right:0}
 .mc-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px;color:var(--dsw-alias-label-primary);border-radius:2px}
 .mc-panel{min-width:0;padding-top:12px}
+/* Skills panel: its first row is the 全局技能/项目技能 sub-tab bar, which sits
+   directly under the main tab bar — the default 12px reads as a gap between
+   two bars that belong together. */
+.mc-panel--tight{padding-top:4px}
 .mc-panel-inner{display:flex;flex-direction:column;gap:14px}
 .mc-group{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}
 .mc-group-header{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -180,6 +204,11 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 body[data-ds-dark-theme] .mc-count--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-count--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
+/* 「编辑」是动作，不是分类计数：沿用 chip 的尺寸以对齐，但用次要文字色、hover
+   才变蓝加下划线。裸用 .mc-count 时会继承 .mc-section 的 label-primary（浅色
+   主题下近黑），夹在着色的计数 chip 旁会读成一枚没有圆点的黑色 chip。 */
+.mc-count--action{color:var(--dsw-alias-label-secondary)}
+.mc-count--action:hover{color:var(--dsw-alias-state-business-primary);text-decoration:underline}
 .mc-tools{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
 .mc-tool{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 26px;font-size:13px;line-height:20px;cursor:pointer}
 .mc-tool:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -330,6 +359,21 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         .find((c): c is CapabilityClass => c !== undefined)
       const from: CapabilityClass = first ?? 'on-demand'
       const to = NEXT_CLASS[from]
+      // Optimistic: flip the affected rows now so the dot responds on the same
+      // frame. The round trips below only reconcile. Without this the click
+      // waits for three sequential calls, the last of which can queue behind
+      // the server's own catalog rebuild and stall for a second or more.
+      const moved = new Set(ids)
+      setState(prev => prev.status === 'ready'
+        ? {
+            status: 'ready',
+            snapshot: {
+              rows: prev.snapshot.rows.map(row => moved.has(row.id)
+                ? { ...row, class: to, classLabel: undefined }
+                : row),
+            },
+          }
+        : prev)
       // Remove moved ids from every list, then append to the destination list.
       for (const cls of CLASS_KEYS) {
         lists[cls] = lists[cls].filter(id => !ids.includes(id))
@@ -377,6 +421,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         onCycle={cycleClass}
         onRefresh={() => void refreshCatalog()}
         refreshing={refreshing}
+        onNotice={setNotice}
       />}
     </section>
   )
@@ -394,8 +439,10 @@ function ReadyBody(props: {
   onCycle: (ids: readonly string[], kind: 'tool' | 'skill') => void
   onRefresh: () => void
   refreshing: boolean
+  /** Surface a one-line message in the section header. */
+  onNotice: (message: string | null) => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, refreshing } = props
+  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, refreshing, onNotice } = props
   const { servers, skills } = groupRows(snapshot.rows)
   // Skills whose source root is inside the current project vs. everything else
   // (user/global dirs, bundled, custom, runtime); skills without a source label
@@ -440,6 +487,62 @@ function ReadyBody(props: {
     | null
   >(null)
   const [catalogTab, setCatalogTab] = useState<'policy' | 'catalog'>('policy')
+  /** 注册能力 modal; its default sub-tab follows `activeTab`. */
+  const [registerOpen, setRegisterOpen] = useState(false)
+  /** 编辑 target; at most one is set. */
+  const [editMcp, setEditMcp] = useState<McpLocation | undefined>(undefined)
+  const [editSkill, setEditSkill] = useState<SkillLocation | undefined>(undefined)
+  /**
+   * Skill directories registered under the skill root. Only those can be
+   * edited: a project or bundled skill has no row to repoint, so its row gets
+   * no 编辑 button rather than a button that always fails.
+   */
+  const [editableSkills, setEditableSkills] = useState<ReadonlySet<string>>(new Set())
+
+  // Reloaded with each snapshot so a skill registered or removed elsewhere
+  // updates its own button; an empty set just means no 编辑 buttons.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = unwrap(await remote.listSkillLocations(), 'capabilityPolicy.listSkillLocations')
+        if (!cancelled) setEditableSkills(new Set(rows.map(row => row.name)))
+      } catch {
+        // Leave the set empty.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [remote, snapshot])
+
+  /** Open the 编辑 form for the MCP server behind a Tools-tab group header. */
+  const openMcpEdit = useCallback(async (serverName: string) => {
+    try {
+      const rows = unwrap(await remote.listLocations(), 'capabilityPolicy.listLocations')
+      const found = rows.find(row => row.serverName === serverName)
+      if (found === undefined) {
+        onNotice(t('notEditable'))
+        return
+      }
+      setEditMcp(found)
+    } catch (e) {
+      onNotice(String(e))
+    }
+  }, [remote, t, onNotice])
+
+  /** Open the 编辑 form for a skill registered under the skill root. */
+  const openSkillEdit = useCallback(async (name: string) => {
+    try {
+      const rows = unwrap(await remote.listSkillLocations(), 'capabilityPolicy.listSkillLocations')
+      const found = rows.find(row => row.name === name)
+      if (found === undefined) {
+        onNotice(t('notEditable'))
+        return
+      }
+      setEditSkill(found)
+    } catch (e) {
+      onNotice(String(e))
+    }
+  }, [remote, t, onNotice])
 
   /** Fetch and show the two read-only catalog documents. */
   const openCatalogDocs = useCallback(async () => {
@@ -455,7 +558,13 @@ function ReadyBody(props: {
   return (
     <>
       <h2 className="mc-heading">{t('title')}</h2>
-      <p className="mc-desc">{t('desc')}</p>
+      <div className="mc-desc-row">
+        <p className="mc-desc">{t('desc')}</p>
+        {/* 只读文档入口留在说明行；计数行只放 chips + 刷新 + 注册能力。 */}
+        <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
+          {t('viewCatalog')}
+        </button>
+      </div>
 
       <div className="mc-tabs">
         <div className="mc-tab-group" role="tablist" aria-label={t('title')}>
@@ -496,8 +605,8 @@ function ReadyBody(props: {
           >
             {refreshing ? t('refreshing') : t('refresh')}
           </button>
-          <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
-            {t('viewCatalog')}
+          <button type="button" className="mc-catalog-btn" onClick={() => setRegisterOpen(true)}>
+            {t('registerCapability')}
           </button>
         </div>
       </div>
@@ -548,6 +657,21 @@ function ReadyBody(props: {
                             </button>
                           ))}
                         </span>
+                        {/* The built-in group is not a real MCP server: there is
+                            no row to edit, so it gets no button. */}
+                        {server !== BUILT_IN_SERVER && (
+                          <button
+                            type="button"
+                            className="mc-count mc-count--action"
+                            disabled={busy}
+                            onClick={(e: { stopPropagation(): void }) => {
+                              e.stopPropagation()
+                              void openMcpEdit(server)
+                            }}
+                          >
+                            {t('edit')}
+                          </button>
+                        )}
                       </span>
                     </div>
                     {open && (
@@ -597,7 +721,7 @@ function ReadyBody(props: {
         </div>
       </div>
 
-      <div role="tabpanel" hidden={activeTab !== 'skills'} className="mc-panel">
+      <div role="tabpanel" hidden={activeTab !== 'skills'} className="mc-panel mc-panel--tight">
         <div className="mc-panel-inner">
           {skills.length === 0 ? (
             <p className="mc-empty">{t('emptySkills')}</p>
@@ -635,6 +759,8 @@ function ReadyBody(props: {
                     busy={busy}
                     t={t}
                     onCycle={onCycle}
+                    editableSkills={editableSkills}
+                    onEditSkill={openSkillEdit}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyGlobalSkills')}</p>
@@ -647,6 +773,8 @@ function ReadyBody(props: {
                     busy={busy}
                     t={t}
                     onCycle={onCycle}
+                    editableSkills={editableSkills}
+                    onEditSkill={openSkillEdit}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyProjectSkills')}</p>
@@ -682,8 +810,21 @@ function ReadyBody(props: {
         </div>
       )}
 
-      {/* 已登记位置：MCP 服务器与 Skill 目录的增删改。 */}
-      <LocationsPanel remote={remote} t={t} onChanged={onRefresh} />
+      {(registerOpen || editMcp !== undefined || editSkill !== undefined) && (
+        <LocationModal
+          remote={remote}
+          t={t}
+          defaultKind={activeTab === 'skills' ? 'skill' : 'mcp'}
+          {...editMcp !== undefined ? { editMcp } : {}}
+          {...editSkill !== undefined ? { editSkill } : {}}
+          onClose={() => {
+            setRegisterOpen(false)
+            setEditMcp(undefined)
+            setEditSkill(undefined)
+          }}
+          onChanged={onRefresh}
+        />
+      )}
 
       {catalogDocs !== null && (
         <div className="mc-preview-mask" onClick={() => setCatalogDocs(null)}>
@@ -763,8 +904,11 @@ function SkillList(props: {
   busy: boolean
   t: CapabilitySectionInjected['t']
   onCycle: (ids: readonly string[], kind: 'skill') => void
+  /** Names registered under the skill root; only those show a 编辑 button. */
+  editableSkills: ReadonlySet<string>
+  onEditSkill: (name: string) => void
 }): JSX.Element {
-  const { skills, remote, busy, t, onCycle } = props
+  const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill } = props
   const [openSkill, setOpenSkill] = useState<string | null>(null)
   const [tree, setTree] = useState<SkillTreeState>({ open: {}, dirs: {} })
   const [preview, setPreview] = useState<{ id: string; relPath: string; content?: string; error?: string } | null>(null)
@@ -915,6 +1059,21 @@ function SkillList(props: {
                   <span className={`mc-dot mc-dot--${skill.class}`} aria-hidden="true" />
                   {t(CLASS_SHORT_KEYS[skill.class as CapabilityClass])}
                 </button>
+                {/* Only skills registered under the skill root have a row to
+                    repoint; project/bundled skills get no button. */}
+                {editableSkills.has(skill.id) && (
+                  <button
+                    type="button"
+                    className="mc-count mc-count--action"
+                    disabled={busy}
+                    onClick={(e: { stopPropagation(): void }) => {
+                      e.stopPropagation()
+                      onEditSkill(skill.id)
+                    }}
+                  >
+                    {t('edit')}
+                  </button>
+                )}
               </span>
             </div>
             {open && (

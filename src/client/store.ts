@@ -18,6 +18,7 @@ export type {
   ToolDetail,
   McpLocation,
   McpInput,
+  McpUpdateInput,
   SkillLocation,
 } from './remote.ts'
 import type {
@@ -27,6 +28,7 @@ import type {
   ToolDetail,
   McpLocation,
   McpInput,
+  McpUpdateInput,
   SkillLocation,
 } from './remote.ts'
 
@@ -48,10 +50,11 @@ export interface CapabilityPolicyRemote {
   listLocations(): Promise<{ ok: true; value: McpLocation[] } | { ok: false; error: { code: string; message: string } }>
   addLocation(input: McpInput): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   removeLocation(id: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
-  setLocationEnabled(id: string, enabled: boolean): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  updateLocation(id: string, input: McpUpdateInput): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   listSkillLocations(): Promise<{ ok: true; value: SkillLocation[] } | { ok: false; error: { code: string; message: string } }>
   addSkillLocation(dir: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   removeSkillLocation(name: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  updateSkillLocation(name: string, dir: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */
@@ -60,6 +63,22 @@ export function unwrap<T>(
   what: string,
 ): T {
   if (!result.ok) throw new Error(`${what} failed: ${result.error.code}: ${result.error.message}`)
+  return result.value
+}
+
+/**
+ * Unwrap a RemoteResult-like for a user-facing mutation.
+ *
+ * The policy service's messages are already written for the person at the
+ * dialog (Chinese, naming the offending path), so the RPC name and error code
+ * that `unwrap` adds for diagnostics are dropped here: they would surface as
+ * `capabilityPolicy.addSkillLocation failed: <code>: 目录中没有 SKILL.md：…`
+ * in a dialog that is otherwise plain Chinese.
+ */
+export function unwrapMessage<T>(
+  result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message)
   return result.value
 }
 

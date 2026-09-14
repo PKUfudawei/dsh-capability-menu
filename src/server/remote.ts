@@ -18,7 +18,7 @@ import type {
 } from '../policy.ts'
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
 import { BUILT_IN_SERVER } from '../registry.ts'
-import type { McpInput, McpLocation, SkillLocation } from '../locations.ts'
+import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -184,7 +184,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     }
   }
 
-  // — 已登记位置（MCP 服务器 / Skill 目录）—
+  // — 注册能力（MCP 服务器 / Skill 目录）—
   //
   // Every mutation edits the patch file and lets dsh hot-reload mount or
   // unmount the source. The gateway never mounts anything itself.
@@ -207,10 +207,10 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capabilityPolicy.removeLocation(id)
   }
 
-  /** Enable or disable a declared MCP server. */
-  @Remote('setLocationEnabled')
-  async setLocationEnabled(id: string, enabled: boolean): Promise<boolean> {
-    return this.ctx.capabilityPolicy.setLocationEnabled(id, enabled)
+  /** Replace a declared MCP server's connection config. */
+  @Remote('updateLocation')
+  async updateLocation(id: string, input: McpUpdateInput): Promise<boolean> {
+    return this.ctx.capabilityPolicy.updateLocation(id, input)
   }
 
   /** Skill directories registered under the default skill root. */
@@ -229,6 +229,12 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('removeSkillLocation')
   async removeSkillLocation(name: string): Promise<boolean> {
     return this.ctx.capabilityPolicy.removeSkillLocation(name)
+  }
+
+  /** Repoint a registered skill at a different directory. */
+  @Remote('updateSkillLocation')
+  async updateSkillLocation(name: string, dir: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.updateSkillLocation(name, dir)
   }
 }
 

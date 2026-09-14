@@ -37,16 +37,27 @@ async function setup(home: string, config: registry.Config = {}): Promise<Contex
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  await ctx.plugin(registry, config)
+  // Disable on-demand catalog emission by default. The registry's own default
+  // path is the real `~/.dsh/capability-catalog.yaml`, and mounting a policy is
+  // what enables emission — so a test that plugs a policy without overriding
+  // this would overwrite the developer's live catalog. Tests that exercise
+  // emission pass an explicit path inside their temp home.
+  await ctx.plugin(registry, { catalogFile: '', ...config })
   return ctx
 }
 
-async function writeSkill(root: string, name: string, description: string, body: string): Promise<void> {
+async function writeSkill(
+  root: string,
+  name: string,
+  description: string,
+  body: string,
+  extraFrontmatter = '',
+): Promise<void> {
   const { mkdir, writeFile } = await import('node:fs/promises')
   const { join } = await import('node:path')
   const dir = join(root, name)
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
+  await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n${extraFrontmatter}---\n\n${body}\n`)
 }
 
 function registerMcpTool(ctx: Context, server: string, raw: string, description: string): string {
@@ -319,6 +330,42 @@ describe('meta-registry', () => {
     expect(maxInFlight).toBe(1)
   })
 
+  it('skips the rebuild when a classification change leaves the On-demand set alone', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    await ctx.plugin(policy, { tools: { resident: ['mcp__gongfeng__create_issue'] } })
+    registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
+
+    let listCalls = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        listCalls += 1
+        return [{ id: 'coding-plus' }]
+      },
+      async standingKeyFor(id?: string): Promise<unknown> {
+        return { agentPreset: id }
+      },
+    })
+    await ctx.capability.refresh()
+    listCalls = 0
+
+    // Resident → Disabled: nothing is On-demand before or after, so nothing on
+    // disk is stale and no rebuild may run (a full re-enumeration per click is
+    // what made the management UI feel slow).
+    await ctx.capabilityPolicy.updateConfig({
+      tools: { resident: ['mcp__gongfeng__create_issue'], disabled: ['mcp__km__search'] },
+    })
+    await wait(80)
+    expect(listCalls).toBe(0)
+
+    // Moving a capability to On-demand does change the materialized catalog,
+    // so this one must rebuild (one rebuild = a tools pass + a skills pass).
+    await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
+    await wait(80)
+    expect(listCalls).toBe(2)
+  })
+
   it('does not rewrite the catalog file when a rebuild changes nothing', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { join } = await import('node:path')
@@ -508,5 +555,23 @@ describe('meta-registry', () => {
     await ctx.capability.refresh()
     const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
     expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
+  })
+
+  it('keeps a skill that disables model invocation out of the index', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    await writeSkill(`${home}/.agents/skills`, 'user-only-skill', 'User-invoked only', 'Body.', 'disable-model-invocation: true\n')
+    await writeSkill(`${home}/.agents/skills`, 'normal-skill', 'Model-invocable', 'Body.')
+    const ctx = await setup(home)
+    await ctx.plugin(policy)
+    await ctx.capability.refresh()
+
+    // `disable-model-invocation: true` is dsh's own gate: the skill never
+    // reaches the model, so `indexSkill` drops it and the panel neither lists
+    // it nor offers a class for it. Pinned here because that is why the panel
+    // has no row to annotate — a change to the filter would silently start
+    // advertising a skill the model cannot load.
+    expect(ctx.capability.get('user-only-skill', 'skill')).toBeUndefined()
+    expect(ctx.capabilityPolicy.classifyAll().some(row => row.id === 'user-only-skill')).toBe(false)
+    expect(ctx.capability.get('normal-skill', 'skill')?.invocation.modelInvocable).toBe(true)
   })
 })

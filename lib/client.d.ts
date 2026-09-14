@@ -67,7 +67,11 @@ interface McpLocation {
   readonly disabled: boolean;
   readonly command?: string;
   readonly args?: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
+  readonly cwd?: string;
   readonly url?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly toolCallTimeoutMs?: number;
 }
 /** One skill directory registered under the default skill root. */
 interface SkillLocation {
@@ -83,9 +87,13 @@ interface McpInput {
   readonly command?: string;
   readonly args?: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
+  readonly cwd?: string;
   readonly url?: string;
   readonly headers?: Readonly<Record<string, string>>;
+  readonly toolCallTimeoutMs?: number;
 }
+/** Input for editing a declared server (`serverName` is immutable). */
+type McpUpdateInput = Omit<McpInput, 'serverName'>;
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>;
@@ -99,10 +107,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listLocations: () => Promise<RemoteResult<McpLocation[]>>;
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>;
     removeLocation: (id: string) => Promise<RemoteResult<boolean>>;
-    setLocationEnabled: (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>;
+    updateLocation: (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>;
     listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>;
     addSkillLocation: (dir: string) => Promise<RemoteResult<string>>;
     removeSkillLocation: (name: string) => Promise<RemoteResult<boolean>>;
+    updateSkillLocation: (name: string, dir: string) => Promise<RemoteResult<boolean>>;
   }
   interface TypertRemoteMap {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>;
@@ -116,10 +125,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>;
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>;
     'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>;
-    'capabilityPolicy/setLocationEnabled': (id: string, enabled: boolean) => Promise<RemoteResult<boolean>>;
+    'capabilityPolicy/updateLocation': (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>;
     'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>;
     'capabilityPolicy/addSkillLocation': (dir: string) => Promise<RemoteResult<string>>;
     'capabilityPolicy/removeSkillLocation': (name: string) => Promise<RemoteResult<boolean>>;
+    'capabilityPolicy/updateSkillLocation': (name: string, dir: string) => Promise<RemoteResult<boolean>>;
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379;
@@ -243,7 +253,7 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
-  setLocationEnabled(id: string, enabled: boolean): Promise<{
+  updateLocation(id: string, input: McpUpdateInput): Promise<{
     ok: true;
     value: boolean;
   } | {
@@ -283,6 +293,16 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
+  updateSkillLocation(name: string, dir: string): Promise<{
+    ok: true;
+    value: boolean;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
 }
 //#endregion
 //#region src/client/CapabilitySection.d.ts
@@ -296,7 +316,7 @@ interface CapabilitySectionInjected {
   remoteKeys?: string;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'refresh' | 'refreshing' | 'refreshFailed' | 'locations' | 'mcpServers' | 'emptyMcp' | 'serverName' | 'transport' | 'command' | 'args' | 'url' | 'add' | 'cancel' | 'addMcp' | 'skillDirs' | 'emptySkillDirs' | 'noManifest' | 'skillDirPath' | 'addSkill' | 'remove' | 'enable' | 'disable' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'kind' | 'class' | 'tool' | 'skill' | 'mandatory' | 'rules' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'refresh' | 'refreshing' | 'refreshFailed' | 'registerCapability' | 'editMcp' | 'editSkill' | 'edit' | 'save' | 'remove' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillName' | 'skillDirPath' | 'skillDirHint' | 'serverName' | 'serverNameImmutable' | 'transport' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {
