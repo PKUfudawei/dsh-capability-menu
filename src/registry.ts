@@ -214,6 +214,14 @@ export interface CapabilityService {
    * a classification) triggers one rebuild, not one per call.
    */
   requestRefresh(): void
+  /**
+   * Re-emit the materialized on-demand catalog from the index already in hand,
+   * without re-enumerating tools or skills. Moving a capability between tiers
+   * changes no inventory, so the only thing stale on disk is that file — and a
+   * full rebuild would re-scan the global skill layer plus every agent preset
+   * for no new information, which is what made a tier click stall.
+   */
+  rewriteCatalog(): Promise<void>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -676,6 +684,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     rebuilding = true
     // Every request received so far is covered by this run.
     const seqAtStart = eventSeq
+    const startedAt = Date.now()
     try {
       await rebuildTools()
       await refreshSkills()
@@ -697,6 +706,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       const signature = catalogSignature()
       const changed = signature !== lastSignature
       lastSignature = signature
+      // One line per full rebuild. These are the expensive runs (every tool plus
+      // every agent-preset skill scope); if they are repeating, this is where it
+      // shows — and a caller blocked behind one sees that as the UI stalling.
+      ctx.logger.info(
+        `capability-registry: rebuild took ${Date.now() - startedAt}ms (catalog changed: ${changed}, ${toolRecords.size} tools, ${skillRecords.size} skills)`,
+      )
       if (changed) idleStreak = 0
       else if (idleStreak < 10) idleStreak += 1
       if (!stopped && eventSeq > appliedSeq) {
@@ -943,6 +958,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (stopped) return
       eventSeq++
       schedule()
+    },
+
+    rewriteCatalog(): Promise<void> {
+      return writeCatalog()
     },
   }
 

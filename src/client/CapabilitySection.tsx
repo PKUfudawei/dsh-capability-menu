@@ -31,9 +31,9 @@ import type {
   SkillLocation,
   ToolDetail,
 } from './store.ts'
-import { loadSnapshot, unwrap } from './store.ts'
+import { cachedSnapshot, loadSnapshot, unwrap } from './store.ts'
 import { LocationModal } from './LocationModal.tsx'
-import { BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
+import { ADOPTABLE_SKILL_SOURCES, BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
@@ -52,12 +52,9 @@ export type CapabilityKey =
   | 'resident'
   | 'on-demand'
   | 'disabled'
-  | 'kind'
-  | 'class'
   | 'tool'
   | 'skill'
   | 'mandatory'
-  | 'rules'
   | 'toolsGroup'
   | 'skillsGroup'
   | 'builtInGroup'
@@ -92,6 +89,8 @@ export type CapabilityKey =
   | 'confirmRemoveMcp'
   | 'confirmRemoveSkillLink'
   | 'confirmRemoveSkillDir'
+  | 'confirmSaveAnyway'
+  | 'saveConfirmRealDir'
   | 'register'
   | 'notEditable'
   | 'entryNotFound'
@@ -108,6 +107,15 @@ export type CapabilityKey =
   | 'skillProjectPathHint'
   | 'skillRegisteredAt'
   | 'skillRepointed'
+  | 'skillAdopted'
+  | 'skillSource'
+  | 'skillSourceHint'
+  | 'skillUnmanaged'
+  | 'adoptSkill'
+  | 'adoptSkillHint'
+  | 'adoptSkillTitle'
+  | 'sourceCustom'
+  | 'sourceBundled'
   | 'serverName'
   | 'serverNameImmutable'
   | 'transport'
@@ -198,9 +206,13 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px;color:var(--dsw-alias-label-primary);border-radius:2px}
 .mc-panel{min-width:0;padding-top:12px}
 /* Skills panel: its first row is the 全局技能/项目技能 sub-tab bar, which sits
-   directly under the main tab bar — the default 12px reads as a gap between
-   two bars that belong together. */
-.mc-panel--tight{padding-top:4px}
+   directly under the main tab bar. It is a second level of the same control, so
+   the two bars have to read as one stack: no panel padding at all, and the
+   sub-tabs keep a token top padding instead of the 7px they share with the
+   primary tabs. Together the label sits ~13px under the main label rather than
+   ~20px, with the main bar's rule between them. */
+.mc-panel--tight{padding-top:0}
+.mc-panel--tight .mc-subtabs .mc-tab{padding-top:4px}
 .mc-panel-inner{display:flex;flex-direction:column;gap:14px}
 .mc-group{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}
 .mc-group-header{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -246,6 +258,17 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-skill-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .mc-skill-name{font-weight:600;font-size:14px;line-height:20px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mc-skill-meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0}
+/* A row has no room for prose: let a long source label truncate instead of
+   pushing the row's buttons past the right edge. */
+.mc-source{font-size:11px;line-height:18px;color:var(--dsw-alias-label-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+/* One sentence to confirm a row action: the shared modal chrome, sized down. */
+.mc-confirm-dialog{width:min(420px,calc(100vw - 48px))}
+.mc-confirm-body{display:flex;flex-direction:column;gap:12px;padding:14px 16px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
+.mc-confirm-body p{margin:0}
+/* A directory has no spaces to break at, and the modal is where it can show in
+   full: wrap it instead of truncating it the way a row's 来源 slot must. */
+.mc-confirm-path{font-family:var(--dsw-font-markdown-code-block-font-family);word-break:break-all}
+.mc-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
 .mc-skill-body{border-top:1px solid var(--dsw-alias-border-l1);padding:8px 12px 12px}
 .mc-tree{display:flex;flex-direction:column;gap:2px;font-size:13px;line-height:20px}
 .mc-tree-row{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:6px;cursor:pointer;min-width:0}
@@ -276,6 +299,37 @@ interface Grouped {
   skills: CapabilityRow[]
 }
 
+/**
+ * dsh's skill source labels, shown on rows this plugin cannot edit — so "why is
+ * there no 编辑 button" has a visible answer. Labels that name one directory are
+ * shown as that path; the rest name a category and go through the dictionary, so
+ * none of dsh's internal labels (`custom`, `bundled`, …) reach the operator raw.
+ */
+const SOURCE_PATHS: Record<string, string> = {
+  'user-dsh': '~/.dsh/skills',
+  'user-agents': '~/.agents/skills',
+  'project-dsh': '<project>/.dsh/skills',
+  'project-agents': '<project>/.agents/skills',
+}
+
+/** Source labels that name no single directory; shown via `t`. */
+const SOURCE_LABEL_KEYS: Partial<Record<string, CapabilityKey>> = {
+  'custom': 'sourceCustom',
+  'bundled': 'sourceBundled',
+}
+
+/** How to name a skill's source root on a row we cannot manage. */
+function sourceLabel(
+  source: string | undefined,
+  t: (key: CapabilityKey, params?: Record<string, unknown>) => string,
+): string {
+  if (source === undefined) return t('skillUnmanaged')
+  const path = SOURCE_PATHS[source]
+  if (path !== undefined) return path
+  const key = SOURCE_LABEL_KEYS[source]
+  return key === undefined ? source : t(key)
+}
+
 function groupRows(rows: readonly CapabilityRow[]): Grouped {
   const byServer = new Map<string, CapabilityRow[]>()
   const skills: CapabilityRow[] = []
@@ -301,7 +355,12 @@ function countByClass(rows: readonly CapabilityRow[], cls: CapabilityClass): num
 
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const { remote, t, mountError } = props
-  const [state, setState] = useState<ViewState>({ status: 'loading' })
+  // Paint a previous snapshot immediately when this page session has one; the
+  // mount effect below still revalidates.
+  const [state, setState] = useState<ViewState>(() => {
+    const cached = cachedSnapshot()
+    return cached === undefined ? { status: 'loading' } : { status: 'ready', snapshot: cached }
+  })
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
@@ -315,7 +374,12 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     try {
       setState(await loadSnapshot(remote).then(snapshot => ({ status: 'ready' as const, snapshot })))
     } catch (e) {
-      setState({ status: 'error', message: String(e) })
+      // A stale list beats a blank panel: if rows are already on screen, keep
+      // them and report the failed revalidate instead of replacing everything
+      // with an error (the most common cause is the carrier dying, which the
+      // 刷新 button and a hard refresh both recover from).
+      setState(prev => prev.status === 'ready' ? prev : { status: 'error', message: String(e) })
+      setNotice(String(e))
     }
   }, [remote, mountError])
 
@@ -358,6 +422,25 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const cycleClass = useCallback(async (ids: readonly string[], kind: 'tool' | 'skill') => {
     if (ids.length === 0 || busy) return
     setBusy(true)
+    // The move is decided from the rows already on screen, so the dot flips on
+    // the click frame rather than after a round trip: how fast this feels must
+    // not depend on how busy the server happens to be. The round trips below
+    // only reconcile.
+    const first = ids.map(id => state.status === 'ready' ? state.snapshot.rows.find(r => r.id === id)?.class : undefined)
+      .find((c): c is CapabilityClass => c !== undefined)
+    const from: CapabilityClass = first ?? 'on-demand'
+    const to = NEXT_CLASS[from]
+    const moved = new Set(ids)
+    setState(prev => prev.status === 'ready'
+      ? {
+          status: 'ready',
+          snapshot: {
+            rows: prev.snapshot.rows.map(row => moved.has(row.id)
+              ? { ...row, class: to, classLabel: undefined }
+              : row),
+          },
+        }
+      : prev)
     try {
       const config = unwrap(await remote.getConfig(), 'capabilityPolicy.getConfig')
       const key = kind === 'skill' ? 'skills' : 'tools'
@@ -371,25 +454,6 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         const raw = set && typeof set === 'object' && !Array.isArray(set) ? (set as Record<string, unknown>)[cls] : undefined
         lists[cls] = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
       }
-      const first = ids.map(id => state.status === 'ready' ? state.snapshot.rows.find(r => r.id === id)?.class : undefined)
-        .find((c): c is CapabilityClass => c !== undefined)
-      const from: CapabilityClass = first ?? 'on-demand'
-      const to = NEXT_CLASS[from]
-      // Optimistic: flip the affected rows now so the dot responds on the same
-      // frame. The round trips below only reconcile. Without this the click
-      // waits for three sequential calls, the last of which can queue behind
-      // the server's own catalog rebuild and stall for a second or more.
-      const moved = new Set(ids)
-      setState(prev => prev.status === 'ready'
-        ? {
-            status: 'ready',
-            snapshot: {
-              rows: prev.snapshot.rows.map(row => moved.has(row.id)
-                ? { ...row, class: to, classLabel: undefined }
-                : row),
-            },
-          }
-        : prev)
       // Remove moved ids from every list, then append to the destination list.
       for (const cls of CLASS_KEYS) {
         lists[cls] = lists[cls].filter(id => !ids.includes(id))
@@ -524,20 +588,32 @@ function ReadyBody(props: {
    */
   const [editableSkills, setEditableSkills] = useState<ReadonlySet<string>>(new Set())
 
-  // Reloaded with each snapshot so a skill registered or removed elsewhere
-  // updates its own button; an empty set just means no 编辑 buttons.
+  // Reloaded when a skill's identity or root changes, so a skill registered or
+  // removed elsewhere — and one just adopted — updates its own button. The
+  // source is part of the key because 纳入管理 is exactly that: it flips
+  // `user-agents`/`custom` to `user-dsh` without touching the id, and a
+  // source flip is when a row must trade its 来源 label back for an 编辑 button.
+  // Keyed on these two fields rather than the whole snapshot: every tier click
+  // replaces the snapshot twice (optimistic, then reconcile) without touching
+  // either, and depending on it would re-list the skill roots each time for no
+  // reason.
+  const skillSignature = skills.map(skill => `${skill.id}\u0000${skill.source ?? ''}`).join('\u0001')
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
         const rows = unwrap(await remote.listSkillLocations(), 'capabilityPolicy.listSkillLocations')
-        if (!cancelled) setEditableSkills(new Set(rows.map(row => row.name)))
+        // Matched on the name the skill declares, not the entry's own name: a
+        // row is keyed by the former, and an entry whose symlink is named after
+        // its source directory rather than the skill would otherwise never
+        // match — leaving it without an 编辑 button though it is editable.
+        if (!cancelled) setEditableSkills(new Set(rows.map(row => row.skillName ?? row.name)))
       } catch {
         // Leave the set empty.
       }
     })()
     return () => { cancelled = true }
-  }, [remote, snapshot])
+  }, [remote, skillSignature])
 
   /** Open the 编辑 form for the MCP server behind a Tools-tab group header. */
   const openMcpEdit = useCallback(async (serverName: string) => {
@@ -555,16 +631,34 @@ function ReadyBody(props: {
   }, [remote, t, onNotice])
 
   /**
-   * Open the 编辑 form for a managed skill entry. A bare name can exist in both
-   * the user root and a project root, so the row's source decides which entry
-   * the click meant; without it we fall back to the first match.
+   * Adopt a skill that dsh discovered from a user-level root this plugin reads
+   * but does not manage: link its own directory into the user root so it becomes
+   * an editable entry. The content is untouched.
+   */
+  const adoptSkill = useCallback(async (name: string) => {
+    try {
+      const entry = unwrap(await remote.adoptSkillLocation(name), 'capabilityPolicy.adoptSkillLocation')
+      onNotice(t('skillAdopted', { path: entry }))
+      onRefresh()
+    } catch (e) {
+      onNotice(String(e))
+    }
+  }, [remote, t, onNotice, onRefresh])
+
+  /**
+   * Open the 编辑 form for a managed skill entry. `name` is the skill's declared
+   * name, which is what the row and the panel address it by — an entry is
+   * matched on that rather than on its own, possibly different, name. A bare
+   * name can exist in both the user root and a project root, so the row's source
+   * decides which entry the click meant; without it we fall back to the first
+   * match.
    */
   const openSkillEdit = useCallback(async (name: string, source?: string) => {
     try {
       const rows = unwrap(await remote.listSkillLocations(), 'capabilityPolicy.listSkillLocations')
       const wanted: 'project' | 'user' = PROJECT_SKILL_SOURCES.has(source ?? '') ? 'project' : 'user'
-      const found = rows.find(row => row.name === name && row.root === wanted)
-        ?? rows.find(row => row.name === name)
+      const named = rows.filter(row => (row.skillName ?? row.name) === name)
+      const found = named.find(row => row.root === wanted) ?? named[0]
       if (found === undefined) {
         onNotice(t('notEditable'))
         return
@@ -792,6 +886,7 @@ function ReadyBody(props: {
                     onCycle={onCycle}
                     editableSkills={editableSkills}
                     onEditSkill={openSkillEdit}
+                    onAdoptSkill={adoptSkill}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyGlobalSkills')}</p>
@@ -806,6 +901,7 @@ function ReadyBody(props: {
                     onCycle={onCycle}
                     editableSkills={editableSkills}
                     onEditSkill={openSkillEdit}
+                    onAdoptSkill={adoptSkill}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyProjectSkills')}</p>
@@ -943,8 +1039,11 @@ function SkillList(props: {
   /** Names registered under the skill root; only those show a 编辑 button. */
   editableSkills: ReadonlySet<string>
   onEditSkill: (name: string, source?: string) => void
+  onAdoptSkill: (name: string) => void
 }): JSX.Element {
-  const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill } = props
+  const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill, onAdoptSkill } = props
+  /** Skill id whose 纳入管理 is waiting for a confirmation click. */
+  const [confirmAdopt, setConfirmAdopt] = useState<string | null>(null)
   const [openSkill, setOpenSkill] = useState<string | null>(null)
   const [tree, setTree] = useState<SkillTreeState>({ open: {}, dirs: {} })
   const [preview, setPreview] = useState<{ id: string; relPath: string; content?: string; error?: string } | null>(null)
@@ -1059,6 +1158,10 @@ function SkillList(props: {
     })
   }
 
+  /** The row the 纳入管理 confirmation is for, so the dialog can name it and
+      show the directory the click will link. */
+  const confirmAdoptRow = confirmAdopt === null ? undefined : skills.find(row => row.id === confirmAdopt)
+
   return (
     <>
       {skills.map(skill => {
@@ -1095,8 +1198,33 @@ function SkillList(props: {
                   <span className={`mc-dot mc-dot--${skill.class}`} aria-hidden="true" />
                   {t(CLASS_SHORT_KEYS[skill.class as CapabilityClass])}
                 </button>
-                {/* Only skills registered under the skill root have a row to
-                    repoint; project/bundled skills get no button. */}
+                {/* A skill with no manageable entry cannot be repointed, so it
+                    gets no 编辑 button. Each such row shows either the action it
+                    can take (adopt) or the reason it has none (where it came
+                    from) — never both, which would say the same thing twice. */}
+                {!editableSkills.has(skill.id) && (ADOPTABLE_SKILL_SOURCES.has(skill.source ?? '')
+                  ? (
+                    /* The confirmation is a dialog, not an inline strip: a row
+                       has no room for a sentence, and pushing one in there
+                       pushed the buttons themselves out of view. */
+                    <button
+                      type="button"
+                      className="mc-count mc-count--action"
+                      disabled={busy}
+                      title={t('adoptSkillHint')}
+                      onClick={(e: { stopPropagation(): void }) => {
+                        e.stopPropagation()
+                        setConfirmAdopt(skill.id)
+                      }}
+                    >
+                      {t('adoptSkill')}
+                    </button>
+                  )
+                  : (
+                    <span className="mc-source" title={t('skillSourceHint')}>
+                      {t('skillSource', { source: sourceLabel(skill.source, t) })}
+                    </span>
+                  ))}
                 {editableSkills.has(skill.id) && (
                   <button
                     type="button"
@@ -1124,6 +1252,44 @@ function SkillList(props: {
           </div>
         )
       })}
+      {confirmAdopt !== null && (
+        <div className="mc-preview-mask" onClick={() => setConfirmAdopt(null)}>
+          <div className="mc-preview mc-confirm-dialog" onClick={e => e.stopPropagation()}>
+            <div className="mc-preview-head">
+              <span className="mc-preview-title">
+                {t('adoptSkillTitle', { name: confirmAdoptRow?.name ?? confirmAdopt })}
+              </span>
+            </div>
+            <div className="mc-confirm-body">
+              <p>{t('adoptSkillHint')}</p>
+              {/* The row gave its 来源 slot to the 纳入管理 button, so the
+                  directory is named here instead — the click needs a target. */}
+              {confirmAdoptRow !== undefined && (
+                <p className="mc-confirm-path">
+                  {t('skillSource', { source: confirmAdoptRow.path ?? sourceLabel(confirmAdoptRow.source, t) })}
+                </p>
+              )}
+              <div className="mc-confirm-actions">
+                <button type="button" className="mc-catalog-btn" onClick={() => setConfirmAdopt(null)}>
+                  {t('cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="mc-catalog-btn"
+                  onClick={() => {
+                    const id = confirmAdopt
+                    setConfirmAdopt(null)
+                    onAdoptSkill(id)
+                  }}
+                >
+                  {t('adoptSkill')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {preview !== null && (
         <div className="mc-preview-mask" onClick={() => setPreview(null)}>
           <div className="mc-preview" onClick={e => e.stopPropagation()}>

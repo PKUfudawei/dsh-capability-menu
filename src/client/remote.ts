@@ -23,6 +23,8 @@ export interface CapabilityRow {
   readonly server?: string
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string
+  /** The skill's own directory on disk, present only for skills whose provider has one. */
+  readonly path?: string
   readonly class: 'resident' | 'on-demand' | 'disabled'
   readonly classLabel?: string
   readonly mandatory: boolean
@@ -82,7 +84,10 @@ export interface McpLocation {
 
 /** One skill entry under a managed skill root (the user root or a project's). */
 export interface SkillLocation {
+  /** The entry's own name under `entryDir`; what update and remove address. */
   readonly name: string
+  /** The name the skill declares in its `SKILL.md` — dsh's identity for it, and what a capability row is named. */
+  readonly skillName?: string
   readonly path: string
   readonly linked: boolean
   readonly valid: boolean
@@ -226,6 +231,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>
     addSkillLocation: (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
     removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    adoptSkillLocation: (name: string) => Promise<RemoteResult<string>>
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteMap {
@@ -244,6 +250,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>
     'capabilityPolicy/addSkillLocation': (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/adoptSkillLocation': (name: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteNamespaceMap {
@@ -426,6 +433,18 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
       sourceLocation: { file: 'src/server/remote.ts', line: 258, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/adoptSkillLocation',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'adoptSkillLocation',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+      ],
+      result: { mode: 'strict', typeSymbol: 'string', schema: z.string() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 259, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/updateSkillLocation',

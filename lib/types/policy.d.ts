@@ -85,6 +85,8 @@ export interface Config {
     patchFile?: string;
     /** Skill root that UI skill registration links into. Defaults to `~/.dsh/skills`. */
     skillsDir?: string;
+    /** Milliseconds to coalesce tier changes before persisting them. */
+    persistDebounceMs?: number;
 }
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;
@@ -153,6 +155,12 @@ export interface CapabilityClassification {
     readonly server?: string;
     /** Skill source root label, present only for skills. */
     readonly source?: string;
+    /**
+     * The skill's own directory on disk, present only for skills whose provider
+     * has one. The 纳入管理 confirmation shows it so the operator sees which
+     * directory is about to be linked, not just the root it came from.
+     */
+    readonly path?: string;
     readonly class: CapabilityClass;
     /** Human-friendly display label for the classification. */
     readonly classLabel: string;

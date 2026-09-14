@@ -69,7 +69,7 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
      * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
      * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
-     * 两者都是只读视图——策略持久化入口仍是 cordis.patch.yml。
+     * 两者都是只读视图；改规则的入口是「能力菜单」的点选，改动会自动写回 cordis.patch.yml。
      */
     getCatalogDocs(): Promise<CatalogDocs>;
     /** MCP servers declared in the patch file. */
@@ -97,6 +97,14 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      * Returns the entry path actually written so the UI can report it.
      */
     addSkillLocation(dir: string, projectPath?: string): Promise<string>;
+    /**
+     * Adopt a skill that already lives in a user-level root this plugin reads but
+     * does not manage (`~/.agents/skills`, custom dirs) by linking its own
+     * directory into the user root. The content is untouched — this is exactly how
+     * the entries already in `~/.dsh/skills` are set up — and the skill becomes
+     * editable afterwards. Returns the entry path written.
+     */
+    adoptSkillLocation(name: string): Promise<string>;
     /** Unregister a skill entry; `entryDir` addresses a project entry. */
     removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
     /** Repoint a registered skill entry at a different directory. */

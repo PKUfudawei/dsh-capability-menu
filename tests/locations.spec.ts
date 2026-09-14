@@ -390,6 +390,14 @@ describe('locations · skill directories', () => {
     // dsh keys the skill by the frontmatter name; the directory name only names
     // our symlink. Registering is allowed, matching the loader's own tolerance.
     expect(await registry.addSkill(source)).toBe(join(skillsDir, 'dir-name'))
+
+    // The listing keeps both names apart, because they answer different
+    // questions: `name` addresses the entry that update/remove act on, while
+    // `skillName` is what dsh keys the skill by and what the panel's row is
+    // named. Matching a row on `name` alone left such a skill listed as
+    // unmanageable — no 编辑 button — though it was perfectly editable.
+    const row = (await registry.listSkills()).find(entry => entry.name === 'dir-name')
+    expect(row?.skillName).toBe('inner-name')
   })
 
   it('marks an unloadable manifest invalid but still allows removal', async () => {

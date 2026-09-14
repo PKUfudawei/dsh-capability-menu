@@ -117,8 +117,12 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   )
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  /** 移除 takes over the action row for one confirmation step. */
-  const [confirmRemove, setConfirmRemove] = useState(false)
+  /**
+   * Which action is waiting for confirmation, if any. Two need one: 移除, and
+   * 保存 on an entry that is a real directory — repointing unlinks the entry
+   * first, which recursively deletes a real directory's contents.
+   */
+  const [confirm, setConfirm] = useState<'remove' | 'save' | null>(null)
 
   // MCP form. Prefilled from the entry when editing; `serverName` stays fixed.
   const [serverName, setServerName] = useState(editMcp?.serverName ?? '')
@@ -143,13 +147,21 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   /** A path inside the project; the server derives the project root from it. */
   const [projectPath, setProjectPath] = useState('')
 
+  /**
+   * What the operator sees this entry called. They got here from a row named by
+   * the skill's declared name, so the messages use that and not the entry's own
+   * name — which is only ever handed back to the server, since that is what
+   * addresses the symlink on disk.
+   */
+  const skillLabel = editSkill?.skillName ?? editSkill?.name ?? ''
+
   const title = useMemo(() => {
     if (editMcp !== undefined) return t('editMcp')
     // A skill's name is derived (and immutable), so it is stated here rather than
     // given a field that would only ever look editable-but-disabled.
-    if (editSkill !== undefined) return t('editSkillNamed', { name: editSkill.name })
+    if (editSkill !== undefined) return t('editSkillNamed', { name: skillLabel })
     return t('registerCapability')
-  }, [editMcp, editSkill, t])
+  }, [editMcp, editSkill, skillLabel, t])
 
   /** Run a mutation; on success close and ask the parent to re-pull. */
   const submit = useCallback(async (action: () => Promise<unknown>, noticeFor?: (result: unknown) => string) => {
@@ -229,32 +241,47 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
     if (editMcp !== undefined) return t('confirmRemoveMcp', { name: editMcp.serverName })
     if (editSkill === undefined) return ''
     return editSkill.linked
-      ? t('confirmRemoveSkillLink', { name: editSkill.name })
-      : t('confirmRemoveSkillDir', { name: editSkill.name })
-  }, [editMcp, editSkill, t])
+      ? t('confirmRemoveSkillLink', { name: skillLabel })
+      : t('confirmRemoveSkillDir', { name: skillLabel })
+  }, [editMcp, editSkill, skillLabel, t])
 
-  /** The action row, or the confirmation step that replaces it once 移除 is pressed. */
-  const renderActions = (onSubmit: () => void): JSX.Element => confirmRemove
+  /** Saving needs a confirmation only when it would delete a real directory. */
+  const needsSaveConfirm = editSkill !== undefined && !editSkill.linked
+
+  /** The action row, or the confirmation step that has replaced it. */
+  const renderActions = (onSubmit: () => void): JSX.Element => confirm !== null
     ? (
       <div className="lm-confirm" role="alert">
-        <p className="lm-confirm-msg">{removalWarning}</p>
+        <p className="lm-confirm-msg">
+          {confirm === 'save' ? t('saveConfirmRealDir', { name: skillLabel }) : removalWarning}
+        </p>
         <div className="lm-confirm-actions">
-          <button type="button" className="lm-btn" disabled={busy} onClick={() => setConfirmRemove(false)}>
+          <button type="button" className="lm-btn" disabled={busy} onClick={() => setConfirm(null)}>
             {t('cancel')}
           </button>
-          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => void remove()}>
-            {t('confirmRemove')}
+          <button
+            type="button"
+            className="lm-btn lm-btn--danger"
+            disabled={busy}
+            onClick={() => { if (confirm === 'save') onSubmit(); else void remove() }}
+          >
+            {confirm === 'save' ? t('confirmSaveAnyway') : t('confirmRemove')}
           </button>
         </div>
       </div>
     )
     : (
       <div className="lm-actions">
-        <button type="button" className="lm-btn" disabled={busy} onClick={onSubmit}>
+        <button
+          type="button"
+          className="lm-btn"
+          disabled={busy}
+          onClick={() => { if (needsSaveConfirm) setConfirm('save'); else onSubmit() }}
+        >
           {editing ? t('save') : t('register')}
         </button>
         {editing && (
-          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => setConfirmRemove(true)}>
+          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => setConfirm('remove')}>
             {t('remove')}
           </button>
         )}
@@ -385,7 +412,9 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                 <div className="lm-form">
                   {/* Which root the skill lands in. Editing never moves an entry
                       between roots (a move is remove + register), so it is shown
-                      read-only there. */}
+                      read-only there. The field it brings (目标项目路径) sits after
+                      the always-present ones, matching the MCP form's shape of
+                      mode → always-present field → mode-specific fields. */}
                   <div className="lm-field">
                     <span className="lm-label">{t('skillRoot')}</span>
                     {editSkill !== undefined
@@ -406,6 +435,11 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                         : t('skillRootHintUser')}
                     </p>
                   </div>
+                  <div className="lm-field">
+                    <span className="lm-label">{t('skillDirPath')}</span>
+                    <input className="lm-input" value={skillDir} onChange={e => setSkillDir(e.target.value)} />
+                    <p className="lm-hint">{t('skillDirHint')}</p>
+                  </div>
                   {editSkill === undefined && skillRoot === 'project' && (
                     <div className="lm-field">
                       <span className="lm-label">{t('skillProjectPath')}</span>
@@ -413,11 +447,6 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                       <p className="lm-hint">{t('skillProjectPathHint')}</p>
                     </div>
                   )}
-                  <div className="lm-field">
-                    <span className="lm-label">{t('skillDirPath')}</span>
-                    <input className="lm-input" value={skillDir} onChange={e => setSkillDir(e.target.value)} />
-                    <p className="lm-hint">{t('skillDirHint')}</p>
-                  </div>
                   {renderActions(() => void submitSkill())}
                 </div>
               </div>

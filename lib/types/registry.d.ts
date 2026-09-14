@@ -201,6 +201,14 @@ export interface CapabilityService {
      * a classification) triggers one rebuild, not one per call.
      */
     requestRefresh(): void;
+    /**
+     * Re-emit the materialized on-demand catalog from the index already in hand,
+     * without re-enumerating tools or skills. Moving a capability between tiers
+     * changes no inventory, so the only thing stale on disk is that file — and a
+     * full rebuild would re-scan the global skill layer plus every agent preset
+     * for no new information, which is what made a tier click stall.
+     */
+    rewriteCatalog(): Promise<void>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

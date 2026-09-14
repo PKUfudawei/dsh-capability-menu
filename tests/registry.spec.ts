@@ -330,9 +330,12 @@ describe('meta-registry', () => {
     expect(maxInFlight).toBe(1)
   })
 
-  it('skips the rebuild when a classification change leaves the On-demand set alone', async () => {
+  it('updates the catalog on a tier change without re-enumerating anything', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const catalogFile = join(home, 'capability-catalog.yaml')
+    const ctx = await setup(home, { refreshDebounceMs: 5, catalogFile })
     await ctx.plugin(policy, { tools: { resident: ['mcp__gongfeng__create_issue'] } })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
@@ -359,11 +362,16 @@ describe('meta-registry', () => {
     await wait(80)
     expect(listCalls).toBe(0)
 
-    // Moving a capability to On-demand does change the materialized catalog,
-    // so this one must rebuild (one rebuild = a tools pass + a skills pass).
+    // Moving a capability to On-demand does make the file stale — but the
+    // inventory is unchanged, so re-emitting the catalog from the index already
+    // in hand is all that is needed. A rebuild here would re-scan every preset
+    // scope for no new information, which is what made the tier click stall; and
+    // because the rewrite is awaited, the file is correct without waiting out a
+    // debounce window.
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
-    await wait(80)
-    expect(listCalls).toBe(2)
+    expect(listCalls).toBe(0)
+    const doc = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
+    expect(doc.capabilities.map(entry => entry.id)).toEqual(['mcp__km__search'])
   })
 
   it('does not rewrite the catalog file when a rebuild changes nothing', async () => {
@@ -557,6 +565,41 @@ describe('meta-registry', () => {
     expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
   })
 
+  it('persists tier changes into the profile patch, coalesced and once', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const { readFile, writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const patchFile = join(home, 'cordis.patch.yml')
+    await writeFile(patchFile, '- insert: []\n', 'utf8')
+    const ctx = await setup(home)
+    // Long enough that the "not written yet" check below cannot race the timer,
+    // short enough to keep this test quick.
+    await ctx.plugin(policy, { patchFile, persistDebounceMs: 150 })
+    registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
+    await ctx.capability.refresh()
+
+    await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
+    // The click lands in memory only; the write waits out the debounce, because
+    // every patch write makes dsh hot-reload this plugin.
+    expect(await readFile(patchFile, 'utf8')).not.toContain('capability-menu-policy')
+    await wait(250)
+
+    const readRows = async (): Promise<Array<{ id?: string; name?: string; config?: { tools?: Record<string, string[]> } }>> => {
+      const doc = yaml.load(await readFile(patchFile, 'utf8')) as Array<{ insert?: Array<{ id?: string; name?: string; config?: { tools?: Record<string, string[]> } }> }>
+      return (doc[0]?.insert ?? [])
+    }
+    const row = (await readRows()).find(entry => entry.id === 'capability-menu-policy')
+    expect(row?.name).toBe('@daweifu/capability-menu/policy')
+    expect(row?.config?.tools?.['on-demand']).toEqual(['mcp__km__search'])
+
+    // Re-sending the same rules must not rewrite the file: an unchanged write
+    // would still make dsh reload the plugin for nothing.
+    const before = await readFile(patchFile, 'utf8')
+    await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
+    await wait(250)
+    expect(await readFile(patchFile, 'utf8')).toBe(before)
+  })
+
   it('keeps a skill that disables model invocation out of the index', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     await writeSkill(`${home}/.agents/skills`, 'user-only-skill', 'User-invoked only', 'Body.', 'disable-model-invocation: true\n')
@@ -573,5 +616,12 @@ describe('meta-registry', () => {
     expect(ctx.capability.get('user-only-skill', 'skill')).toBeUndefined()
     expect(ctx.capabilityPolicy.classifyAll().some(row => row.id === 'user-only-skill')).toBe(false)
     expect(ctx.capability.get('normal-skill', 'skill')?.invocation.modelInvocable).toBe(true)
+
+    // The row carries the skill's own directory, not just its source root: the
+    // 纳入管理 dialog names the directory it is about to link, and `source`
+    // alone (`user-agents`) only says which root it came from.
+    const row = ctx.capabilityPolicy.classifyAll().find(r => r.id === 'normal-skill')
+    expect(row?.source).toBe('user-agents')
+    expect(row?.path).toBe(`${home}/.agents/skills/normal-skill`)
   })
 })

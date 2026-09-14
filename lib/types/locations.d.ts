@@ -32,7 +32,19 @@ export interface McpLocation {
 export type SkillRootKind = 'user' | 'project';
 /** One skill entry under a managed skill root. */
 export interface SkillLocation {
+    /**
+     * The entry's own name — the symlink or directory under `entryDir`. This is
+     * what remove and update address, and it is *not* necessarily the skill's
+     * name: `addSkill` derives the link name from the source directory's basename.
+     */
     readonly name: string;
+    /**
+     * The name the skill declares in its own `SKILL.md` frontmatter. That is the
+     * identity dsh keys the skill by, and what the capability panel's rows are
+     * named, so it is the field to match a row against. Absent when the manifest
+     * cannot be read — there is no declared name to disagree with `name` then.
+     */
+    readonly skillName?: string;
     /** The entry itself: `<entryDir>/<name>`, a symlink or a real directory. */
     readonly path: string;
     /** True when the entry is a symlink to a directory outside the skill root. */

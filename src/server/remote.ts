@@ -20,8 +20,8 @@ import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../regi
 import { BUILT_IN_SERVER } from '../registry.ts'
 import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
-import { PROJECT_SKILL_SOURCES } from '../constants.ts'
-import { dirname, resolve } from 'node:path'
+import { ADOPTABLE_SKILL_SOURCES, PROJECT_SKILL_SOURCES } from '../constants.ts'
+import { basename, dirname, resolve } from 'node:path'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -114,7 +114,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
    * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
    * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
    * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
-   * 两者都是只读视图——策略持久化入口仍是 cordis.patch.yml。
+   * 两者都是只读视图；改规则的入口是「能力菜单」的点选，改动会自动写回 cordis.patch.yml。
    */
   @Remote('getCatalogDocs')
   async getCatalogDocs(): Promise<CatalogDocs> {
@@ -164,8 +164,10 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     if (disabledSkills.length > 0) skills.disabled = disabledSkills
 
     const policyYaml = [
-      '# 能力菜单 · 当前生效策略（只读；持久化入口：cordis.patch.yml）',
-      '# 语义：默认全部能力常驻；下方 on-demand / disabled 为按 server → 工具名分级的例外。',
+      '# 能力菜单 · 当前生效策略（只读视图）',
+      '# 实时生成自内存中的规则；「能力菜单」里的点选会在停手后写回 cordis.patch.yml。',
+      '# 语义：未命中任何规则的能力默认常驻，下面只列例外——',
+      '#       tools 按 server → 工具名分级；skills 无 server 维度，直接平铺技能名。',
       `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'disabled')}；` +
         `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'disabled')}`,
       yaml.dump({
@@ -234,10 +236,16 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
       if (!PROJECT_SKILL_SOURCES.has(entry.source ?? '')) continue
       const entryDir = dirname(entry.skillDir)
       if (!isProjectSkillsDir(entryDir)) continue
-      const key = `${resolve(entryDir)}\u0000${entry.name}`
+      // `entry.name` is the skill's *declared* name, which need not match the
+      // directory dsh found it in. `describeSkillEntry` addresses the entry
+      // itself, so it has to be given the directory's own basename — passing the
+      // declared name made it look for a directory that does not exist and
+      // silently drop the row, leaving such a skill uneditable.
+      const entryName = basename(entry.skillDir)
+      const key = `${resolve(entryDir)}\u0000${entryName}`
       if (seen.has(key)) continue
       seen.add(key)
-      const row = await describeSkillEntry(entryDir, entry.name, 'project')
+      const row = await describeSkillEntry(entryDir, entryName, 'project')
       if (row !== undefined) rows.push(row)
     }
     return rows
@@ -251,6 +259,25 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('addSkillLocation')
   async addSkillLocation(dir: string, projectPath?: string): Promise<string> {
     return this.ctx.capabilityPolicy.addSkillLocation(dir, projectPath)
+  }
+
+  /**
+   * Adopt a skill that already lives in a user-level root this plugin reads but
+   * does not manage (`~/.agents/skills`, custom dirs) by linking its own
+   * directory into the user root. The content is untouched — this is exactly how
+   * the entries already in `~/.dsh/skills` are set up — and the skill becomes
+   * editable afterwards. Returns the entry path written.
+   */
+  @Remote('adoptSkillLocation')
+  async adoptSkillLocation(name: string): Promise<string> {
+    const record = this.ctx.capability.get(name.trim(), 'skill')
+    const dir = record?.origin.path
+    const source = record?.origin.source
+    if (dir === undefined) throw new Error(`该技能没有可链接的目录，无法纳入管理：${name}`)
+    if (source === undefined || !ADOPTABLE_SKILL_SOURCES.has(source)) {
+      throw new Error(`该技能来自 ${source ?? '未知来源'}，不支持纳入管理`)
+    }
+    return this.ctx.capabilityPolicy.addSkillLocation(dir)
   }
 
   /** Unregister a skill entry; `entryDir` addresses a project entry. */

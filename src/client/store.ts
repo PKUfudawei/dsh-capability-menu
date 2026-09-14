@@ -54,6 +54,7 @@ export interface CapabilityPolicyRemote {
   listSkillLocations(): Promise<{ ok: true; value: SkillLocation[] } | { ok: false; error: { code: string; message: string } }>
   addSkillLocation(dir: string, projectPath?: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   removeSkillLocation(name: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  adoptSkillLocation(name: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
 }
 
@@ -82,8 +83,26 @@ export function unwrapMessage<T>(
   return result.value
 }
 
-/** Load the classification list from the remote. */
+/**
+ * The last successful snapshot, at module scope.
+ *
+ * The section is remounted every time the settings tab is opened, and a cold
+ * `classifyAll` can be slow once per page load (the plugin's mount awaits a full
+ * catalog enumeration before the surface has data). Keeping the previous rows
+ * lets a remount paint them immediately and revalidate behind the user instead
+ * of showing a loading placeholder. This is a view cache only — every read is
+ * still followed by an authoritative one.
+ */
+let lastSnapshot: CapabilitySnapshot | undefined
+
+/** The previously loaded snapshot, when this page session has one. */
+export function cachedSnapshot(): CapabilitySnapshot | undefined {
+  return lastSnapshot
+}
+
+/** Load the classification list from the remote, remembering it for remounts. */
 export async function loadSnapshot(remote: CapabilityPolicyRemote): Promise<CapabilitySnapshot> {
   const rows = unwrap(await remote.classifyAll(), 'capabilityPolicy.classifyAll')
-  return { rows }
+  lastSnapshot = { rows }
+  return lastSnapshot
 }

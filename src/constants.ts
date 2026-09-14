@@ -25,3 +25,12 @@ export const BUILT_IN_SERVER = 'built-in'
  * 全局 / 项目 grouping agree on what "project scoped" means.
  */
 export const PROJECT_SKILL_SOURCES: ReadonlySet<string> = new Set(['project-dsh', 'project-agents'])
+
+/**
+ * Source labels for user-level skill roots whose entries this plugin can adopt:
+ * linking the skill's own directory into the user root (where the entry becomes
+ * editable) without touching its content. `user-dsh` is excluded because that
+ * root is already managed, and `bundled` because a packaged skill should not be
+ * shadowed by a user copy.
+ */
+export const ADOPTABLE_SKILL_SOURCES: ReadonlySet<string> = new Set(['user-agents', 'custom'])

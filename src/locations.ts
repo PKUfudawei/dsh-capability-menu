@@ -70,7 +70,19 @@ export type SkillRootKind = 'user' | 'project'
 
 /** One skill entry under a managed skill root. */
 export interface SkillLocation {
+  /**
+   * The entry's own name — the symlink or directory under `entryDir`. This is
+   * what remove and update address, and it is *not* necessarily the skill's
+   * name: `addSkill` derives the link name from the source directory's basename.
+   */
   readonly name: string
+  /**
+   * The name the skill declares in its own `SKILL.md` frontmatter. That is the
+   * identity dsh keys the skill by, and what the capability panel's rows are
+   * named, so it is the field to match a row against. Absent when the manifest
+   * cannot be read — there is no declared name to disagree with `name` then.
+   */
+  readonly skillName?: string
   /** The entry itself: `<entryDir>/<name>`, a symlink or a real directory. */
   readonly path: string
   /** True when the entry is a symlink to a directory outside the skill root. */
@@ -387,11 +399,13 @@ export async function describeSkillEntry(
   const target = await realpath(path).catch(() => undefined)
   if (target === undefined) return undefined
   if ((await stat(target).catch(() => undefined))?.isDirectory() !== true) return undefined
+  const manifest = await checkSkillManifest(target)
   return {
     name,
+    ...manifest.ok ? { skillName: manifest.name } : {},
     path,
     linked: info.isSymbolicLink(),
-    valid: (await checkSkillManifest(target)).ok,
+    valid: manifest.ok,
     root,
     entryDir,
     target,
@@ -487,7 +501,7 @@ const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** Outcome of validating a directory's `SKILL.md` manifest. */
 type SkillManifestCheck =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly name: string }
   | { readonly ok: false; readonly message: string }
 
 /**
@@ -540,27 +554,30 @@ async function checkSkillManifest(dir: string): Promise<SkillManifestCheck> {
   if (!SKILL_NAME_RE.test(name)) {
     return manifestProblem(`SKILL.md 的 name「${name}」不是合法技能名（仅小写字母、数字与连字符，如 my-skill）：${dir}`)
   }
-  return checkInvocation(front, dir)
+  const problem = checkInvocation(front, dir)
+  if (problem !== undefined) return manifestProblem(problem)
+  return { ok: true, name }
 }
 
 /**
  * Validate the invocation fields. A skill without them is fine — the loader
  * defaults to model- and user-invocable — but one it cannot parse is dropped,
  * so a legacy spelling or a non-boolean value is rejected here with the
- * canonical replacement named.
+ * canonical replacement named. Returns the problem, or undefined when the
+ * fields are all readable.
  */
-function checkInvocation(front: Record<string, unknown>, dir: string): SkillManifestCheck {
+function checkInvocation(front: Record<string, unknown>, dir: string): string | undefined {
   for (const [legacy, canonical] of LEGACY_INVOCATION_KEYS) {
     if (Object.hasOwn(front, legacy)) {
-      return manifestProblem(`SKILL.md 的 frontmatter 字段「${legacy}」已废弃，请改用「${canonical}」：${dir}`)
+      return `SKILL.md 的 frontmatter 字段「${legacy}」已废弃，请改用「${canonical}」：${dir}`
     }
   }
   for (const key of INVOCATION_KEYS) {
     if (Object.hasOwn(front, key) && !isFrontmatterBoolean(front[key])) {
-      return manifestProblem(`SKILL.md 的 frontmatter 字段「${key}」必须是布尔值：${dir}`)
+      return `SKILL.md 的 frontmatter 字段「${key}」必须是布尔值：${dir}`
     }
   }
-  return { ok: true }
+  return undefined
 }
 
 /**
