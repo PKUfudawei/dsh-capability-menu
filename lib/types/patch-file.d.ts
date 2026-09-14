@@ -17,6 +17,18 @@ export declare function readEntries(file: string): Promise<PatchEntry[]>;
  * land next to the existing ones; creates one when the file has none.
  */
 export declare function addEntry(doc: YAML.Document.Parsed, entry: PatchEntry): void;
+/**
+ * Append a bare, id-targeted override row (`- id: … / name: … / config: …`) at
+ * the top level — a patch that *finds* a row instead of adding one.
+ *
+ * Deliberately not {@link addEntry}: the row being configured is usually
+ * contributed by another layer. This plugin's own bundle patch inserts
+ * `capability-menu-policy`, and a profile's home layer is applied *after* that
+ * layer, so inserting a second row with the same id here leaves the composed
+ * tree with two rows sharing an id — which dsh refuses outright with
+ * `duplicate loader entry id`, taking the whole profile down.
+ */
+export declare function addEntryOverride(doc: YAML.Document.Parsed, entry: PatchEntry): void;
 /** Remove the row with `id`. Returns false when the file has no such row. */
 export declare function removeEntry(doc: YAML.Document.Parsed, id: string): boolean;
 /** Set or clear `disabled:` on the row with `id`. */

@@ -584,13 +584,20 @@ describe('meta-registry', () => {
     expect(await readFile(patchFile, 'utf8')).not.toContain('capability-menu-policy')
     await wait(250)
 
-    const readRows = async (): Promise<Array<{ id?: string; name?: string; config?: { tools?: Record<string, string[]> } }>> => {
-      const doc = yaml.load(await readFile(patchFile, 'utf8')) as Array<{ insert?: Array<{ id?: string; name?: string; config?: { tools?: Record<string, string[]> } }> }>
-      return (doc[0]?.insert ?? [])
-    }
-    const row = (await readRows()).find(entry => entry.id === 'capability-menu-policy')
+    type Row = { id?: string; name?: string; insert?: unknown[]; config?: { tools?: Record<string, string[]> } }
+    const readDoc = async (): Promise<Row[]> => yaml.load(await readFile(patchFile, 'utf8')) as Row[]
+
+    // The row has to be an override patch, never an `insert` row. Its id already
+    // exists in the composed tree — the package's own bundle patch inserts
+    // `capability-menu-policy` — and this file is applied after that layer, so a
+    // second insert makes dsh refuse to boot with
+    // `duplicate loader entry id: capability-menu-policy`.
+    const doc = await readDoc()
+    const row = doc.find(entry => entry.id === 'capability-menu-policy')
     expect(row?.name).toBe('@daweifu/capability-menu/policy')
     expect(row?.config?.tools?.['on-demand']).toEqual(['mcp__km__search'])
+    const inserted = doc.flatMap(entry => Array.isArray(entry.insert) ? entry.insert : [])
+    expect(inserted.some(entry => (entry as { id?: string }).id === 'capability-menu-policy')).toBe(false)
 
     // Re-sending the same rules must not rewrite the file: an unchanged write
     // would still make dsh reload the plugin for nothing.

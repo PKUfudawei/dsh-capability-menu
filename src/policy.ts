@@ -10,7 +10,7 @@ import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
-import { addEntry, findEntry, mutatePatch, setEntryConfig } from './patch-file.ts'
+import { addEntryOverride, findEntry, mutatePatch, setEntryConfig } from './patch-file.ts'
 import {
   LocationRegistry,
   defaultLocationConfig,
@@ -482,7 +482,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         next['tools'] = current.tools ?? {}
         next['skills'] = current.skills ?? {}
         if (existing === undefined) {
-          addEntry(doc, { id: POLICY_ENTRY_ID, name: POLICY_ENTRY_NAME, config: next })
+          // An override row, never an insert: this file is normally not where the
+          // policy row comes from — the package's own bundle patch inserts it,
+          // and a home/profile layer is applied after that one. Inserting a
+          // second row with the same id would compose into a tree the loader
+          // rejects (`duplicate loader entry id: capability-menu-policy`), so the
+          // config has to be landed on the row that already exists.
+          addEntryOverride(doc, { id: POLICY_ENTRY_ID, name: POLICY_ENTRY_NAME, config: next })
           return true
         }
         // Rewriting an unchanged config would still make dsh reload the plugin.

@@ -111,6 +111,25 @@ export function addEntry(doc: YAML.Document.Parsed, entry: PatchEntry): void {
   target.add(doc.createNode({ ...entry }))
 }
 
+/**
+ * Append a bare, id-targeted override row (`- id: … / name: … / config: …`) at
+ * the top level — a patch that *finds* a row instead of adding one.
+ *
+ * Deliberately not {@link addEntry}: the row being configured is usually
+ * contributed by another layer. This plugin's own bundle patch inserts
+ * `capability-menu-policy`, and a profile's home layer is applied *after* that
+ * layer, so inserting a second row with the same id here leaves the composed
+ * tree with two rows sharing an id — which dsh refuses outright with
+ * `duplicate loader entry id`, taking the whole profile down.
+ */
+export function addEntryOverride(doc: YAML.Document.Parsed, entry: PatchEntry): void {
+  const root = doc.contents
+  if (!YAML.isSeq(root)) throw new Error('patch file root is not a sequence')
+  // `root` is narrowed to a parsed sequence; the freshly built map is not
+  // narrowed with it even though it is a real document node.
+  root.add(doc.createNode({ ...entry }) as unknown as YAML.ParsedNode)
+}
+
 /** Remove the row with `id`. Returns false when the file has no such row. */
 export function removeEntry(doc: YAML.Document.Parsed, id: string): boolean {
   for (const { node, parent } of entryNodes(doc)) {
