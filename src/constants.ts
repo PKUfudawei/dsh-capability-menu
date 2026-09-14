@@ -15,3 +15,13 @@ export const MCP_ID_PREFIX = 'mcp__'
  * Resident/On-demand/Disabled, and `meta_invoke` can dispatch them.
  */
 export const BUILT_IN_SERVER = 'built-in'
+
+/**
+ * dsh's source labels for a project's own skill roots — the `project`-prefixed
+ * providers of `@deepseek-ai/dsh-skill-filesystem`, which scan
+ * `<projectRoot>/.dsh/skills` and `<projectRoot>/.agents/skills`. Every other
+ * label (`user-dsh`, `user-agents`, `bundled`, `custom`, `runtime`) is a
+ * user-level root. Shared so the server's location manager and the browser's
+ * 全局 / 项目 grouping agree on what "project scoped" means.
+ */
+export const PROJECT_SKILL_SOURCES: ReadonlySet<string> = new Set(['project-dsh', 'project-agents'])

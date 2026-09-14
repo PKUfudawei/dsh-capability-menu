@@ -12,9 +12,9 @@
  *   root `skill-filesystem` discovers with no configuration at all. No patch
  *   entry, no hot reload.
  */
-import { readdir, lstat, mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { access, readdir, lstat, mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import yaml from 'js-yaml'
 import { addEntry, defaultPatchFile, mutatePatch, readEntries, removeEntry, setEntryConfig } from './patch-file.ts'
@@ -65,9 +65,13 @@ export interface McpLocation {
   readonly toolCallTimeoutMs?: number
 }
 
-/** One skill directory registered under the default skill root. */
+/** Which skill root an entry lives in. */
+export type SkillRootKind = 'user' | 'project'
+
+/** One skill entry under a managed skill root. */
 export interface SkillLocation {
   readonly name: string
+  /** The entry itself: `<entryDir>/<name>`, a symlink or a real directory. */
   readonly path: string
   /** True when the entry is a symlink to a directory outside the skill root. */
   readonly linked: boolean
@@ -76,6 +80,16 @@ export interface SkillLocation {
    * that is not a YAML mapping with a kebab-case `name` and a `description`.
    */
   readonly valid: boolean
+  /** `user` for the default root, `project` for a project's own skill root. */
+  readonly root: SkillRootKind
+  /**
+   * The skills directory holding the entry (`…/.dsh/skills` or
+   * `…/.agents/skills`). Opaque to callers: pass it back to update or remove,
+   * rather than rebuilding it from parts.
+   */
+  readonly entryDir: string
+  /** The directory the entry points at, with symlinks resolved. */
+  readonly target?: string
 }
 
 /**
@@ -219,7 +233,15 @@ export class LocationRegistry {
 
   // --- Skill directories -------------------------------------------------
 
-  /** Every entry under the default skill root. */
+  // --- Skill directories -------------------------------------------------
+  //
+  // Two root shapes are managed: the default user root (`~/.dsh/skills`, or
+  // `$DSH_HOME/skills`) and a project's own `<projectRoot>/.dsh/skills`. dsh also
+  // scans `~/.agents/skills` and `<projectRoot>/.agents/skills`; entries there
+  // are listed and editable when a project's root produced them, but a
+  // registration always writes the `.dsh` root.
+
+  /** Every entry under the default (user) skill root. */
   async listSkills(): Promise<SkillLocation[]> {
     let names: string[] = []
     try {
@@ -230,21 +252,44 @@ export class LocationRegistry {
     }
     const rows: SkillLocation[] = []
     for (const name of names) {
-      const path = join(this.config.skillsDir, name)
-      const info = await lstat(path).catch(() => undefined)
-      if (info === undefined) continue
-      const target = info.isSymbolicLink() ? path : await realpath(path).catch(() => path)
-      // A skill root is either a directory or a link to one.
-      if (!(info.isDirectory() || info.isSymbolicLink())) continue
-      const statTarget = await stat(target).catch(() => undefined)
-      if (statTarget?.isDirectory() !== true) continue
-      rows.push({ name, path, linked: info.isSymbolicLink(), valid: (await checkSkillManifest(target)).ok })
+      const row = await describeSkillEntry(this.config.skillsDir, name, 'user')
+      if (row !== undefined) rows.push(row)
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  /** Register a skill directory by symlinking it into the default skill root. */
-  async addSkill(dir: string): Promise<string> {
+  /**
+   * Which skills directory an operation targets.
+   *
+   * `entryDir` comes back from a listing and is taken as given, but validated —
+   * a caller must not be able to aim `remove` at an arbitrary tree. Otherwise,
+   * `projectPath` is a path *inside* a project and the project root is derived
+   * from it exactly the way dsh derives it; with neither, the user root.
+   */
+  private async resolveSkillsDir(entryDir?: string, projectPath?: string): Promise<string> {
+    if (entryDir !== undefined && entryDir.length > 0) {
+      const dir = resolve(entryDir)
+      if (dir !== resolve(this.config.skillsDir)) await assertSkillsDir(dir)
+      return dir
+    }
+    const asked = projectPath?.trim() ?? ''
+    if (asked.length === 0) return this.config.skillsDir
+    if (!isAbsolute(asked)) throw new Error('项目路径必须是绝对路径')
+    const start = await realpath(asked).catch(() => undefined)
+    if (start === undefined) throw new Error(`项目路径不存在：${asked}`)
+    const projectRoot = await findProjectRoot(start)
+    this.ctx.logger.info(`capability-locations: project path "${asked}" resolves to project root "${projectRoot}"`)
+    return join(projectRoot, '.dsh/skills')
+  }
+
+  /**
+   * Register a skill directory by symlinking it into a managed root — the user
+   * root by default, or a project's `.dsh/skills` when `projectPath` is given.
+   * Returns the entry path actually written, so the caller can report where the
+   * skill landed instead of leaving the operator to guess.
+   */
+  async addSkill(dir: string, projectPath?: string): Promise<string> {
+    const skillsDir = await this.resolveSkillsDir(undefined, projectPath)
     if (!isAbsolute(dir)) throw new Error('skill 目录必须是绝对路径')
     const target = await realpath(dir).catch(() => undefined)
     if (target === undefined) throw new Error(`skill 目录不存在：${dir}`)
@@ -255,36 +300,41 @@ export class LocationRegistry {
 
     const name = basename(target)
     if (name.length === 0) throw new Error(`无法从路径推导技能名：${dir}`)
-    const link = join(this.config.skillsDir, name)
+    const link = join(skillsDir, name)
     const existing = await lstat(link).catch(() => undefined)
-    if (existing !== undefined) throw new Error(`技能「${name}」已存在`)
+    if (existing !== undefined) {
+      throw new Error(skillsDir === this.config.skillsDir
+        ? `技能「${name}」已存在`
+        : `技能「${name}」已存在于该项目的 ${skillsDir}`)
+    }
 
-    await mkdir(this.config.skillsDir, { recursive: true })
+    await mkdir(skillsDir, { recursive: true })
     await symlink(target, link, 'dir')
-    this.ctx.logger.info(`capability-locations: linked skill "${name}" → ${target}`)
-    return name
+    this.ctx.logger.info(`capability-locations: linked skill "${name}" → ${target} (root ${skillsDir})`)
+    return link
   }
 
   /**
-   * Unregister a skill directory. Only removes a symlink or a directory that
+   * Unregister a skill entry. Only removes a symlink or a directory that
    * actually carries a `SKILL.md` — never an arbitrary file.
    */
-  async removeSkill(name: string): Promise<boolean> {
+  async removeSkill(name: string, entryDir?: string): Promise<boolean> {
     if (name.includes('/') || name.includes('..') || name.length === 0) {
       throw new Error(`无效的技能名：${name}`)
     }
-    const path = join(this.config.skillsDir, name)
+    const skillsDir = await this.resolveSkillsDir(entryDir)
+    const path = join(skillsDir, name)
     const info = await lstat(path).catch(() => undefined)
     if (info === undefined) return false
 
     if (info.isSymbolicLink()) {
       await rm(path)
-      this.ctx.logger.info(`capability-locations: unlinked skill "${name}"`)
+      this.ctx.logger.info(`capability-locations: unlinked skill "${name}" (root ${skillsDir})`)
       return true
     }
     if (info.isDirectory() && (await readSkillManifest(path)) !== undefined) {
       await rm(path, { recursive: true })
-      this.ctx.logger.info(`capability-locations: removed skill directory "${name}"`)
+      this.ctx.logger.info(`capability-locations: removed skill directory "${name}" (root ${skillsDir})`)
       return true
     }
     throw new Error(`「${name}」不是可移除的技能目录`)
@@ -295,9 +345,9 @@ export class LocationRegistry {
    * and link the new one under the same name. The name is the skill's identity
    * in `ctx.skills`, so a rename is a remove + add, not an update.
    */
-  async updateSkill(name: string, dir: string): Promise<boolean> {
-    const rows = await this.listSkills()
-    const existing = rows.find(row => row.name === name)
+  async updateSkill(name: string, dir: string, entryDir?: string): Promise<boolean> {
+    const skillsDir = await this.resolveSkillsDir(entryDir)
+    const existing = await describeSkillEntry(skillsDir, name, entryDir === undefined ? 'user' : 'project')
     if (existing === undefined) return false
     if (!isAbsolute(dir)) throw new Error('skill 目录必须是绝对路径')
     const target = await realpath(dir).catch(() => undefined)
@@ -311,10 +361,88 @@ export class LocationRegistry {
     const current = await realpath(existing.path).catch(() => undefined)
     if (current === target) return false
 
-    await this.removeSkill(name)
-    await symlink(target, join(this.config.skillsDir, name), 'dir')
-    this.ctx.logger.info(`capability-locations: repointed skill "${name}" → ${target}`)
+    await this.removeSkill(name, entryDir)
+    await symlink(target, join(skillsDir, name), 'dir')
+    this.ctx.logger.info(`capability-locations: repointed skill "${name}" → ${target} (root ${skillsDir})`)
     return true
+  }
+}
+
+/**
+ * Describe `<entryDir>/<name>` as a skill entry, or `undefined` when nothing
+ * there looks like one. Used both for listing the user root and for describing
+ * project entries that dsh discovered on its own.
+ */
+export async function describeSkillEntry(
+  entryDir: string,
+  name: string,
+  root: SkillRootKind,
+): Promise<SkillLocation | undefined> {
+  if (name.length === 0 || name.includes('/') || name.includes('..')) return undefined
+  const path = join(entryDir, name)
+  const info = await lstat(path).catch(() => undefined)
+  if (info === undefined) return undefined
+  // A skill entry is either a directory or a link to one.
+  if (!(info.isDirectory() || info.isSymbolicLink())) return undefined
+  const target = await realpath(path).catch(() => undefined)
+  if (target === undefined) return undefined
+  if ((await stat(target).catch(() => undefined))?.isDirectory() !== true) return undefined
+  return {
+    name,
+    path,
+    linked: info.isSymbolicLink(),
+    valid: (await checkSkillManifest(target)).ok,
+    root,
+    entryDir,
+    target,
+  }
+}
+
+/** True when `dir` has the shape of a project skills root. */
+export function isProjectSkillsDir(dir: string): boolean {
+  const owner = basename(dirname(dir))
+  return basename(dir) === 'skills' && (owner === '.dsh' || owner === '.agents')
+}
+
+/** True when `path` exists, of any type. */
+async function pathExists(path: string): Promise<boolean> {
+  return await access(path).then(() => true, () => false)
+}
+
+/**
+ * The project root dsh derives from a working directory: the nearest ancestor
+ * carrying `.git`, falling back to the starting directory when there is none.
+ *
+ * Mirrors `findProjectRoot` in `@deepseek-ai/dsh-skill-filesystem`, which looks
+ * for project skills under `<projectRoot>/.dsh/skills` and
+ * `<projectRoot>/.agents/skills`. A directory placed anywhere else is never
+ * scanned, so this walk has to agree with dsh's exactly — otherwise we would
+ * write entries that nothing ever loads, which is the silent failure this whole
+ * code path exists to avoid.
+ */
+async function findProjectRoot(start: string): Promise<string> {
+  let current = start
+  for (;;) {
+    if (await pathExists(join(current, '.git'))) return current
+    const parent = dirname(current)
+    if (parent === current) return start
+    current = parent
+  }
+}
+
+/**
+ * Guard for a skills directory a caller handed back to us. It must be a
+ * canonical `<projectRoot>/.dsh/skills` (or `.agents/skills`) whose project root
+ * carries `.git` — precisely the condition under which dsh scans it — so
+ * update/remove can never be aimed at a tree dsh does not read.
+ */
+async function assertSkillsDir(dir: string): Promise<void> {
+  if (!isProjectSkillsDir(dir)) {
+    throw new Error(`不是可管理的技能目录（应为 <项目>/.dsh/skills 或 <项目>/.agents/skills）：${dir}`)
+  }
+  const projectRoot = dirname(dirname(dir))
+  if (!(await pathExists(join(projectRoot, '.git')))) {
+    throw new Error(`项目根下没有 .git，dsh 不会扫描该目录：${projectRoot}`)
   }
 }
 
@@ -410,7 +538,7 @@ async function checkSkillManifest(dir: string): Promise<SkillManifestCheck> {
     return manifestProblem(`SKILL.md 的 frontmatter 需要字符串 name 和 description：${dir}`)
   }
   if (!SKILL_NAME_RE.test(name)) {
-    return manifestProblem(`SKILL.md 的 name「${name}」不是合法技能名（需为小写 kebab-case）：${dir}`)
+    return manifestProblem(`SKILL.md 的 name「${name}」不是合法技能名（仅小写字母、数字与连字符，如 my-skill）：${dir}`)
   }
   return checkInvocation(front, dir)
 }

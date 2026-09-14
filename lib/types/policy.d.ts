@@ -204,14 +204,19 @@ export interface CapabilityPolicyService {
     removeLocation(id: string): Promise<boolean>;
     /** Replace a declared server's connection config (`serverName` is immutable). */
     updateLocation(id: string, input: McpUpdateInput): Promise<boolean>;
-    /** Skill directories registered under the default skill root. */
+    /** Skill entries under the user root, plus project entries the skill index knows about. */
     listSkillLocations(): Promise<SkillLocation[]>;
-    /** Register a skill directory by linking it into the default skill root. */
-    addSkillLocation(dir: string): Promise<string>;
-    /** Unregister a skill directory. */
-    removeSkillLocation(name: string): Promise<boolean>;
-    /** Repoint a registered skill at a different directory. */
-    updateSkillLocation(name: string, dir: string): Promise<boolean>;
+    /**
+     * Register a skill directory by linking it into the user root, or into
+     * `<projectRoot>/.dsh/skills` when `projectPath` names a path inside a project
+     * (the project root is derived from it the way dsh derives it). Returns the
+     * entry path actually written.
+     */
+    addSkillLocation(dir: string, projectPath?: string): Promise<string>;
+    /** Unregister a skill entry; `entryDir` addresses a project entry, omit it for the user root. */
+    removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
+    /** Repoint a registered skill entry at a different directory. */
+    updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

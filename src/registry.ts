@@ -182,6 +182,11 @@ export interface CapabilityService {
    * (content containing NUL) return undefined.
    */
   readSkillFile(id: string, relPath: string): Promise<string | undefined>
+  /**
+   * Indexed skills whose provider exposes a filesystem directory, as
+   * `{ name, skillDir }` where `skillDir` is `<entryDir>/<name>`.
+   */
+  skillDirs(): ReadonlyArray<{ readonly name: string; readonly skillDir: string; readonly source?: string }>
   /** Return the current number of indexed capabilities. */
   size(): number
   /**
@@ -498,6 +503,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         origin: {
           provider: skill.provider,
           ...typeof skill.source === 'string' ? { source: skill.source } : {},
+          // The skill's own directory, when its provider has one. It is what lets
+          // the location manager address project-scoped skills for edit/remove.
+          ...skill.resourceBase?.kind === 'directory' ? { path: skill.resourceBase.path } : {},
         },
         parameters: { type: 'object', properties: {}, additionalProperties: false },
         invocation: { modelInvocable: skill.invocation.modelInvocable, userInvocable: skill.invocation.userInvocable },
@@ -899,6 +907,20 @@ export function apply(ctx: Context, config: Config = {}): void {
         ctx.logger.warn(`meta-registry: skill file read failed for "${id}" at ${target}: ${String(error)}`)
         return undefined
       }
+    },
+
+    skillDirs(): ReadonlyArray<{ readonly name: string; readonly skillDir: string; readonly source?: string }> {
+      const out: Array<{ name: string; skillDir: string; source?: string }> = []
+      for (const record of skillRecords.values()) {
+        const skillDir = record.origin.path
+        if (skillDir === undefined) continue
+        out.push({
+          name: record.name,
+          skillDir,
+          ...record.origin.source !== undefined ? { source: record.origin.source } : {},
+        })
+      }
+      return out
     },
 
     size(): number {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, mkdtemp, mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { LocationRegistry } from '../src/locations.ts'
 import { readEntries } from '../src/patch-file.ts'
@@ -153,9 +153,9 @@ describe('locations · skill directories', () => {
     const { registry, skillsDir } = await fixture()
     const source = await writeSkill(join(skillsDir, '..', 'outside'), 'my-skill')
 
-    const name = await registry.addSkill(source)
-    expect(name).toBe('my-skill')
-    expect(await readlink(join(skillsDir, 'my-skill'))).toBe(source)
+    const entry = await registry.addSkill(source)
+    expect(entry).toBe(join(skillsDir, 'my-skill'))
+    expect(await readlink(entry)).toBe(source)
   })
 
   it('rejects a relative path, a missing directory and one without SKILL.md', async () => {
@@ -185,8 +185,68 @@ describe('locations · skill directories', () => {
 
     const rows = await registry.listSkills()
     expect(rows.map(row => row.name)).toEqual(['linked-skill', 'plain-skill'])
-    expect(rows.find(row => row.name === 'linked-skill')).toMatchObject({ linked: true, valid: true })
+    expect(rows.find(row => row.name === 'linked-skill')).toMatchObject({
+      linked: true,
+      valid: true,
+      root: 'user',
+      entryDir: skillsDir,
+      // The resolved source, which is what the edit form should prefill.
+      target: linked,
+    })
     expect(rows.find(row => row.name === 'plain-skill')).toMatchObject({ linked: false, valid: false })
+  })
+
+  it('registers into a project root derived from any path inside it', async () => {
+    const { registry, skillsDir } = await fixture()
+    const base = dirname(skillsDir)
+    // dsh only scans `<projectRoot>/.dsh/skills`, and only finds the root by
+    // walking up to the nearest `.git`, so a path nested inside the project has
+    // to resolve to the project root — writing next to the cwd would land in a
+    // directory dsh never reads.
+    await mkdir(join(base, 'proj', '.git'), { recursive: true })
+    await mkdir(join(base, 'proj', 'src', 'deep'), { recursive: true })
+    const source = await writeSkill(join(base, 'outside-proj'), 'proj-skill')
+
+    const entry = await registry.addSkill(source, join(base, 'proj', 'src', 'deep'))
+    expect(entry).toBe(join(base, 'proj', '.dsh', 'skills', 'proj-skill'))
+    expect(await readlink(entry)).toBe(source)
+  })
+
+  it('falls back to the given path when nothing above it is a repository', async () => {
+    const { registry, skillsDir } = await fixture()
+    const base = dirname(skillsDir)
+    const loose = join(base, 'loose')
+    await mkdir(loose, { recursive: true })
+    const source = await writeSkill(join(base, 'outside-loose'), 'loose-skill')
+
+    // Mirrors dsh: with no `.git` anywhere up the tree the project root *is* the
+    // working directory, so the skills dir belongs directly under it.
+    expect(await registry.addSkill(source, loose)).toBe(join(loose, '.dsh', 'skills', 'loose-skill'))
+  })
+
+  it('refuses to act through a directory that is not a valid project root', async () => {
+    const { registry, skillsDir } = await fixture()
+    const base = dirname(skillsDir)
+    await mkdir(join(base, 'nogit', '.dsh', 'skills'), { recursive: true })
+
+    // Right shape, no repository: dsh would not scan it, so we must not write or
+    // delete inside it either.
+    await expect(registry.removeSkill('x', join(base, 'nogit', '.dsh', 'skills')))
+      .rejects.toThrow(/没有 \.git/)
+    await expect(registry.removeSkill('x', join(base, 'elsewhere')))
+      .rejects.toThrow(/不是可管理的技能目录/)
+  })
+
+  it('unregisters a project entry from its own root, leaving the user root alone', async () => {
+    const { registry, skillsDir } = await fixture()
+    const base = dirname(skillsDir)
+    await mkdir(join(base, 'proj-remove', '.git'), { recursive: true })
+    const source = await writeSkill(join(base, 'outside-remove'), 'proj-remove-skill')
+    const entry = await registry.addSkill(source, join(base, 'proj-remove'))
+
+    expect(await registry.removeSkill('proj-remove-skill', dirname(entry))).toBe(true)
+    expect(await lstat(entry).catch(() => undefined)).toBeUndefined()
+    expect(await registry.listSkills()).toHaveLength(0)
   })
 
   it('repoints a registered skill at another directory', async () => {
@@ -318,7 +378,7 @@ describe('locations · skill directories', () => {
         `---\nname: ${name}\ndescription: d\ndisable-model-invocation: ${value}\n---\nBody.\n`,
       )
       // Over-rejecting here would refuse manifests dsh loads happily.
-      await expect(registry.addSkill(dir)).resolves.toBe(name)
+      await expect(registry.addSkill(dir)).resolves.toBe(join(skillsDir, name))
     }
   })
 
@@ -329,7 +389,7 @@ describe('locations · skill directories', () => {
 
     // dsh keys the skill by the frontmatter name; the directory name only names
     // our symlink. Registering is allowed, matching the loader's own tolerance.
-    expect(await registry.addSkill(source)).toBe('dir-name')
+    expect(await registry.addSkill(source)).toBe(join(skillsDir, 'dir-name'))
   })
 
   it('marks an unloadable manifest invalid but still allows removal', async () => {

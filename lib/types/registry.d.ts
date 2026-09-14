@@ -165,6 +165,15 @@ export interface CapabilityService {
      * (content containing NUL) return undefined.
      */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
+    /**
+     * Indexed skills whose provider exposes a filesystem directory, as
+     * `{ name, skillDir }` where `skillDir` is `<entryDir>/<name>`.
+     */
+    skillDirs(): ReadonlyArray<{
+        readonly name: string;
+        readonly skillDir: string;
+        readonly source?: string;
+    }>;
     /** Return the current number of indexed capabilities. */
     size(): number;
     /**

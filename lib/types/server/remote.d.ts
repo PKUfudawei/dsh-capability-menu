@@ -80,14 +80,27 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     removeLocation(id: string): Promise<boolean>;
     /** Replace a declared MCP server's connection config. */
     updateLocation(id: string, input: McpUpdateInput): Promise<boolean>;
-    /** Skill directories registered under the default skill root. */
+    /**
+     * Skill entries the operator can manage: everything under the user root, plus
+     * the project-scoped entries the skill index knows about.
+     *
+     * dsh discovers a project's skills from `<projectRoot>/.dsh/skills` and
+     * `<projectRoot>/.agents/skills` for whichever project the *session* cwd sits
+     * in, so reading the user root alone cannot see them. The index records each
+     * skill's own directory, which is what lets these rows be edited and removed
+     * rather than merely listed.
+     */
     listSkillLocations(): Promise<SkillLocation[]>;
-    /** Register a skill directory by linking it into the default skill root. */
-    addSkillLocation(dir: string): Promise<string>;
-    /** Unregister a skill directory. */
-    removeSkillLocation(name: string): Promise<boolean>;
-    /** Repoint a registered skill at a different directory. */
-    updateSkillLocation(name: string, dir: string): Promise<boolean>;
+    /**
+     * Register a skill directory: into the user root by default, or into a
+     * project's `.dsh/skills` when `projectPath` names a path inside that project.
+     * Returns the entry path actually written so the UI can report it.
+     */
+    addSkillLocation(dir: string, projectPath?: string): Promise<string>;
+    /** Unregister a skill entry; `entryDir` addresses a project entry. */
+    removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
+    /** Repoint a registered skill entry at a different directory. */
+    updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>;
 }
 /** Register the remote gateway on a context. */
 export declare const name = "capability-menu-remote";

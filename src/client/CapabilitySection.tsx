@@ -33,7 +33,7 @@ import type {
 } from './store.ts'
 import { loadSnapshot, unwrap } from './store.ts'
 import { LocationModal } from './LocationModal.tsx'
-import { BUILT_IN_SERVER } from '../constants.ts'
+import { BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
@@ -41,8 +41,6 @@ export interface CapabilitySectionInjected {
   t(key: CapabilityKey, params?: Record<string, unknown>): string
   /** Diagnostic: `$mount` failure surfaced instead of crashing the section. */
   mountError?: string
-  /** Diagnostic: namespace methods actually installed on `ctx.remote.capabilityPolicy`. */
-  remoteKeys?: string
 }
 
 export type CapabilitySectionProps = CapabilitySectionInjected
@@ -81,23 +79,42 @@ export type CapabilityKey =
   | 'refresh'
   | 'refreshing'
   | 'refreshFailed'
+  | 'retry'
+  | 'carrierFailureHint'
   | 'registerCapability'
   | 'editMcp'
-  | 'editSkill'
+  | 'editSkillNamed'
   | 'edit'
   | 'save'
   | 'remove'
+  | 'cancel'
+  | 'confirmRemove'
+  | 'confirmRemoveMcp'
+  | 'confirmRemoveSkillLink'
+  | 'confirmRemoveSkillDir'
   | 'register'
   | 'notEditable'
   | 'entryNotFound'
   | 'mcpServers'
   | 'skillDirs'
-  | 'skillName'
   | 'skillDirPath'
   | 'skillDirHint'
+  | 'skillRoot'
+  | 'skillRootUser'
+  | 'skillRootProject'
+  | 'skillRootHintUser'
+  | 'skillRootHintProject'
+  | 'skillProjectPath'
+  | 'skillProjectPathHint'
+  | 'skillRegisteredAt'
+  | 'skillRepointed'
   | 'serverName'
   | 'serverNameImmutable'
   | 'transport'
+  | 'transportStdio'
+  | 'transportHttp'
+  | 'transportHintStdio'
+  | 'transportHintHttp'
   | 'command'
   | 'args'
   | 'cwd'
@@ -220,7 +237,9 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-tag{font-size:11px;line-height:18px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary)}
 .mc-empty{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:8px}
 .mc-error{padding:12px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:13px}
-.mc-error pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.mc-error p{margin:0}
+.mc-error p.mc-error-hint{margin-top:8px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.mc-error-actions{display:flex;justify-content:flex-end;margin-top:10px}
 .mc-notice{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
 .mc-skill{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
 .mc-skill-row{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:0 0;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -257,9 +276,6 @@ interface Grouped {
   skills: CapabilityRow[]
 }
 
-/** Skills whose source root lives inside the current project. */
-const PROJECT_SOURCES = new Set(['project-dsh', 'project-agents'])
-
 function groupRows(rows: readonly CapabilityRow[]): Grouped {
   const byServer = new Map<string, CapabilityRow[]>()
   const skills: CapabilityRow[] = []
@@ -284,7 +300,7 @@ function countByClass(rows: readonly CapabilityRow[], cls: CapabilityClass): num
 }
 
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
-  const { remote, t, mountError, remoteKeys } = props
+  const { remote, t, mountError } = props
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -405,7 +421,16 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       {state.status === 'error' && (
         <div className="mc-error">
           <p>{state.message}</p>
-          <pre>{`mountError=${String(mountError)}\nremoteKeys=${String(remoteKeys)}`}</pre>
+          {/* `gateway/internal: … failed: Failed to fetch` means the request never
+              reached the server — the browser's carrier died, typically a tab
+              still holding the dsh process that has since restarted. Say so,
+              because "Failed to fetch" alone reads like a plugin bug. */}
+          {state.message.includes('Failed to fetch') && <p className="mc-error-hint">{t('carrierFailureHint')}</p>}
+          {/* The one recovery path: without it the panel is a dead end, since the
+              header's 刷新 button only exists in the ready body. */}
+          <div className="mc-error-actions">
+            <button type="button" className="mc-catalog-btn" onClick={() => void reload()}>{t('retry')}</button>
+          </div>
         </div>
       )}
       {notice !== null && <div className="mc-notice">{notice}</div>}
@@ -447,8 +472,8 @@ function ReadyBody(props: {
   // Skills whose source root is inside the current project vs. everything else
   // (user/global dirs, bundled, custom, runtime); skills without a source label
   // belong to the global group.
-  const projectSkills = skills.filter(skill => PROJECT_SOURCES.has(skill.source ?? ''))
-  const globalSkills = skills.filter(skill => !PROJECT_SOURCES.has(skill.source ?? ''))
+  const projectSkills = skills.filter(skill => PROJECT_SKILL_SOURCES.has(skill.source ?? ''))
+  const globalSkills = skills.filter(skill => !PROJECT_SKILL_SOURCES.has(skill.source ?? ''))
   // Which sub-tab the Skills panel shows. Persists across top-tab switches.
   const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
   // Per-tab statistics: the Tools tab counts tool rows; the Skills tab counts
@@ -529,11 +554,17 @@ function ReadyBody(props: {
     }
   }, [remote, t, onNotice])
 
-  /** Open the 编辑 form for a skill registered under the skill root. */
-  const openSkillEdit = useCallback(async (name: string) => {
+  /**
+   * Open the 编辑 form for a managed skill entry. A bare name can exist in both
+   * the user root and a project root, so the row's source decides which entry
+   * the click meant; without it we fall back to the first match.
+   */
+  const openSkillEdit = useCallback(async (name: string, source?: string) => {
     try {
       const rows = unwrap(await remote.listSkillLocations(), 'capabilityPolicy.listSkillLocations')
-      const found = rows.find(row => row.name === name)
+      const wanted: 'project' | 'user' = PROJECT_SKILL_SOURCES.has(source ?? '') ? 'project' : 'user'
+      const found = rows.find(row => row.name === name && row.root === wanted)
+        ?? rows.find(row => row.name === name)
       if (found === undefined) {
         onNotice(t('notEditable'))
         return
@@ -822,7 +853,12 @@ function ReadyBody(props: {
             setEditMcp(undefined)
             setEditSkill(undefined)
           }}
-          onChanged={onRefresh}
+          onChanged={notice => {
+            onRefresh()
+            // A registration that lands in a project root is worth reporting:
+            // whether it is visible depends on which project the session runs in.
+            if (notice !== undefined) onNotice(notice)
+          }}
         />
       )}
 
@@ -906,7 +942,7 @@ function SkillList(props: {
   onCycle: (ids: readonly string[], kind: 'skill') => void
   /** Names registered under the skill root; only those show a 编辑 button. */
   editableSkills: ReadonlySet<string>
-  onEditSkill: (name: string) => void
+  onEditSkill: (name: string, source?: string) => void
 }): JSX.Element {
   const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill } = props
   const [openSkill, setOpenSkill] = useState<string | null>(null)
@@ -1068,7 +1104,7 @@ function SkillList(props: {
                     disabled={busy}
                     onClick={(e: { stopPropagation(): void }) => {
                       e.stopPropagation()
-                      onEditSkill(skill.id)
+                      onEditSkill(skill.id, skill.source)
                     }}
                   >
                     {t('edit')}

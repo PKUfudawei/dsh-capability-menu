@@ -18,7 +18,10 @@ import type {
 } from '../policy.ts'
 import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
 import { BUILT_IN_SERVER } from '../registry.ts'
+import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
+import { PROJECT_SKILL_SOURCES } from '../constants.ts'
+import { dirname, resolve } from 'node:path'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
 // policy.ts; a type-only `import {}` does not reliably apply it across install
@@ -213,28 +216,53 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capabilityPolicy.updateLocation(id, input)
   }
 
-  /** Skill directories registered under the default skill root. */
+  /**
+   * Skill entries the operator can manage: everything under the user root, plus
+   * the project-scoped entries the skill index knows about.
+   *
+   * dsh discovers a project's skills from `<projectRoot>/.dsh/skills` and
+   * `<projectRoot>/.agents/skills` for whichever project the *session* cwd sits
+   * in, so reading the user root alone cannot see them. The index records each
+   * skill's own directory, which is what lets these rows be edited and removed
+   * rather than merely listed.
+   */
   @Remote('listSkillLocations')
   async listSkillLocations(): Promise<SkillLocation[]> {
-    return this.ctx.capabilityPolicy.listSkillLocations()
+    const rows = [...await this.ctx.capabilityPolicy.listSkillLocations()]
+    const seen = new Set(rows.map(row => `${row.entryDir}\u0000${row.name}`))
+    for (const entry of this.ctx.capability.skillDirs()) {
+      if (!PROJECT_SKILL_SOURCES.has(entry.source ?? '')) continue
+      const entryDir = dirname(entry.skillDir)
+      if (!isProjectSkillsDir(entryDir)) continue
+      const key = `${resolve(entryDir)}\u0000${entry.name}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const row = await describeSkillEntry(entryDir, entry.name, 'project')
+      if (row !== undefined) rows.push(row)
+    }
+    return rows
   }
 
-  /** Register a skill directory by linking it into the default skill root. */
+  /**
+   * Register a skill directory: into the user root by default, or into a
+   * project's `.dsh/skills` when `projectPath` names a path inside that project.
+   * Returns the entry path actually written so the UI can report it.
+   */
   @Remote('addSkillLocation')
-  async addSkillLocation(dir: string): Promise<string> {
-    return this.ctx.capabilityPolicy.addSkillLocation(dir)
+  async addSkillLocation(dir: string, projectPath?: string): Promise<string> {
+    return this.ctx.capabilityPolicy.addSkillLocation(dir, projectPath)
   }
 
-  /** Unregister a skill directory. */
+  /** Unregister a skill entry; `entryDir` addresses a project entry. */
   @Remote('removeSkillLocation')
-  async removeSkillLocation(name: string): Promise<boolean> {
-    return this.ctx.capabilityPolicy.removeSkillLocation(name)
+  async removeSkillLocation(name: string, entryDir?: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.removeSkillLocation(name, entryDir)
   }
 
-  /** Repoint a registered skill at a different directory. */
+  /** Repoint a registered skill entry at a different directory. */
   @Remote('updateSkillLocation')
-  async updateSkillLocation(name: string, dir: string): Promise<boolean> {
-    return this.ctx.capabilityPolicy.updateSkillLocation(name, dir)
+  async updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.updateSkillLocation(name, dir, entryDir)
   }
 }
 

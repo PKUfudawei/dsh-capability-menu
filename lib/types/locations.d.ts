@@ -28,9 +28,12 @@ export interface McpLocation {
     /** Per-tool-call timeout in milliseconds (`dsh-mcp-client` default 60000). */
     readonly toolCallTimeoutMs?: number;
 }
-/** One skill directory registered under the default skill root. */
+/** Which skill root an entry lives in. */
+export type SkillRootKind = 'user' | 'project';
+/** One skill entry under a managed skill root. */
 export interface SkillLocation {
     readonly name: string;
+    /** The entry itself: `<entryDir>/<name>`, a symlink or a real directory. */
     readonly path: string;
     /** True when the entry is a symlink to a directory outside the skill root. */
     readonly linked: boolean;
@@ -39,6 +42,16 @@ export interface SkillLocation {
      * that is not a YAML mapping with a kebab-case `name` and a `description`.
      */
     readonly valid: boolean;
+    /** `user` for the default root, `project` for a project's own skill root. */
+    readonly root: SkillRootKind;
+    /**
+     * The skills directory holding the entry (`…/.dsh/skills` or
+     * `…/.agents/skills`). Opaque to callers: pass it back to update or remove,
+     * rather than rebuilding it from parts.
+     */
+    readonly entryDir: string;
+    /** The directory the entry points at, with symlinks resolved. */
+    readonly target?: string;
 }
 /**
  * Input for editing a declared MCP server. `serverName` is deliberately absent:
@@ -76,20 +89,42 @@ export declare class LocationRegistry {
      */
     updateMcp(id: string, input: McpUpdateInput): Promise<boolean>;
     private hasMcp;
-    /** Every entry under the default skill root. */
+    /** Every entry under the default (user) skill root. */
     listSkills(): Promise<SkillLocation[]>;
-    /** Register a skill directory by symlinking it into the default skill root. */
-    addSkill(dir: string): Promise<string>;
     /**
-     * Unregister a skill directory. Only removes a symlink or a directory that
+     * Which skills directory an operation targets.
+     *
+     * `entryDir` comes back from a listing and is taken as given, but validated —
+     * a caller must not be able to aim `remove` at an arbitrary tree. Otherwise,
+     * `projectPath` is a path *inside* a project and the project root is derived
+     * from it exactly the way dsh derives it; with neither, the user root.
+     */
+    private resolveSkillsDir;
+    /**
+     * Register a skill directory by symlinking it into a managed root — the user
+     * root by default, or a project's `.dsh/skills` when `projectPath` is given.
+     * Returns the entry path actually written, so the caller can report where the
+     * skill landed instead of leaving the operator to guess.
+     */
+    addSkill(dir: string, projectPath?: string): Promise<string>;
+    /**
+     * Unregister a skill entry. Only removes a symlink or a directory that
      * actually carries a `SKILL.md` — never an arbitrary file.
      */
-    removeSkill(name: string): Promise<boolean>;
+    removeSkill(name: string, entryDir?: string): Promise<boolean>;
     /**
      * Repoint a registered skill at a different directory: unlink the old entry
      * and link the new one under the same name. The name is the skill's identity
      * in `ctx.skills`, so a rename is a remove + add, not an update.
      */
-    updateSkill(name: string, dir: string): Promise<boolean>;
+    updateSkill(name: string, dir: string, entryDir?: string): Promise<boolean>;
 }
+/**
+ * Describe `<entryDir>/<name>` as a skill entry, or `undefined` when nothing
+ * there looks like one. Used both for listing the user root and for describing
+ * project entries that dsh discovered on its own.
+ */
+export declare function describeSkillEntry(entryDir: string, name: string, root: SkillRootKind): Promise<SkillLocation | undefined>;
+/** True when `dir` has the shape of a project skills root. */
+export declare function isProjectSkillsDir(dir: string): boolean;
 //# sourceMappingURL=locations.d.ts.map

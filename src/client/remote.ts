@@ -80,12 +80,18 @@ export interface McpLocation {
   readonly toolCallTimeoutMs?: number
 }
 
-/** One skill directory registered under the default skill root. */
+/** One skill entry under a managed skill root (the user root or a project's). */
 export interface SkillLocation {
   readonly name: string
   readonly path: string
   readonly linked: boolean
   readonly valid: boolean
+  /** `user` for the default root, `project` for a project's own skill root. */
+  readonly root: 'user' | 'project'
+  /** The skills directory holding the entry; pass it back to update or remove. */
+  readonly entryDir: string
+  /** The directory the entry points at, with symlinks resolved. */
+  readonly target?: string
 }
 
 /** Input for registering a new MCP server. */
@@ -125,6 +131,9 @@ const skillLocation$schema = z.object({
   path: z.string().readonly(),
   linked: z.boolean().readonly(),
   valid: z.boolean().readonly(),
+  root: z.union([z.literal('user'), z.literal('project')]).readonly(),
+  entryDir: z.string().readonly(),
+  target: z.string().optional().readonly(),
 })
 
 const mcpInput$schema = z.object({
@@ -215,9 +224,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     removeLocation: (id: string) => Promise<RemoteResult<boolean>>
     updateLocation: (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>
-    addSkillLocation: (dir: string) => Promise<RemoteResult<string>>
-    removeSkillLocation: (name: string) => Promise<RemoteResult<boolean>>
-    updateSkillLocation: (name: string, dir: string) => Promise<RemoteResult<boolean>>
+    addSkillLocation: (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
+    removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteMap {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
@@ -233,9 +242,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/updateLocation': (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>
-    'capabilityPolicy/addSkillLocation': (dir: string) => Promise<RemoteResult<string>>
-    'capabilityPolicy/removeSkillLocation': (name: string) => Promise<RemoteResult<boolean>>
-    'capabilityPolicy/updateSkillLocation': (name: string, dir: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/addSkillLocation': (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
+    'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379
@@ -390,7 +399,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [],
       result: { mode: 'strict', typeSymbol: '@daweifu/capability-menu#SkillLocation[]', schema: z.array(skillLocation$schema) },
-      sourceLocation: { file: 'src/server/remote.ts', line: 217, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 229, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/addSkillLocation',
@@ -400,9 +409,10 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [
         { name: 'dir', wire: 'dir', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'projectPath', wire: 'projectPath', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() } },
       ],
       result: { mode: 'strict', typeSymbol: 'string', schema: z.string() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 223, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 252, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/removeSkillLocation',
@@ -412,9 +422,10 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [
         { name: 'name', wire: 'name', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() } },
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 229, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 258, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/updateSkillLocation',
@@ -425,9 +436,10 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [
         { name: 'name', wire: 'name', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
         { name: 'dir', wire: 'dir', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: z.string() } },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'string', schema: z.string().optional() } },
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
-      sourceLocation: { file: 'src/server/remote.ts', line: 235, column: 3 },
+      sourceLocation: { file: 'src/server/remote.ts', line: 264, column: 3 },
     },
   ],
 }

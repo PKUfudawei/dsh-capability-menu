@@ -52,9 +52,9 @@ export interface CapabilityPolicyRemote {
   removeLocation(id: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   updateLocation(id: string, input: McpUpdateInput): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   listSkillLocations(): Promise<{ ok: true; value: SkillLocation[] } | { ok: false; error: { code: string; message: string } }>
-  addSkillLocation(dir: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
-  removeSkillLocation(name: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
-  updateSkillLocation(name: string, dir: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  addSkillLocation(dir: string, projectPath?: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
+  removeSkillLocation(name: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */

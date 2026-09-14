@@ -36,27 +36,43 @@ export interface LocationModalProps {
   /** 编辑 mode: the skill directory being edited. */
   editSkill?: SkillLocation
   onClose: () => void
-  onChanged: () => void
+  /** Runs after a successful mutation; `notice` reports what changed, when worth saying. */
+  onChanged: (notice?: string) => void
 }
 
 const CSS_ID = 'capability-menu-location-css'
 const CSS = `
 .lm-block{display:flex;flex-direction:column;gap:8px}
-.lm-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0}
-.lm-tag{font-size:11px;line-height:18px;padding:0 6px;border-radius:4px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary)}
 .lm-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .lm-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
 .lm-btn--danger:hover{color:#b3261e;border-color:#b3261e}
 .lm-btn:disabled{opacity:.55;cursor:default}
+/* Each field is its own two-column grid with a fixed label track.
+   A single form-wide grid looked tidier but was fragile: it needed
+   .lm-field{display:contents}, which turned every hint into a free-floating grid
+   item, and one extra half-width item pushed the following labels into column 2 and
+   their inputs into column 1 — which is exactly how the streamable-http layout got
+   scrambled (that branch has an odd number of items). Per-field grids mean a hint
+   can only ever affect its own field, and a fixed label track (rather than
+   min-width, which sizes per row) keeps every label column identical. */
 .lm-form{display:flex;flex-direction:column;gap:6px}
-.lm-field{display:flex;align-items:flex-start;gap:8px}
-.lm-label{font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);min-width:104px;flex:none}
-.lm-input{flex:1 1 auto;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:12px;line-height:20px;padding:2px 8px}
+.lm-field{--lm-label-w:104px;display:grid;grid-template-columns:var(--lm-label-w) 1fr;gap:2px 8px;align-items:start}
+.lm-label{grid-column:1;min-width:0;overflow-wrap:anywhere;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+/* width:100% must come with border-box: the field carries a 1px border plus 8px of
+   padding, which would otherwise overflow the column and clip. */
+.lm-input{grid-column:2;width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:12px;line-height:20px;padding:2px 8px}
 .lm-input:disabled{opacity:.6}
 textarea.lm-input{resize:vertical;font-family:var(--dsw-font-markdown-code-block-font-family)}
-.lm-hint{margin:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+/* Lives inside its field, in the content column: it lines up with the box it
+   annotates and takes the caption colour so it does not read as another label. */
+.lm-hint{grid-column:2;margin:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 .lm-error{margin:0;font-size:12px;color:#b3261e;word-break:break-word}
-.lm-actions{display:flex;gap:8px;padding:4px 0 0}
+.lm-actions{display:flex;gap:8px;justify-content:flex-end;padding:4px 0 0}
+/* Removal is irreversible, so it takes over the action row for one confirmation
+   step: the message states the consequence, then the buttons act. */
+.lm-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid #b3261e;border-radius:6px}
+.lm-confirm-msg{flex:1 1 auto;margin:0;font-size:12px;line-height:18px;word-break:break-word}
+.lm-confirm-actions{display:flex;gap:8px;flex-shrink:0}
 /* The modal shell itself carries no padding (it is shared with the read-only
    catalog viewer, whose body supplies its own); the form supplies it here. */
 .lm-body{padding:14px 16px;overflow:auto;flex:1 1 auto;min-height:0}
@@ -101,10 +117,16 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   )
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 移除 takes over the action row for one confirmation step. */
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   // MCP form. Prefilled from the entry when editing; `serverName` stays fixed.
   const [serverName, setServerName] = useState(editMcp?.serverName ?? '')
-  const [transport, setTransport] = useState<Transport>(editMcp?.transport ?? 'stdio')
+  // Registration defaults to streamable-http: it needs only a URL, and it is what
+  // a service-hosted MCP endpoint looks like. dsh's own contract marks `transport`
+  // required with no default, so the form is free to pick the cheaper one; edit
+  // mode always follows the row being edited.
+  const [transport, setTransport] = useState<Transport>(editMcp?.transport ?? 'streamable-http')
   const [command, setCommand] = useState(editMcp?.command ?? '')
   const [args, setArgs] = useState((editMcp?.args ?? []).join(' '))
   const [cwd, setCwd] = useState(editMcp?.cwd ?? '')
@@ -114,24 +136,30 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   const [timeoutSec, setTimeoutSec] = useState(
     editMcp?.toolCallTimeoutMs === undefined ? '' : String(Math.round(editMcp.toolCallTimeoutMs / 1000)),
   )
-  // Skill form
-  const [skillDir, setSkillDir] = useState(editSkill?.path ?? '')
+  // Skill form. `target` is the directory the entry points at, so editing shows
+  // the real source rather than our own symlink under the skill root.
+  const [skillDir, setSkillDir] = useState(editSkill?.target ?? editSkill?.path ?? '')
+  const [skillRoot, setSkillRoot] = useState<'user' | 'project'>(editSkill?.root ?? 'user')
+  /** A path inside the project; the server derives the project root from it. */
+  const [projectPath, setProjectPath] = useState('')
 
   const title = useMemo(() => {
     if (editMcp !== undefined) return t('editMcp')
-    if (editSkill !== undefined) return t('editSkill')
+    // A skill's name is derived (and immutable), so it is stated here rather than
+    // given a field that would only ever look editable-but-disabled.
+    if (editSkill !== undefined) return t('editSkillNamed', { name: editSkill.name })
     return t('registerCapability')
   }, [editMcp, editSkill, t])
 
   /** Run a mutation; on success close and ask the parent to re-pull. */
-  const submit = useCallback(async (action: () => Promise<unknown>) => {
+  const submit = useCallback(async (action: () => Promise<unknown>, noticeFor?: (result: unknown) => string) => {
     if (busy) return
     setBusy(true)
     try {
       const changed = await action()
       if (changed === false) throw new Error(t('entryNotFound'))
       setError(null)
-      onChanged()
+      onChanged(noticeFor?.(changed))
       onClose()
     } catch (e) {
       setError(String(e))
@@ -170,10 +198,16 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   }, [submit, remote, editMcp, serverName, transport, command, args, cwd, env, url, headers, timeoutSec, t])
 
   const submitSkill = useCallback(() => {
-    void submit(async () => editSkill !== undefined
-      ? unwrapMessage(await remote.updateSkillLocation(editSkill.name, skillDir.trim()))
-      : unwrapMessage(await remote.addSkillLocation(skillDir.trim())))
-  }, [submit, remote, editSkill, skillDir])
+    const asked = skillRoot === 'project' ? projectPath.trim() : undefined
+    void submit(
+      async () => editSkill !== undefined
+        ? unwrapMessage(await remote.updateSkillLocation(editSkill.name, skillDir.trim(), editSkill.entryDir))
+        : unwrapMessage(await remote.addSkillLocation(skillDir.trim(), asked)),
+      result => editSkill !== undefined
+        ? t('skillRepointed', { dir: skillDir.trim() })
+        : t('skillRegisteredAt', { path: String(result) }),
+    )
+  }, [submit, remote, editSkill, skillDir, skillRoot, projectPath, t])
 
   const remove = useCallback(() => {
     if (editMcp !== undefined) {
@@ -181,9 +215,51 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
       return
     }
     if (editSkill !== undefined) {
-      void submit(async () => unwrapMessage(await remote.removeSkillLocation(editSkill.name)))
+      void submit(async () => unwrapMessage(await remote.removeSkillLocation(editSkill.name, editSkill.entryDir)))
     }
   }, [submit, remote, editMcp, editSkill])
+
+  /**
+   * What removal actually costs, which differs by target: an MCP row only loses
+   * its config, a linked skill only loses its symlink — but `removeSkill`
+   * recursively deletes a *real* directory in the skill root, so that case has to
+   * say so before the click, not after.
+   */
+  const removalWarning = useMemo(() => {
+    if (editMcp !== undefined) return t('confirmRemoveMcp', { name: editMcp.serverName })
+    if (editSkill === undefined) return ''
+    return editSkill.linked
+      ? t('confirmRemoveSkillLink', { name: editSkill.name })
+      : t('confirmRemoveSkillDir', { name: editSkill.name })
+  }, [editMcp, editSkill, t])
+
+  /** The action row, or the confirmation step that replaces it once 移除 is pressed. */
+  const renderActions = (onSubmit: () => void): JSX.Element => confirmRemove
+    ? (
+      <div className="lm-confirm" role="alert">
+        <p className="lm-confirm-msg">{removalWarning}</p>
+        <div className="lm-confirm-actions">
+          <button type="button" className="lm-btn" disabled={busy} onClick={() => setConfirmRemove(false)}>
+            {t('cancel')}
+          </button>
+          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => void remove()}>
+            {t('confirmRemove')}
+          </button>
+        </div>
+      </div>
+    )
+    : (
+      <div className="lm-actions">
+        <button type="button" className="lm-btn" disabled={busy} onClick={onSubmit}>
+          {editing ? t('save') : t('register')}
+        </button>
+        {editing && (
+          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => setConfirmRemove(true)}>
+            {t('remove')}
+          </button>
+        )}
+      </div>
+    )
 
   return (
     <div className="mc-preview-mask" onClick={onClose}>
@@ -229,6 +305,24 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
             ? (
               <div className="lm-block">
                 <div className="lm-form">
+                  {/* Transport first: it is the only field that decides which
+                      fields follow, and in edit mode the fields above it would
+                      otherwise be the read-only one. Mirrors the order of the
+                      dsh-mcp-client config contract (transport, then serverName). */}
+                  <div className="lm-field">
+                    <span className="lm-label">{t('transport')}</span>
+                    <select
+                      className="lm-input"
+                      value={transport}
+                      onChange={e => setTransport(e.target.value === 'stdio' ? 'stdio' : 'streamable-http')}
+                    >
+                      <option value="stdio">{t('transportStdio')}</option>
+                      <option value="streamable-http">{t('transportHttp')}</option>
+                    </select>
+                    <p className="lm-hint">
+                      {transport === 'stdio' ? t('transportHintStdio') : t('transportHintHttp')}
+                    </p>
+                  </div>
                   <div className="lm-field">
                     <span className="lm-label">{t('serverName')}</span>
                     <input
@@ -237,18 +331,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                       disabled={editMcp !== undefined}
                       onChange={e => setServerName(e.target.value)}
                     />
-                  </div>
-                  {editMcp !== undefined && <p className="lm-hint">{t('serverNameImmutable')}</p>}
-                  <div className="lm-field">
-                    <span className="lm-label">{t('transport')}</span>
-                    <select
-                      className="lm-input"
-                      value={transport}
-                      onChange={e => setTransport(e.target.value === 'stdio' ? 'stdio' : 'streamable-http')}
-                    >
-                      <option value="stdio">stdio</option>
-                      <option value="streamable-http">streamable-http</option>
-                    </select>
+                    {editMcp !== undefined && <p className="lm-hint">{t('serverNameImmutable')}</p>}
                   </div>
                   {transport === 'stdio'
                     ? (
@@ -280,8 +363,8 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                         <div className="lm-field">
                           <span className="lm-label">{t('headers')}</span>
                           <textarea className="lm-input" rows={4} value={headers} onChange={e => setHeaders(e.target.value)} />
+                          <p className="lm-hint">{t('headersHint')}</p>
                         </div>
-                        <p className="lm-hint">{t('headersHint')}</p>
                       </>
                     )}
                   <div className="lm-field">
@@ -293,41 +376,49 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                       onChange={e => setTimeoutSec(e.target.value)}
                     />
                   </div>
-                  <div className="lm-actions">
-                    <button type="button" className="lm-btn" disabled={busy} onClick={() => void submitMcp()}>
-                      {editMcp !== undefined ? t('save') : t('register')}
-                    </button>
-                    {editMcp !== undefined && (
-                      <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => void remove()}>
-                        {t('remove')}
-                      </button>
-                    )}
-                  </div>
+                  {renderActions(() => void submitMcp())}
                 </div>
               </div>
             )
             : (
               <div className="lm-block">
                 <div className="lm-form">
+                  {/* Which root the skill lands in. Editing never moves an entry
+                      between roots (a move is remove + register), so it is shown
+                      read-only there. */}
                   <div className="lm-field">
-                    <span className="lm-label">{t('skillName')}</span>
-                    <input className="lm-input" value={editSkill?.name ?? ''} disabled placeholder="—" />
+                    <span className="lm-label">{t('skillRoot')}</span>
+                    {editSkill !== undefined
+                      ? <input className="lm-input" value={t(editSkill.root === 'project' ? 'skillRootProject' : 'skillRootUser')} disabled />
+                      : (
+                        <select
+                          className="lm-input"
+                          value={skillRoot}
+                          onChange={e => setSkillRoot(e.target.value === 'project' ? 'project' : 'user')}
+                        >
+                          <option value="user">{t('skillRootUser')}</option>
+                          <option value="project">{t('skillRootProject')}</option>
+                        </select>
+                      )}
+                    <p className="lm-hint">
+                      {skillRoot === 'project' || editSkill?.root === 'project'
+                        ? t('skillRootHintProject')
+                        : t('skillRootHintUser')}
+                    </p>
                   </div>
+                  {editSkill === undefined && skillRoot === 'project' && (
+                    <div className="lm-field">
+                      <span className="lm-label">{t('skillProjectPath')}</span>
+                      <input className="lm-input" value={projectPath} onChange={e => setProjectPath(e.target.value)} />
+                      <p className="lm-hint">{t('skillProjectPathHint')}</p>
+                    </div>
+                  )}
                   <div className="lm-field">
                     <span className="lm-label">{t('skillDirPath')}</span>
                     <input className="lm-input" value={skillDir} onChange={e => setSkillDir(e.target.value)} />
+                    <p className="lm-hint">{t('skillDirHint')}</p>
                   </div>
-                  <p className="lm-hint">{t('skillDirHint')}</p>
-                  <div className="lm-actions">
-                    <button type="button" className="lm-btn" disabled={busy} onClick={() => void submitSkill()}>
-                      {editSkill !== undefined ? t('save') : t('register')}
-                    </button>
-                    {editSkill !== undefined && (
-                      <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => void remove()}>
-                        {t('remove')}
-                      </button>
-                    )}
-                  </div>
+                  {renderActions(() => void submitSkill())}
                 </div>
               </div>
             )}
