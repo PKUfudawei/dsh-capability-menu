@@ -62,6 +62,22 @@ export type MetaInvokeResult =
   | { ok: true; kind: 'resolve'; id: string; detail: MetaInvokeResolveDetail }
 
 /**
+ * Defensively normalize `args` arriving from the model.
+ *
+ * The schema declares `args` as an object (see `parameters.args`), but some
+ * providers serialize a JSON-string payload instead of a structured object.
+ * Forwarding the raw string to the downstream tool call would silently
+ * degrade to `{}` (or be rejected outright by the tool's argument validator).
+ *
+ * Accepted inputs:
+ *   - `undefined` / `null` → `{}` (no-arg tool call)
+ *   - JSON string → parsed via `JSON.parse`, then re-checked
+ *   - plain object → returned as-is
+ *
+ * Arrays and primitives are rejected — every target tool expects a named-key
+ * argument object.
+ */
+/**
  * Register the `meta_invoke` tool.
  *
  * Dispatch is by the explicit `kind` argument (no id-prefix parsing).
@@ -75,6 +91,28 @@ export type MetaInvokeResult =
  *   instructions and returns them as `<skill_content>` — no args, no script
  *   execution (matches the existing `skill` tool semantics).
  */
+function normalizeArgs(raw: unknown): Record<string, unknown> {
+  if (raw === undefined || raw === null) return {}
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (trimmed === '') return {}
+    try {
+      raw = JSON.parse(trimmed)
+    } catch (cause) {
+      throw new Error(`meta_invoke: failed to JSON.parse string args: ${(cause as Error).message}`)
+    }
+    // JSON-parsed `null` still means "no args"; recurse once instead of rejecting.
+    if (raw === null) return {}
+  }
+
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('meta_invoke: args must be an object (the target tool parameter object)')
+  }
+
+  return raw as Record<string, unknown>
+}
+
 export function apply(ctx: Context, config: Config = {}): void {
   const forwardMode = config.forwardMode ?? 'direct'
   if (forwardMode !== 'direct' && forwardMode !== 'resolve') {
@@ -95,7 +133,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       id: { type: 'string', required: true, description: 'Capability id from meta_search, e.g. mcp__gongfeng__create_issue or frontend-design.' },
       kind: { type: 'string', enum: ['tool', 'skill'], required: true, description: 'Capability kind reported by meta_search for this id.' },
-      args: { type: 'json', description: 'Arguments forwarded to a tool; ignored for skills.' },
+      args: {
+        type: 'object',
+        additionalProperties: true,
+        description:
+          'Arguments for the target tool, passed directly. Each property must be a valid value for the target tool schema (the parameter object from meta_search detail). ' +
+          'Do NOT wrap these in another {id, kind, args} object, and do NOT stringify them — pass them as a structured object. ' +
+          'Skills ignore this field.',
+      },
     },
     output: {
       schema: {
@@ -230,10 +275,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         // keeps Progressive tools runnable; the target tool's own guards still apply
         // (no permission bypass — see README). A native tool reachable only through
         // the caller's view does pass that view, mirroring the direct-call surface.
+        // `args.args` is normalized first: some providers emit a JSON-string envelope
+        // for `args`, which would otherwise be forwarded verbatim and silently
+        // degrade to `{}` at the MCP layer.
         const result = await ctx.tools.execute({
           callId: ToolCallId(`${exec.callId}:meta:${id}`),
           name: capability.name,
-          arguments: args.args,
+          arguments: normalizeArgs(args.args),
           signal: exec.signal,
           parent: exec.token,
           ...nativeCallerView !== undefined ? { agent: nativeCallerView } : {},
