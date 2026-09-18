@@ -129,6 +129,61 @@ describe('capability-menu-invoke', () => {
     expect(received).toEqual({ title: 'hello' })
   })
 
+  it('parses a JSON-string args payload before reaching the target tool', async () => {
+    // Some providers emit `args` as a JSON string instead of a structured
+    // object; meta_invoke must normalize it before forwarding, otherwise the
+    // MCP layer silently degrades the call to `{}`.
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    let received: unknown
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue', args => {
+      received = args
+      return { ok: true, id: 'issue-1' }
+    })
+    await ctx.capability.refresh()
+
+    const stringified = JSON.stringify({ title: 'from-string' })
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: stringified })
+    expect(isError).toBe(false)
+    expect(received).toEqual({ title: 'from-string' })
+  })
+
+  it('rejects a non-JSON string args payload with a clear error', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    await ctx.capability.refresh()
+
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: 'not a json object' })
+    expect(isError).toBe(true)
+  })
+
+  it('rejects an array-shaped args payload (object required)', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    await ctx.capability.refresh()
+
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: ['title', 'x'] })
+    expect(isError).toBe(true)
+  })
+
+  it('treats omitted args as an empty call (no error)', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    let received: unknown = 'sentinel'
+    // Parameterless MCP tool: same shape as dbx_list_connections / list_pages.
+    const list = registerMcpTool(ctx, 'gongfeng', 'list_pages', 'List pages', args => {
+      received = args
+      return { ok: true, pages: [] }
+    })
+    await ctx.capability.refresh()
+
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: list, kind: 'tool' })
+    expect(isError).toBe(false)
+    expect(received).toEqual({})
+  })
+
   it('surfaces target failure as an isError result', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
