@@ -7,6 +7,7 @@ import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { serverNameOf } from '../src/registry.ts'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
+import yaml from 'js-yaml'
 
 async function setup(config: policy.Config = {}, registryConfig: registry.Config = {}): Promise<Context> {
   const ctx = new Context()
@@ -425,5 +426,73 @@ describe('legacy rule-key aliases', () => {
   it('prefers the current `disabled` key over the legacy `blocked` key', () => {
     const mapped = policy.normalizeSetConfig({ disabled: ['read'], blocked: ['write'] })
     expect(mapped?.disabled).toEqual(['read'])
+  })
+})
+
+/**
+ * Tier writes used to be silent no-ops the moment a `capability-menu-policy`
+ * override already existed in the patch file: the no-op check compared the
+ * whole policy config against itself, never looking at the `tools` /
+ * `skills` sub-objects where the tier arrays actually live. The first GUI
+ * click after a fresh install still wrote (the override does not exist yet
+ * and the code takes the insert branch), which is why this only manifested
+ * after restart — exactly the symptom the user reported. These two tests
+ * pin the contract from both sides: a change must land, an identical write
+ * must not.
+ */
+describe('capability-policy persistence (tier writes)', () => {
+  type Row = {
+    id?: string
+    name?: string
+    insert?: unknown[]
+    config?: { tools?: Record<string, string[]>; skills?: Record<string, string[]> }
+  }
+
+  async function loadPatchRows(file: string): Promise<Row[]> {
+    const fs = await import('node:fs/promises')
+    return yaml.load(await fs.readFile(file, 'utf8')) as Row[]
+  }
+
+  it('rewrites the patch when an existing override is updated with different tier rules', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await fs.mkdtemp('/tmp/dsh-policy-persist-')
+    const patchFile = join(home, 'cordis.patch.yml')
+    await fs.writeFile(patchFile, '- insert: []\n', 'utf8')
+
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(policy, { patchFile, persistDebounceMs: 50 })
+
+    registerTool(ctx, 'mcp__km__search', 'Search the knowledge base')
+    await ctx.capability.refresh()
+
+    // First click: no override exists, so the insert branch writes the row.
+    await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
+    await new Promise(resolve => setTimeout(resolve, 120))
+    const firstRows = await loadPatchRows(patchFile)
+    const firstOverride = firstRows.find(row => row.id === 'capability-menu-policy')
+    expect(firstOverride?.name).toBe('@daweifu/capability-menu/policy')
+    expect(firstOverride?.config?.tools?.['on-demand']).toEqual(['mcp__km__search'])
+
+    // Second click with DIFFERENT rules (move from on-demand to disabled):
+    // the override now exists, so this exercises the setEntryConfig branch.
+    // Pre-fix, `tierSignature(prior) === tierSignature(next)` was always true
+    // (both sides produced `\u0001\u0001` because the function reads the top
+    // level of the config instead of the `tools` / `skills` sub-objects),
+    // and the rewrite never happened — leaving the GUI's disabled toggle
+    // stuck.
+    await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
+    await new Promise(resolve => setTimeout(resolve, 120))
+
+    const secondRows = await loadPatchRows(patchFile)
+    const secondOverride = secondRows.find(row => row.id === 'capability-menu-policy')
+    expect(secondOverride?.config?.tools?.disabled).toEqual(['mcp__km__search'])
+    // The on-demand rule must no longer be present (whole `tools` object is
+    // replaced on each write).
+    expect(secondOverride?.config?.tools?.['on-demand']).toBeUndefined()
   })
 })
