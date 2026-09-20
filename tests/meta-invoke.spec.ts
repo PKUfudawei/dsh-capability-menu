@@ -195,6 +195,68 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
+  it('names a nested {id, kind, args} envelope instead of forwarding it', async () => {
+    // `args` being an object satisfies the contract, so an un-stringified
+    // envelope used to reach the target as a wrong parameter object and surface
+    // as an unrelated server error. The shape is now called out by name; it is
+    // never rewritten, because a wrong-but-plausible call is worse than a loud
+    // error (issue #10).
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    let called = false
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue', args => {
+      called = true
+      return { ok: true, received: args }
+    })
+    await ctx.capability.refresh()
+
+    const envelope = { id: issue, kind: 'tool', args: { title: 'x' } }
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('call-envelope'),
+      name: 'meta_invoke',
+      arguments: { id: issue, kind: 'tool', args: envelope },
+      agent: agentStub('agent') as never,
+      signal: testSignal,
+    })
+    expect(result.isError).toBe(true)
+    const text = result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(text).toContain('nested { id, kind, args } envelope')
+    // The target must never see the envelope as its argument object.
+    expect(called).toBe(false)
+  })
+
+  it('leaves a target that declares id/kind parameters alone', async () => {
+    // The diagnostic must not fire for a tool whose real parameters are the
+    // envelope's keys.
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    let received: unknown
+    const name = 'mcp__gongfeng__dispatcher'
+    ctx.tools.register(defineTool({
+      name,
+      description: 'Takes id/kind/args itself',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Target id' },
+        kind: { type: 'string', required: true, description: 'Target kind' },
+        args: { type: 'json', description: 'Payload' },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, received: { type: 'json' } } },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      async execute(args) {
+        received = args
+        return { ok: true, received: args }
+      },
+    }))
+    await ctx.capability.refresh()
+
+    const payload = { id: name, kind: 'tool', args: { title: 'x' } }
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: name, kind: 'tool', args: payload })
+    expect(isError).toBe(false)
+    expect(received).toEqual(payload)
+  })
+
   it('treats omitted args as an empty call on a parameterless tool', async () => {
     // Second half of the same contract: with no `args` field at all the nested
     // dispatch used to receive `arguments: undefined`, which the pipeline
