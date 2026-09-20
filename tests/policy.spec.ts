@@ -471,12 +471,17 @@ describe('capability-policy persistence (tier writes)', () => {
     await ctx.capability.refresh()
 
     // First click: no override exists, so the insert branch writes the row.
+    // Poll for the write instead of sleeping a fixed amount: the debounce plus
+    // the atomic file swap are asynchronous, so a fixed wait is a race under
+    // parallel test load (this file flaked for exactly that reason).
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
-    await new Promise(resolve => setTimeout(resolve, 120))
-    const firstRows = await loadPatchRows(patchFile)
-    const firstOverride = firstRows.find(row => row.id === 'capability-menu-policy')
-    expect(firstOverride?.name).toBe('@daweifu/capability-menu/policy')
-    expect(firstOverride?.config?.tools?.['on-demand']).toEqual(['mcp__km__search'])
+    await expect.poll(async () => {
+      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+      return { name: row?.name, onDemand: row?.config?.tools?.['on-demand'] }
+    }, { timeout: 5_000 }).toEqual({
+      name: '@daweifu/capability-menu/policy',
+      onDemand: ['mcp__km__search'],
+    })
 
     // Second click with DIFFERENT rules (move from on-demand to disabled):
     // the override now exists, so this exercises the setEntryConfig branch.
@@ -486,13 +491,14 @@ describe('capability-policy persistence (tier writes)', () => {
     // and the rewrite never happened — leaving the GUI's disabled toggle
     // stuck.
     await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
-    await new Promise(resolve => setTimeout(resolve, 120))
-
-    const secondRows = await loadPatchRows(patchFile)
-    const secondOverride = secondRows.find(row => row.id === 'capability-menu-policy')
-    expect(secondOverride?.config?.tools?.disabled).toEqual(['mcp__km__search'])
-    // The on-demand rule must no longer be present (whole `tools` object is
-    // replaced on each write).
-    expect(secondOverride?.config?.tools?.['on-demand']).toBeUndefined()
+    await expect.poll(async () => {
+      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+      return { disabled: row?.config?.tools?.disabled, onDemand: row?.config?.tools?.['on-demand'] }
+    }, { timeout: 5_000 }).toEqual({
+      disabled: ['mcp__km__search'],
+      // The on-demand rule must no longer be present (whole `tools` object is
+      // replaced on each write).
+      onDemand: undefined,
+    })
   })
 })
