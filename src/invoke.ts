@@ -95,7 +95,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       id: { type: 'string', required: true, description: 'Capability id from meta_search, e.g. mcp__gongfeng__create_issue or frontend-design.' },
       kind: { type: 'string', enum: ['tool', 'skill'], required: true, description: 'Capability kind reported by meta_search for this id.' },
-      args: { type: 'json', description: 'Arguments forwarded to a tool; ignored for skills.' },
+      args: {
+        type: 'object',
+        additionalProperties: true,
+        description:
+          'Arguments for the target tool, passed directly. Each property must be a valid value for the target tool schema (the parameter object from meta_search detail). ' +
+          'Do NOT wrap these in another {id, kind, args} object, and do NOT stringify them — pass them as a structured object. ' +
+          'Skills ignore this field.',
+      },
     },
     output: {
       schema: {
@@ -230,10 +237,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         // keeps Progressive tools runnable; the target tool's own guards still apply
         // (no permission bypass — see README). A native tool reachable only through
         // the caller's view does pass that view, mirroring the direct-call surface.
+        // `args.args` is normalized to an argument object first. The declared
+        // contract (see `parameters.args`) already rejects a stringified payload
+        // before this runs; what is left for `normalizeArgs` is guaranteeing the
+        // MCP layer never receives `undefined` (the pipeline rejects that) or a
+        // stray non-object, which would otherwise degrade to `{}` downstream.
         const result = await ctx.tools.execute({
           callId: ToolCallId(`${exec.callId}:meta:${id}`),
           name: capability.name,
-          arguments: args.args,
+          arguments: normalizeArgs(args.args),
           signal: exec.signal,
           parent: exec.token,
           ...nativeCallerView !== undefined ? { agent: nativeCallerView } : {},
@@ -325,3 +337,21 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.register(tool)
 }
 
+/**
+ * Normalize the model-supplied `args` before forwarding them to the target tool.
+ *
+ * The declared contract (`parameters.args`) is an object and the tool pipeline
+ * enforces it before `execute` runs, so this covers only what validation lets
+ * through: a missing value on a parameterless call, and `null`. Anything that
+ * cannot be forwarded as an MCP argument object is rejected here instead of
+ * silently degrading to `{}` at the MCP layer (issue #4).
+ */
+function normalizeArgs(raw: unknown): Record<string, unknown> {
+  if (raw === undefined || raw === null) return {}
+
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('meta_invoke: args must be an object (the target tool parameter object)')
+  }
+
+  return raw as Record<string, unknown>
+}
