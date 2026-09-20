@@ -62,6 +62,36 @@ function registerMcpTool(
   return name
 }
 
+/**
+ * Register a *parameterless* MCP tool (no required properties) — the shape of
+ * `dbx_list_connections` / `list_pages`. `registerMcpTool` above declares a
+ * required `title`, which is right for the forwarding tests but wrong for the
+ * omitted-args contract: there the target must be reached with `{}`.
+ */
+function registerParameterlessMcpTool(
+  ctx: Context,
+  server: string,
+  raw: string,
+  description: string,
+  onExecute?: (args: unknown) => unknown,
+): string {
+  const name = `mcp__${server}__${raw}`
+  ctx.tools.register(defineTool({
+    name,
+    description,
+    parameters: {},
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true }, received: { type: 'json' } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    async execute(args) {
+      if (onExecute) return onExecute(args) as never
+      return { ok: true, received: args }
+    },
+  }))
+  return name
+}
+
 function registerNativeTool(
   ctx: Context,
   name: string,
@@ -129,33 +159,30 @@ describe('capability-menu-invoke', () => {
     expect(received).toEqual({ title: 'hello' })
   })
 
-  it('parses a JSON-string args payload before reaching the target tool', async () => {
-    // Some providers emit `args` as a JSON string instead of a structured
-    // object; meta_invoke must normalize it before forwarding, otherwise the
-    // MCP layer silently degrades the call to `{}`.
+  it('rejects a stringified args payload instead of silently forwarding {}', async () => {
+    // `args` is declared as an object and the tool pipeline enforces that before
+    // `execute` runs, so a provider that stringifies the payload now fails loudly
+    // instead of having the MCP layer silently degrade the call to `{}` and the
+    // target server report "missing field <param>" (issue #4).
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
-    let received: unknown
+    let called = false
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue', args => {
-      received = args
-      return { ok: true, id: 'issue-1' }
+      called = true
+      return { ok: true, received: args }
     })
     await ctx.capability.refresh()
 
     const stringified = JSON.stringify({ title: 'from-string' })
     const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: stringified })
-    expect(isError).toBe(false)
-    expect(received).toEqual({ title: 'from-string' })
-  })
-
-  it('rejects a non-JSON string args payload with a clear error', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
-    const ctx = await setup(home)
-    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    await ctx.capability.refresh()
-
-    const { isError } = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: 'not a json object' })
     expect(isError).toBe(true)
+    // The target tool must never be reached with a wrong (or empty) argument object.
+    expect(called).toBe(false)
+
+    // A non-JSON string is the same contract violation, so it is rejected too.
+    const nonJson = await runTool(ctx, 'meta_invoke', { id: issue, kind: 'tool', args: 'not a json object' })
+    expect(nonJson.isError).toBe(true)
+    expect(called).toBe(false)
   })
 
   it('rejects an array-shaped args payload (object required)', async () => {
@@ -168,20 +195,38 @@ describe('capability-menu-invoke', () => {
     expect(isError).toBe(true)
   })
 
-  it('treats omitted args as an empty call (no error)', async () => {
+  it('treats omitted args as an empty call on a parameterless tool', async () => {
+    // Second half of the same contract: with no `args` field at all the nested
+    // dispatch used to receive `arguments: undefined`, which the pipeline
+    // rejects with "tool execution arguments must be losslessly
+    // JSON-serializable". The target must be reached with `{}` instead.
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
     let received: unknown = 'sentinel'
     // Parameterless MCP tool: same shape as dbx_list_connections / list_pages.
-    const list = registerMcpTool(ctx, 'gongfeng', 'list_pages', 'List pages', args => {
+    const list = registerParameterlessMcpTool(ctx, 'gongfeng', 'list_pages', 'List pages', args => {
       received = args
-      return { ok: true, pages: [] }
+      return { ok: true }
     })
     await ctx.capability.refresh()
 
     const { isError } = await runTool(ctx, 'meta_invoke', { id: list, kind: 'tool' })
     expect(isError).toBe(false)
     expect(received).toEqual({})
+  })
+
+  it('applies the same object contract to skill calls', async () => {
+    // The contract is declared once on `args`, so it holds for both kinds: a
+    // skill load that passes a stringified payload is rejected up front instead
+    // of being silently ignored. (An omitted `args` keeps working — see the
+    // skill-load tests below.)
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    await writeSkill(`${home}/.agents/skills`, 'frontend-design', 'Design guidance', 'Follow the design principles.')
+    await ctx.capability.refresh()
+
+    const { isError } = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill', args: '"whatever"' })
+    expect(isError).toBe(true)
   })
 
   it('surfaces target failure as an isError result', async () => {
