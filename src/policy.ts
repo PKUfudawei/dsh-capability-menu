@@ -456,13 +456,34 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const persistDebounceMs = config.persistDebounceMs ?? 1500
   let persistTimer: ReturnType<typeof setTimeout> | undefined
 
-  /** Order-insensitive signature of the two rule sets, for the no-op check. */
-  const tierSignature = (rules: unknown): string => {
+  /** Order-insensitive signature of one rule set (resident / on-demand / disabled). */
+  const tierSetSignature = (rules: unknown): string => {
     if (rules === null || typeof rules !== 'object') return ''
     const record = rules as Record<string, unknown>
     return ['resident', 'on-demand', 'disabled']
       .map(tier => Array.isArray(record[tier]) ? [...(record[tier] as unknown[])].sort().join('\u0000') : '')
       .join('\u0001')
+  }
+
+  /**
+   * Order-insensitive signature of the whole policy config (tools + skills).
+   *
+   * The function operates on the *full config* object (`{ tools, skills,
+   * metaTools, ... }`) — the tier arrays live at `config.tools.*` and
+   * `config.skills.*`, never at the top level. Passing the config directly
+   * (rather than the inner `tools` / `skills` objects) used to make both
+   * sides of the comparison empty (`'\u0001\u0001'`) and silently swallow
+   * every tier change after the first write. Splitting the comparison along
+   * the real structure keeps the no-op optimization while letting an actual
+   * change land.
+   */
+  const policyTierSignature = (config: unknown): string => {
+    if (config === null || typeof config !== 'object') return '\u0002'
+    const record = config as Record<string, unknown>
+    return [
+      tierSetSignature(record['tools']),
+      tierSetSignature(record['skills']),
+    ].join('\u0002')
   }
 
   /** Write the current rule sets into the patch, when they differ from the file. */
@@ -492,7 +513,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           return true
         }
         // Rewriting an unchanged config would still make dsh reload the plugin.
-        if (tierSignature(prior) === tierSignature(next)) return false
+        if (policyTierSignature(prior) === policyTierSignature(next)) return false
         return setEntryConfig(doc, POLICY_ENTRY_ID, next)
       })
       if (written) ctx.logger.info(`capability-policy: persisted tier rules to ${patchFile}`)
@@ -513,12 +534,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // A pending write must not be dropped when the plugin is torn down (a hot
   // reload tears it down): flush it, so the file matches the state that was
   // live. The flush finds the config unchanged and writes nothing, so it cannot
-  // start a reload loop.
-  ctx.effect(() => () => {
+  // start a reload loop. Returning an async disposer lets Cordis await the
+  // write before letting the new instance (or shutdown) proceed, so a HMR
+  // cannot race ahead of a pending persist.
+  ctx.effect(() => async () => {
     if (persistTimer === undefined) return
     clearTimeout(persistTimer)
     persistTimer = undefined
-    void persistTiers()
+    await persistTiers()
   }, 'capability-menu-policy: flush tier persistence')
 
   /**
