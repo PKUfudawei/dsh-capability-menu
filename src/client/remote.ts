@@ -23,6 +23,12 @@ export interface CapabilityRow {
   readonly server?: string
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string
+  /**
+   * Agent preset id, present only for skills that live in a preset's own layer.
+   * The source label is `custom` for these as well, so this is what tells a
+   * preset skill apart from one in a user-configured `customSkillDirs` root.
+   */
+  readonly preset?: string
   /** The skill's own directory on disk, present only for skills whose provider has one. */
   readonly path?: string
   readonly class: 'resident' | 'on-demand' | 'disabled'
@@ -56,7 +62,7 @@ export interface ToolDetail {
   readonly whenToUse?: string
   readonly parameters: Record<string, unknown>
   readonly output?: Record<string, unknown>
-  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string }
+  readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string; readonly preset?: string }
   readonly tags: readonly string[]
   readonly stats: {
     readonly uses: number
@@ -170,6 +176,7 @@ const capabilityRow$schema = z.object({
   name: z.string().readonly(),
   server: z.string().optional().readonly(),
   source: z.string().optional().readonly(),
+  preset: z.string().optional().readonly(),
   class: z.union([z.literal('resident'), z.literal('on-demand'), z.literal('disabled')]).readonly(),
   classLabel: z.string().optional().readonly(),
   mandatory: z.boolean().readonly(),
@@ -203,6 +210,7 @@ const toolDetail$schema = z.object({
     serverName: z.string().optional().readonly(),
     path: z.string().optional().readonly(),
     source: z.string().optional().readonly(),
+    preset: z.string().optional().readonly(),
   }).readonly(),
   tags: z.array(z.string()).readonly(),
   stats: z.object({

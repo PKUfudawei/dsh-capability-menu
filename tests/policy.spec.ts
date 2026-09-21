@@ -351,6 +351,42 @@ describe('capability-policy management surface (能力菜单)', () => {
     expect(byId.get('mcp__gongfeng__create_issue')?.mandatory).toBe(false)
   })
 
+  it('classifyAll carries a skill\'s agent preset through to the management row', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    // The registry is stubbed: what is under test is the projection from the
+    // catalog summary to a management row, and the preset id has to survive it
+    // (the UI groups on it and withholds 纳入管理 because of it). Booting the
+    // real preset layers would only re-test the registry.
+    ctx.provide('capability', {
+      search: () => [{
+        id: 'preset-skill',
+        kind: 'skill',
+        name: 'preset-skill',
+        summary: 'Ships inside an agent preset',
+        source: 'custom',
+        preset: 'cordis',
+        tags: [],
+        uses: 0,
+      }],
+      get: () => ({
+        origin: { provider: 'filesystem', source: 'custom', preset: 'cordis', path: '/presets/cordis/skills/preset-skill' },
+      }),
+      // The policy awaits a cold-start rebuild before it can classify anything.
+      refresh: async () => {},
+    } as unknown as registry.CapabilityService)
+    await ctx.plugin(policy, {})
+
+    const row = ctx.capabilityPolicy.classifyAll().find(c => c.id === 'preset-skill')
+    expect(row?.preset).toBe('cordis')
+    expect(row?.source).toBe('custom')
+    // The adopt dialog names the directory it would link; that is the record's
+    // own path, which only the detail lookup carries.
+    expect(row?.path).toBe('/presets/cordis/skills/preset-skill')
+  })
+
   it('classifyAll surfaces native tools under the built-in server and lets them cycle to On-demand', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

@@ -267,12 +267,22 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
    * directory into the user root. The content is untouched — this is exactly how
    * the entries already in `~/.dsh/skills` are set up — and the skill becomes
    * editable afterwards. Returns the entry path written.
+   *
+   * A skill that ships inside an agent preset is refused: linking it into the
+   * user root would make it global, which is the opposite of what a preset
+   * skill is for. It is also the same check the UI applies (it hides the button),
+   * repeated here because the source label alone cannot tell a preset's
+   * `customSkillDirs` from a user's.
    */
   @Remote('adoptSkillLocation')
   async adoptSkillLocation(name: string): Promise<string> {
     const record = this.ctx.capability.get(name.trim(), 'skill')
     const dir = record?.origin.path
     const source = record?.origin.source
+    const preset = record?.origin.preset
+    if (preset !== undefined) {
+      throw new Error(`该技能随预设 ${preset} 分发，不支持纳入管理（纳入管理会把它变成全局技能）`)
+    }
     if (dir === undefined) throw new Error(`该技能没有可链接的目录，无法纳入管理：${name}`)
     if (source === undefined || !ADOPTABLE_SKILL_SOURCES.has(source)) {
       throw new Error(`该技能来自 ${source ?? '未知来源'}，不支持纳入管理`)

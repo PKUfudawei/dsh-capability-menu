@@ -58,6 +58,17 @@ export interface CapabilityOrigin {
   readonly path?: string
   /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
   readonly source?: string
+  /**
+   * Agent preset whose standing scope this skill was collected from, present
+   * only for skills that live in a preset layer.
+   *
+   * A preset's own `skill-filesystem` mounts its `skills/` directory through
+   * `customSkillDirs`, so such a skill is labelled `source: 'custom'` — the
+   * same label a user-configured `customSkillDirs` entry gets. The source
+   * label therefore cannot tell the two apart; this field is what the
+   * management surface groups on ("预设技能" vs. a user's custom root).
+   */
+  readonly preset?: string
 }
 
 /** Objective and subjective usage statistics, written back from `tools/result`. */
@@ -100,6 +111,8 @@ export interface CapabilitySummary {
   readonly server?: string
   /** Skill source root label, present only for `kind: 'skill'`. */
   readonly source?: string
+  /** Agent preset id, present only for skills collected from a preset scope. */
+  readonly preset?: string
   readonly tags: readonly string[]
   readonly success_rate?: number
   readonly uses: number
@@ -487,6 +500,16 @@ export function apply(ctx: Context, config: Config = {}): void {
    * sees nothing). The management catalog enumerates the global layer and then
    * every mountable preset's standing scope, so preset-scoped skills surface.
    *
+   * Each skill records the preset it came from (see `CapabilityOrigin.preset`),
+   * which is the only way to tell a preset's own `customSkillDirs` apart from a
+   * user's: both are labelled `source: 'custom'`.
+   *
+   * Same-name rule: the global layer wins, then presets in enumeration order
+   * (first wins). A skill id is a bare name with no namespace, so two scopes
+   * declaring the same name can only yield one record; overwriting instead
+   * would make the catalog depend on scan order rather than on where the skill
+   * actually sits.
+   *
    * Same epoch guard as the tool side: overlapping refreshes resolve out of
    * order, and a stale snapshot must not overwrite a newer one.
    */
@@ -496,9 +519,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     const nextSkills = new Map<string, CapabilityRecord>()
     const nextSkillScopes = new Map<string, ScopeKey | undefined>()
 
-    const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined): void => {
+    const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined, preset?: string): void => {
       if (!isModelInvocable(skill)) return
       const id = skill.name
+      // First wins (global layer, then presets in order): see the same-name
+      // rule in this function's doc comment.
+      if (nextSkills.has(id)) return
       const existing = skillRecords.get(id)
       const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
       nextSkills.set(id, {
@@ -511,6 +537,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         origin: {
           provider: skill.provider,
           ...typeof skill.source === 'string' ? { source: skill.source } : {},
+          ...preset !== undefined ? { preset } : {},
           // The skill's own directory, when its provider has one. It is what lets
           // the location manager address project-scoped skills for edit/remove.
           ...skill.resourceBase?.kind === 'directory' ? { path: skill.resourceBase.path } : {},
@@ -524,7 +551,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       nextSkillScopes.set(id, scope)
     }
 
-    const collectScoped = async (label: string, scope: ScopeKey | undefined): Promise<void> => {
+    const collectScoped = async (label: string, scope: ScopeKey | undefined, preset?: string): Promise<void> => {
       let skills: SkillSummary[] = []
       try {
         skills = scope === undefined ? await ctx.skills.list({}) : await ctx.skills.list({ scope })
@@ -532,7 +559,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ctx.logger.warn(`meta-registry: skill catalog refresh failed for ${label}: ${String(error)}`)
         return
       }
-      for (const skill of skills) indexSkill(skill, scope)
+      for (const skill of skills) indexSkill(skill, scope, preset)
     }
 
     // Global layer first: the host's own skill providers.
@@ -555,7 +582,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (preset.broken !== undefined) continue
         try {
           const scope = await agentPresets.standingKeyFor(preset.id)
-          await collectScoped(`preset "${preset.id}"`, scope)
+          await collectScoped(`preset "${preset.id}"`, scope, preset.id)
         } catch (error) {
           ctx.logger.warn(`meta-registry: preset "${preset.id}" skill scope unavailable: ${String(error)}`)
         }
@@ -829,6 +856,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           summary: record.summary,
           ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
           ...record.origin.source !== undefined ? { source: record.origin.source } : {},
+          ...record.origin.preset !== undefined ? { preset: record.origin.preset } : {},
           tags: record.tags,
           ...rate !== undefined ? { success_rate: rate } : {},
           uses: record.stats.uses,
@@ -998,4 +1026,3 @@ export function serverNameOf(publicName: string): string {
   const index = rest.indexOf('__')
   return index === -1 ? rest : rest.slice(0, index)
 }
-
