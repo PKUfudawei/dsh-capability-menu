@@ -43,7 +43,14 @@ import {
   splitSkillGroups,
   type SkillTab,
 } from './skillGroups.ts'
-import { canRevalidate, pollDelayMs, versionChanged, type RevalidateGate } from './revalidate.ts'
+import {
+  POLL_SAMPLE_TIMEOUT_MS,
+  canRevalidate,
+  pollDelayMs,
+  versionChanged,
+  withDeadline,
+  type RevalidateGate,
+} from './revalidate.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
@@ -499,7 +506,11 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     let timer: ReturnType<typeof setTimeout> | undefined
     const tick = async (): Promise<void> => {
       try {
-        const version = unwrap(await remote.catalogVersion(), 'capabilityPolicy.catalogVersion')
+        // Bounded: a carrier that accepts the call and then goes quiet must end
+        // up on the same retry path as one that refuses it, or the poll simply
+        // stops for as long as the page stays visible and idle.
+        const sampled = withDeadline(remote.catalogVersion(), POLL_SAMPLE_TIMEOUT_MS)
+        const version = unwrap(await sampled, 'capabilityPolicy.catalogVersion')
         pollFailures.current = 0
         if (versionChanged(seenVersion.current, version)) {
           seenVersion.current = version

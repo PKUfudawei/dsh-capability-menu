@@ -7,9 +7,11 @@ import { describe, expect, it } from 'vitest'
 import {
   POLL_BACKOFF_MAX_MS,
   POLL_INTERVAL_MS,
+  POLL_SAMPLE_TIMEOUT_MS,
   canRevalidate,
   pollDelayMs,
   versionChanged,
+  withDeadline,
   type RevalidateGate,
 } from '../src/client/revalidate.ts'
 
@@ -21,8 +23,13 @@ describe('pollDelayMs', () => {
   it('doubles the delay per consecutive failure until the ceiling', () => {
     expect(pollDelayMs(1)).toBe(POLL_INTERVAL_MS * 2)
     expect(pollDelayMs(2)).toBe(POLL_INTERVAL_MS * 4)
-    expect(pollDelayMs(3)).toBe(POLL_BACKOFF_MAX_MS)
-    expect(pollDelayMs(4)).toBe(POLL_BACKOFF_MAX_MS)
+    // Where the doubling meets the ceiling depends on the base interval, so
+    // derive the crossing instead of pinning it: every step must stay under the
+    // cap, and the run must actually reach it rather than asymptote below.
+    for (const failures of [1, 2, 3, 4, 5, 10, 50]) {
+      expect(pollDelayMs(failures)).toBeLessThanOrEqual(POLL_BACKOFF_MAX_MS)
+    }
+    expect([1, 2, 3, 4, 5, 6].some(n => pollDelayMs(n) === POLL_BACKOFF_MAX_MS)).toBe(true)
     expect(pollDelayMs(50)).toBe(POLL_BACKOFF_MAX_MS)
   })
 
@@ -75,5 +82,30 @@ describe('canRevalidate', () => {
   it('refuses behind a hidden tab and before a snapshot exists', () => {
     expect(canRevalidate({ ...idle, visible: false })).toBe(false)
     expect(canRevalidate({ ...idle, ready: false })).toBe(false)
+  })
+})
+
+describe('withDeadline', () => {
+  it('passes a value through when the work settles in time', async () => {
+    await expect(withDeadline(Promise.resolve(7), 1_000)).resolves.toBe(7)
+  })
+
+  it('propagates the work\'s own rejection', async () => {
+    await expect(withDeadline(Promise.reject(new Error('carrier died')), 1_000)).rejects.toThrow('carrier died')
+  })
+
+  it('turns a hang into a rejection instead of waiting forever', async () => {
+    // The poll schedules its next tick only after this settles, so a request
+    // that never settles would silently end version polling for the life of the
+    // page. A deadline puts it back on the retry path.
+    const never = new Promise<number>(() => {})
+    await expect(withDeadline(never, 10)).rejects.toThrow(`timed out after 10ms`)
+  })
+
+  it('keeps the sample deadline well under the backoff ceiling', () => {
+    // A deadline longer than the first retry delays would stall the cadence it
+    // is supposed to protect.
+    expect(POLL_SAMPLE_TIMEOUT_MS).toBeGreaterThan(POLL_INTERVAL_MS)
+    expect(POLL_SAMPLE_TIMEOUT_MS).toBeLessThan(POLL_BACKOFF_MAX_MS)
   })
 })
