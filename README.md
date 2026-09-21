@@ -86,7 +86,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 ## 快速安装
 
-前置：已安装 Node.js 与 dsh CLI（`dsh plugin` 内部会转发给 pnpm）。
+前置：[Node.js](https://nodejs.org/en/download) 与 dsh CLI（[安装](https://www.npmjs.com/package/@deepseek-ai/dsh)：`npm i -g @deepseek-ai/dsh`）；`dsh plugin` 内部会转发给 pnpm，不用单独装 pnpm。
 
 ### 从 npm 安装（推荐）
 

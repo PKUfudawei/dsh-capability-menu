@@ -86,7 +86,7 @@ What each form field means, how visible a global versus a project skill is, what
 
 ## Quick Install
 
-Prerequisites: Node.js and the dsh CLI installed (`dsh plugin` forwards to pnpm internally).
+Prerequisites: [Node.js](https://nodejs.org/en/download) and the dsh CLI ([install](https://www.npmjs.com/package/@deepseek-ai/dsh): `npm i -g @deepseek-ai/dsh`); `dsh plugin` forwards to pnpm internally, so pnpm needs no separate install.
 
 ### Install from npm (recommended)
 
