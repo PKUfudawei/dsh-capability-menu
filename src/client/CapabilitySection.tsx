@@ -200,6 +200,7 @@ const CSS = `
    167）时那一行不再因此折行。 */
 .mc-desc-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .mc-desc-row .mc-desc{flex:1 1 auto;min-width:0}
+.mc-version{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;white-space:nowrap}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
@@ -339,6 +340,15 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id
   tag.textContent = CSS
   document.head.appendChild(tag)
 }
+
+/**
+ * Which build of the plugin is on screen. Several rounds of "is my profile
+ * running the version I just installed?" had to be answered by grepping
+ * `node_modules`, because the panel said nothing about itself. The value is
+ * inlined by `tsdown` (see `src/client/env.d.ts`).
+ */
+const PLUGIN_VERSION = __CAPABILITY_MENU_VERSION__
+const PLUGIN_TITLE = `@daweifu/capability-menu v${PLUGIN_VERSION}`
 
 /**
  * dsh's skill source labels, shown on rows this plugin cannot edit — so "why is
@@ -809,6 +819,9 @@ function ReadyBody(props: {
       <h2 className="mc-heading">{t('title')}</h2>
       <div className="mc-desc-row">
         <p className="mc-desc">{t('desc')}</p>
+        {/* The build stamp, on the header's description row: quiet enough to
+            ignore, and the one thing that ends "which version is loaded?" */}
+        <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
         {/* 只读文档入口留在说明行；计数行只放 chips + 注册能力。 */}
         <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
           {t('viewCatalog')}

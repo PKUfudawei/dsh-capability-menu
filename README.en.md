@@ -90,13 +90,15 @@ Prerequisites: Node.js and the dsh CLI installed (`dsh plugin` forwards to pnpm 
 
 ### Install from npm (recommended)
 
-A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings. **Installing and upgrading are the same command** — it points the profile at whatever version npm has now:
+A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings:
 
 ```sh
+# install
+dsh plugin --profile web add @daweifu/capability-menu
+
+# upgrade to the latest (name the version: without one pnpm only has to satisfy the range, so it will not move)
 dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu version)"
 ```
-
-> **Do not write `@latest`.** Measured on pnpm 12 it resolves to an older version (0.1.3 for this package while npm's `latest` was already 0.1.4); naming the version is the reliable form, and the `$(…)` fetches it for you.
 
 ### Install from source
 

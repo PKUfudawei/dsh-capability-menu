@@ -1,6 +1,8 @@
 import { defineConfig } from 'tsdown'
+import { readFileSync } from 'node:fs'
 
 const id = '@daweifu/capability-menu'
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
 export default defineConfig([{
   entry: { client: 'src/client/index.ts' },
@@ -10,6 +12,11 @@ export default defineConfig([{
   clean: false,
   platform: 'node',
   sourcemap: false,
+  // The panel shows which build it is. The browser half cannot read
+  // package.json at runtime, and asking the host over a remote call for one
+  // display string is not worth the round trip, so the version is inlined at
+  // build time — which is also exactly the version this tarball will carry.
+  define: { __CAPABILITY_MENU_VERSION__: JSON.stringify(version) },
   // Keep the file name the package.json `exports` refer to: the browser
   // bundle is served from `./client` → `lib/client.js`. tsdown emits
   // `.cjs`/`.mjs` by default; force `.js`.

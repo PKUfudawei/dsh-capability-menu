@@ -90,13 +90,15 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 ### 从 npm 安装（推荐）
 
-单包同时提供服务端插件与前端「能力菜单」tab，装完即可在「设置 / 通用设置」下看到。**装和升级是同一条命令**——它把 profile 里的版本指到 npm 上的最新版：
+单包同时提供服务端插件与前端「能力菜单」tab，装完即可在「设置 / 通用设置」下看到：
 
 ```sh
+# 安装
+dsh plugin --profile web add @daweifu/capability-menu
+
+# 升级到最新版（要显式带版本号：不带时 pnpm 只保证满足原有范围，不会升）
 dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu version)"
 ```
-
-> **别写 `@latest`。** 实测 pnpm 12 下它会解析到旧版本（本包实测拿到 0.1.3，而 npm 上的 `latest` 已经是 0.1.4）；显式带版本号才可靠，上面的 `$(…)` 就是替你取最新版号。
 
 ### 从源码安装
 
