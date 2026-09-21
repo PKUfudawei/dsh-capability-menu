@@ -8,10 +8,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  compileNameFilter,
   countByClass,
   filterRows,
   groupRows,
   resolveSkillTab,
+  searchableText,
   splitSkillGroups,
   type SkillGroups,
 } from '../src/client/skillGroups.ts'
@@ -102,25 +104,104 @@ describe('resolveSkillTab', () => {
 
 describe('filterRows', () => {
   const rows = [skill('Alpha'), skill('beta'), skill('gamma')]
+  const narrow = (list: readonly CapabilityRow[], input: string): string[] =>
+    filterRows(list, compileNameFilter(input)).map(r => r.name)
 
-  it('matches case-insensitively on a substring', () => {
-    expect(filterRows(rows, 'alph').map(r => r.name)).toEqual(['Alpha'])
-    expect(filterRows(rows, 'BET').map(r => r.name)).toEqual(['beta'])
+  it('matches plain text case-insensitively, as an unanchored substring', () => {
+    expect(narrow(rows, 'alph')).toEqual(['Alpha'])
+    expect(narrow(rows, 'BET')).toEqual(['beta'])
+    expect(narrow(rows, 'amm')).toEqual(['gamma'])
   })
 
-  it('matches inside the name, not just at the start', () => {
-    expect(filterRows(rows, 'amm').map(r => r.name)).toEqual(['gamma'])
+  it('reads the box as a regex: alternation, anchors and character classes', () => {
+    expect(narrow(rows, 'alpha|gamma')).toEqual(['Alpha', 'gamma'])
+    expect(narrow(rows, '^g')).toEqual(['gamma'])
+    expect(narrow(rows, '^(alpha|beta)$')).toEqual(['Alpha', 'beta'])
+    expect(narrow(rows, '^a.*a$')).toEqual(['Alpha']) // . is a wildcard, not a literal dot
+    expect(narrow(rows, '^alpha.$')).toEqual([]) // 6 characters: no name is that long
+  })
+
+  it('is case-insensitive in regex mode too', () => {
+    expect(narrow(rows, '^ALPHA$')).toEqual(['Alpha'])
+    expect(narrow(rows, 'gam+a')).toEqual(['gamma'])
+    expect(narrow(rows, '^(a|b)')).toEqual(['Alpha', 'beta'])
+  })
+
+  it('accepts a /…/-wrapped pattern and strips the slashes', () => {
+    expect(narrow(rows, '/alpha|gamma/')).toEqual(['Alpha', 'gamma'])
+    // Only a pattern that both starts and ends with `/` is unwrapped. A slash
+    // typed on its own is a pattern that matches a slash, and `a/b` stays `a/b`.
+    const slashes = [skill('a/b'), skill('ab')]
+    expect(narrow(slashes, '/')).toEqual(['a/b'])
+    expect(narrow(slashes, 'a/b')).toEqual(['a/b'])
+    expect(narrow(slashes, '^ab$')).toEqual(['ab'])
+  })
+
+  it('falls back to literal text when the pattern does not compile', () => {
+    // A half-typed `(` must not throw in the middle of a render; it just stops
+    // matching until the pattern is completed.
+    expect(() => narrow(rows, '(')).not.toThrow()
+    expect(narrow(rows, '(')).toEqual([])
+    expect(narrow([skill('a(b')], '(')).toEqual(['a(b'])
   })
 
   it('returns everything for an empty or whitespace-only filter', () => {
-    expect(filterRows(rows, '')).toHaveLength(3)
-    expect(filterRows(rows, '   ')).toHaveLength(3)
+    expect(narrow(rows, '')).toHaveLength(3)
+    expect(narrow(rows, '   ')).toHaveLength(3)
   })
 
   it('does not mutate the input', () => {
     const input = [...rows]
-    filterRows(input, '')
+    filterRows(input, compileNameFilter(''))
     expect(input).toEqual(rows)
+  })
+})
+
+describe('searchableText (the group a row sits in)', () => {
+  const labels = { builtIn: '系统内置', source: (s: string) => `~/path/${s}` }
+
+  it('lets 系统内置 find the built-in server, whose id is English', () => {
+    // The bug behind the question: the group heading is a label, not a row field.
+    const native = tool('bash', 'built-in')
+    expect(filterRows([native], compileNameFilter('系统'), labels)).toHaveLength(1)
+    expect(filterRows([native], compileNameFilter('系统内置'), labels)).toHaveLength(1)
+    expect(filterRows([native], compileNameFilter('built-in'), labels)).toHaveLength(1)
+  })
+
+  it('does not hand the built-in label to every row', () => {
+    const mcp = tool('query', 'dbx')
+    expect(filterRows([mcp], compileNameFilter('系统'), labels)).toEqual([])
+  })
+
+  it('matches an MCP server id, so a whole server can be narrowed to', () => {
+    const rows = [tool('mcp__dbx__query', 'dbx'), tool('mcp__dbx__schema', 'dbx'), tool('read', 'built-in')]
+    expect(filterRows(rows, compileNameFilter('dbx'), labels).map(r => r.name))
+      .toEqual(['mcp__dbx__query', 'mcp__dbx__schema'])
+    expect(filterRows(rows, compileNameFilter('^read$'), labels).map(r => r.name)).toEqual(['read'])
+    // Anchored to the name's start: the server id matches, the middle does not.
+    expect(filterRows(rows, compileNameFilter('^query'), labels)).toEqual([])
+  })
+
+  it('matches a skill by source label and by the path the row shows', () => {
+    const own = skill('mine', { source: 'custom' })
+    expect(filterRows([own], compileNameFilter('custom'), labels)).toHaveLength(1)
+    expect(filterRows([own], compileNameFilter('path/custom'), labels)).toHaveLength(1)
+    expect(filterRows([own], compileNameFilter('user-agents'), labels)).toEqual([])
+  })
+
+  it('matches a skill by the preset that ships it', () => {
+    const rows = [
+      skill('editing-cordis-compositions', { source: 'custom', preset: 'cordis' }),
+      skill('other', { source: 'custom' }),
+    ]
+    expect(filterRows(rows, compileNameFilter('cordis'), labels).map(r => r.name))
+      .toEqual(['editing-cordis-compositions'])
+  })
+
+  it('skips absent dimensions instead of matching them as "undefined"', () => {
+    expect(searchableText(skill('plain'))).toEqual(['plain'])
+    expect(filterRows([skill('plain')], compileNameFilter('undefined'), labels)).toEqual([])
+    expect(filterRows([skill('plain')], compileNameFilter('null'), labels)).toEqual([])
   })
 })
 
@@ -151,7 +232,7 @@ describe('groupRows', () => {
 
   it('filters before grouping, so a server header counts what is listed under it', () => {
     const rows = [tool('sql-query', 'dbx'), tool('shell', 'dbx'), skill('sql-helper')]
-    const shown = filterRows(rows, 'sql')
+    const shown = filterRows(rows, compileNameFilter('sql'))
     const { servers, skills } = groupRows(shown)
     expect(servers.map(s => [s.server, s.tools.map(t => t.name)])).toEqual([['dbx', ['sql-query']]])
     // A skill row survives the same filter and does not inflate the tool count.

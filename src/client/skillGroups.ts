@@ -39,22 +39,87 @@ export function groupRows(rows: readonly CapabilityRow[]): Grouped {
 }
 
 /**
- * Normalize a filter box's contents into the needle an empty-vs-no-match
- * judgment can be made on. Exported so the panel's "nothing here" message and
- * `filterRows` cannot disagree about what an empty filter is.
+ * The filter box's contents, compiled once per render.
+ *
+ * The box takes a regular expression, case-insensitively. Plain text still does
+ * what it always did: an unanchored regex *is* a substring test, so `dbx` keeps
+ * matching `mcp__dbx__query`. A pattern that does not compile (a half-typed `(`)
+ * degrades to a literal substring search instead of throwing mid-render.
  */
-export function filterNeedle(filter: string): string {
-  return filter.trim().toLowerCase()
+export interface NameFilter {
+  /** Trimmed, lowercased box contents; `''` means "no filter at all". */
+  readonly needle: string
+  /** True when the needle came from a regex that compiled. */
+  readonly regex: boolean
+  test(values: readonly (string | undefined)[]): boolean
 }
 
 /**
- * Narrow a list by name, case-insensitively. Applied *before* grouping so a
- * server header's own counts describe the rows actually listed under it.
+ * Compile the box. A `/…/` wrapper is optional — it is stripped when present, so
+ * both `cordis|ptc` and `/cordis|ptc/` are read as patterns — and it keeps the
+ * common case of pasting a slash-delimited pattern from working.
  */
-export function filterRows(rows: readonly CapabilityRow[], filter: string): CapabilityRow[] {
-  const needle = filterNeedle(filter)
-  if (needle === '') return [...rows]
-  return rows.filter(row => row.name.toLowerCase().includes(needle))
+export function compileNameFilter(input: string): NameFilter {
+  const raw = input.trim()
+  const needle = raw.toLowerCase()
+  if (raw === '') return { needle, regex: false, test: () => true }
+  const wrapped = raw.length > 1 && raw.startsWith('/') && raw.endsWith('/')
+  const pattern = wrapped ? raw.slice(1, -1) : raw
+  try {
+    // No `g` flag: a global regex carries `lastIndex` between `test` calls, so
+    // reusing it per row would skip matches.
+    const compiled = new RegExp(pattern, 'i')
+    return { needle, regex: true, test: values => values.some(v => v !== undefined && compiled.test(v)) }
+  } catch {
+    return {
+      needle,
+      regex: false,
+      test: values => values.some(v => v !== undefined && v.toLowerCase().includes(needle)),
+    }
+  }
+}
+
+/** Labels only the caller can produce, because they are localized or rendered. */
+export interface FilterLabels {
+  /** How the built-in pseudo-server is drawn (系统内置 / System built-in). */
+  readonly builtIn?: string
+  /** How a skill's source root is drawn on its row, e.g. `~/.dsh/skills`. */
+  readonly source?: (source: string) => string | undefined
+}
+
+/**
+ * Everything a row is matched against: its own name, plus the dimensions that
+ * name the group it sits in — the MCP server (or the label the built-in group is
+ * drawn with), the skill's source root, and the preset that ships it.
+ *
+ * Group headings are labels rather than row fields, which is exactly why typing
+ * 系统 used to find nothing: the server id is `built-in`, and 系统内置 is only how
+ * that id is painted. Both spellings are searchable now.
+ */
+export function searchableText(row: CapabilityRow, labels: FilterLabels = {}): string[] {
+  const values: Array<string | undefined> = [row.name]
+  if (row.server !== undefined) {
+    values.push(row.server)
+    if (row.server === BUILT_IN_SERVER) values.push(labels.builtIn)
+  }
+  if (row.source !== undefined) {
+    values.push(row.source, labels.source?.(row.source))
+  }
+  values.push(row.preset)
+  return values.filter((v): v is string => v !== undefined && v !== '')
+}
+
+/**
+ * Narrow a list by the filter. Applied *before* grouping so a server header's
+ * own counts describe the rows actually listed under it.
+ */
+export function filterRows(
+  rows: readonly CapabilityRow[],
+  filter: NameFilter,
+  labels: FilterLabels = {},
+): CapabilityRow[] {
+  if (filter.needle === '') return [...rows]
+  return rows.filter(row => filter.test(searchableText(row, labels)))
 }
 
 export interface SkillGroups {

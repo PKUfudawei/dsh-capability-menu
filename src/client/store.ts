@@ -43,6 +43,8 @@ export interface CapabilityPolicyRemote {
   updateConfig(partial: Record<string, unknown>): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   classifyAll(): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>
   refresh(): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
+  /** One number naming the host's current catalog state; see the registry's `version()`. */
+  catalogVersion(): Promise<{ ok: true; value: number } | { ok: false; error: { code: string; message: string } }>
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>

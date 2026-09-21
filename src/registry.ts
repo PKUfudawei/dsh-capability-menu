@@ -215,6 +215,16 @@ export interface CapabilityService {
    */
   onDemandCount(): number
   /**
+   * Monotonic catalog version. It advances only when a rebuild finishes
+   * applying, so a caller that compares two samples learns "the catalog really
+   * moved" without re-reading the rows — which is what lets the management UI
+   * poll a single number instead of `classifyAll` on every tick.
+   *
+   * Not guaranteed to increase across a plugin restart (the counter is
+   * in-process), so compare with `!==`, never with `>`.
+   */
+  version(): number
+  /**
    * Rebuild the catalog from the current tool/skill registries; resolves when
    * done. In production the registry rebuilds automatically on `tools/change`
    * / `skills/change`; this public handle is for tests and external orchestrators
@@ -976,6 +986,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     onDemandCount(): number {
       return onDemandCount
+    },
+
+    version(): number {
+      return appliedSeq
     },
 
     refresh(): Promise<void> {

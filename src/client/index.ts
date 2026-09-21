@@ -11,6 +11,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-connection/client'
 import { TYPERT_REMOTE } from './remote.ts'
 import { CapabilitySection, type CapabilitySectionInjected, type CapabilityKey } from './CapabilitySection.tsx'
 
@@ -54,7 +55,8 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     presetSkills: '预设技能',
     emptyGlobalSkills: '暂无全局技能',
     emptyProjectSkills: '暂无项目技能',
-    filterByName: '按名字过滤…',
+    filterByName: '按名字、分组或正则过滤…',
+    filterHint: '忽略大小写。匹配工具/技能名、MCP server、技能来源标签与预设 id；也可以直接写正则，例如 cordis|ptc 或 /^mcp__dbx/。',
     filterNoMatch: '没有匹配的能力（清空过滤框可恢复完整列表）',
     emptyTools: '暂无工具',
     emptySkills: '暂无 Skill',
@@ -67,8 +69,6 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     previewClose: '关闭',
     detailNotFound: '未找到该工具的详情',
     cycleOverridden: '分类未生效：{count} 个能力被更高优先级规则覆盖（如通配规则），可移除对应通配规则后重试',
-    refresh: '刷新',
-    refreshing: '刷新中…',
     refreshFailed: '刷新失败，请查看日志',
     retry: '重试',
     carrierFailureHint: '请求未到达服务端：浏览器与 dsh 之间的连接已断开（Failed to fetch 属传输层失败，服务端方法未执行）。若刚重启过 dsh web，请先硬刷新页面（Ctrl/Cmd+Shift+R）再重试。',
@@ -153,7 +153,8 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     presetSkills: 'Preset skills',
     emptyGlobalSkills: 'No global skills',
     emptyProjectSkills: 'No project skills',
-    filterByName: 'Filter by name…',
+    filterByName: 'Filter by name, group, or regex…',
+    filterHint: 'Case-insensitive. Matches tool/skill names, MCP servers, skill source labels and preset ids; a regular expression works too, e.g. cordis|ptc or /^mcp__dbx/.',
     filterNoMatch: 'No capability matches (clear the filter to see the full list)',
     emptyTools: 'No tools',
     emptySkills: 'No skills',
@@ -166,8 +167,6 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     previewClose: 'Close',
     detailNotFound: 'Tool detail not found',
     cycleOverridden: 'Classification not applied: {count} capability(ies) overridden by a higher-priority rule (e.g. a wildcard). Remove the matching wildcard rule and retry.',
-    refresh: 'Refresh',
-    refreshing: 'Refreshing…',
     refreshFailed: 'Refresh failed; see the log',
     retry: 'Retry',
     carrierFailureHint: 'The request never reached the server: the browser connection to dsh is broken ("Failed to fetch" is a transport failure, so no server method ran). If dsh web was just restarted, hard-refresh the page (Ctrl/Cmd+Shift+R) and retry.',
@@ -261,6 +260,50 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
       return undefined
     }
   }
+  /**
+   * The two signals that say "the host catalog may have moved, and this page did
+   * not ask": a settings document edit, and a carrier reconnect.
+   *
+   * `settings/document-updated` is one of the events dsh forwards to browsers
+   * (so it arrives over the same validated channel as the remote calls) and it
+   * fires for external edits too — composition files are edited outside the
+   * browser, and nothing else on the wire announces that. `connection/reset` is
+   * the client's own reconnect signal rather than a forwarded one, which is why
+   * it is a plain local `ctx.on`; dsh's own settings sections listen to exactly
+   * this pair, including the first connection, which closes the window where a
+   * change lands between the initial read and the subscription.
+   *
+   * Neither subscription is fatal: the section falls back to its version poll.
+   */
+  const subscribeSignals = (listener: () => void): (() => void) => {
+    const disposers: Array<() => void> = []
+    // `$on` is typed against the host's forwarded-event allowlist, and the
+    // Cordis `Events` seat that makes a key legal lives in
+    // `@deepseek-ai/dsh-settings` — a host package this plugin does not depend
+    // on (it hand-mirrors the host faces it needs instead). The runtime method
+    // is verified against the shipped gateway:
+    // `$on(event, listener) { return this.events.subscribe(this.ctx, event, listener) }`.
+    // So reach it through one narrow cast rather than adding a host package to
+    // the manifest for a single event name.
+    const forwarded = ctx.remote as unknown as {
+      $on?: (event: string, listener: () => void) => () => void
+    }
+    try {
+      if (typeof forwarded.$on !== 'function') throw new Error('ctx.remote.$on is unavailable')
+      disposers.push(forwarded.$on('settings/document-updated', () => listener()))
+    } catch (error) {
+      console.error('[capability-menu] settings/document-updated subscription failed:', error)
+    }
+    try {
+      disposers.push(ctx.on('connection/reset', () => listener()))
+    } catch (error) {
+      console.error('[capability-menu] connection/reset subscription failed:', error)
+    }
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  }
+
   const injected = (): CapabilitySectionInjected => {
     // Resolve by key rather than by property access: `ctx.remote.capabilityPolicy`
     // would hit the "without inject" gate, since this plugin mounts the namespace
@@ -268,6 +311,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     return {
       remote: remote() as CapabilitySectionInjected['remote'],
       t,
+      subscribeSignals,
       ...mountError !== undefined ? { mountError } : {},
     }
   }

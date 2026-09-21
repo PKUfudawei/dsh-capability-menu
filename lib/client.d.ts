@@ -118,6 +118,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>;
     refresh: () => Promise<RemoteResult<void>>;
+    catalogVersion: () => Promise<RemoteResult<number>>;
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
@@ -137,6 +138,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>;
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>;
+    'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>;
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
@@ -196,6 +198,17 @@ interface CapabilityPolicyRemote {
   refresh(): Promise<{
     ok: true;
     value: void;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
+  /** One number naming the host's current catalog state; see the registry's `version()`. */
+  catalogVersion(): Promise<{
+    ok: true;
+    value: number;
   } | {
     ok: false;
     error: {
@@ -342,9 +355,17 @@ interface CapabilitySectionInjected {
   t(key: CapabilityKey, params?: Record<string, unknown>): string;
   /** Diagnostic: `$mount` failure surfaced instead of crashing the section. */
   mountError?: string;
+  /**
+   * Subscribe to signals that the host catalog may have moved without this page
+   * asking: a settings document edit (registering a source, editing a
+   * composition file outside the browser) or a carrier reconnect. Returns a
+   * disposer. Optional so the section still mounts on a runtime that predates
+   * the forwarded-event API — it then falls back to the version poll alone.
+   */
+  subscribeSignals?: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'filterByName' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'refresh' | 'refreshing' | 'refreshFailed' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

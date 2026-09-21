@@ -228,6 +228,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>
     refresh: () => Promise<RemoteResult<void>>
+    catalogVersion: () => Promise<RemoteResult<number>>
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
@@ -247,6 +248,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>
+    'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
@@ -467,6 +469,16 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: { mode: 'strict', typeSymbol: 'boolean', schema: z.boolean() },
       sourceLocation: { file: 'src/server/remote.ts', line: 264, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/catalogVersion',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'catalogVersion',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: { mode: 'strict', typeSymbol: 'number', schema: z.number() },
+      sourceLocation: { file: 'src/server/remote.ts', line: 317, column: 3 },
     },
   ],
 }

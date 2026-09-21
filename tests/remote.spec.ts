@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { CapabilityPolicyGateway } from '../src/server/remote.ts'
+import { TYPERT_REMOTE } from '../src/client/remote.ts'
 import type { SkillLocation } from '../src/locations.ts'
 import type { CapabilityPolicyService } from '../src/policy.ts'
 import type { CapabilityService } from '../src/registry.ts'
@@ -61,6 +62,29 @@ describe('server gateway · @Remote wiring', () => {
     const decorated = source.match(/^\s*@Remote(?![\w$])/gm) ?? []
     expect(decorated.length).toBeGreaterThan(0)
     expect(remoteMethods(gateway([], [])).map(marker => marker.method)).toHaveLength(decorated.length)
+  })
+
+  it('mirrors every Remote method into the client contribution', async () => {
+    // `src/client/remote.ts` is hand-maintained (it mirrors what the Typert
+    // generator would emit), so a method added to the Host class without its
+    // descriptor would be registered on the wire and still invisible to the
+    // browser. Derive both sides instead of listing names twice.
+    const source = await readFile(new URL('../src/server/remote.ts', import.meta.url), 'utf8')
+    const decorated = [...source.matchAll(/^\s*@Remote\(['"]([^'"]+)['"]\)/gm)].map(m => m[1])
+    const mirrored = TYPERT_REMOTE.descriptors.map(descriptor => descriptor.method)
+    expect(decorated.length).toBeGreaterThan(0)
+    expect([...mirrored].sort()).toEqual([...decorated].sort())
+  })
+})
+
+describe('server gateway · catalogVersion', () => {
+  it('passes the registry version through to the browser', () => {
+    // One number instead of the whole row list: the page polls this to notice
+    // changes nothing on the wire announces.
+    const ctx = new Context()
+    ctx.provide('capability', { version: () => 42 } as unknown as CapabilityService)
+    ctx.provide('capabilityPolicy', {} as unknown as CapabilityPolicyService)
+    expect(new CapabilityPolicyGateway(ctx).catalogVersion()).toBe(42)
   })
 })
 

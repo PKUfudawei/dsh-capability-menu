@@ -115,6 +115,18 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
     /** Repoint a registered skill entry at a different directory. */
     updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>;
+    /**
+     * The registry's catalog version — one number, cheap enough to poll. The
+     * management page uses it to notice changes the wire never announces (a file
+     * dropped into an already-registered skill directory reindexes the host via
+     * `skills/change`, which is not a forwarded event), and only re-reads
+     * `classifyAll` when the number actually moved.
+     *
+     * Appended at the end of the class on purpose: the client-side descriptors in
+     * `src/client/remote.ts` carry each method's `sourceLocation` line, and
+     * inserting here would shift every line below it.
+     */
+    catalogVersion(): number;
 }
 /** Register the remote gateway on a context. */
 export declare const name = "capability-menu-remote";

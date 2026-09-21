@@ -301,6 +301,22 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   async updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean> {
     return this.ctx.capabilityPolicy.updateSkillLocation(name, dir, entryDir)
   }
+
+  /**
+   * The registry's catalog version — one number, cheap enough to poll. The
+   * management page uses it to notice changes the wire never announces (a file
+   * dropped into an already-registered skill directory reindexes the host via
+   * `skills/change`, which is not a forwarded event), and only re-reads
+   * `classifyAll` when the number actually moved.
+   *
+   * Appended at the end of the class on purpose: the client-side descriptors in
+   * `src/client/remote.ts` carry each method's `sourceLocation` line, and
+   * inserting here would shift every line below it.
+   */
+  @Remote('catalogVersion')
+  catalogVersion(): number {
+    return this.ctx.capability.version()
+  }
 }
 
 /** Register the remote gateway on a context. */

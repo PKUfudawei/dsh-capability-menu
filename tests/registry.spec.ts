@@ -687,4 +687,19 @@ describe('meta-registry', () => {
     expect(row?.source).toBe('user-agents')
     expect(row?.path).toBe(`${home}/.agents/skills/normal-skill`)
   })
+
+  it('advances the catalog version when a rebuild lands', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home)
+    await ctx.capability.refresh()
+    const before = ctx.capability.version()
+    expect(Number.isInteger(before)).toBe(true)
+
+    // The management page polls this one number instead of the whole row list:
+    // it advances only when a rebuild has finished applying, so "the number
+    // moved" means "the catalog is already rebuilt, just re-read it".
+    registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
+    await ctx.capability.refresh()
+    expect(ctx.capability.version()).toBeGreaterThan(before)
+  })
 })

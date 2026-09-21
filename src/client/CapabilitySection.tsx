@@ -18,7 +18,7 @@
  *                       with flat skill rows carrying the same clickable class
  *                       chip plus a directory tree / file preview
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -35,14 +35,15 @@ import { cachedSnapshot, loadSnapshot, unwrap } from './store.ts'
 import { LocationModal } from './LocationModal.tsx'
 import { ADOPTABLE_SKILL_SOURCES, BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 import {
+  compileNameFilter,
   countByClass,
-  filterNeedle,
   filterRows,
   groupRows,
   resolveSkillTab,
   splitSkillGroups,
   type SkillTab,
 } from './skillGroups.ts'
+import { canRevalidate, pollDelayMs, versionChanged, type RevalidateGate } from './revalidate.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
@@ -50,6 +51,14 @@ export interface CapabilitySectionInjected {
   t(key: CapabilityKey, params?: Record<string, unknown>): string
   /** Diagnostic: `$mount` failure surfaced instead of crashing the section. */
   mountError?: string
+  /**
+   * Subscribe to signals that the host catalog may have moved without this page
+   * asking: a settings document edit (registering a source, editing a
+   * composition file outside the browser) or a carrier reconnect. Returns a
+   * disposer. Optional so the section still mounts on a runtime that predates
+   * the forwarded-event API — it then falls back to the version poll alone.
+   */
+  subscribeSignals?: (listener: () => void) => () => void
 }
 
 export type CapabilitySectionProps = CapabilitySectionInjected
@@ -75,6 +84,7 @@ export type CapabilityKey =
   | 'emptyGlobalSkills'
   | 'emptyProjectSkills'
   | 'filterByName'
+  | 'filterHint'
   | 'filterNoMatch'
   | 'toolCount'
   | 'residentShort'
@@ -85,8 +95,6 @@ export type CapabilityKey =
   | 'previewClose'
   | 'detailNotFound'
   | 'cycleOverridden'
-  | 'refresh'
-  | 'refreshing'
   | 'refreshFailed'
   | 'retry'
   | 'carrierFailureHint'
@@ -188,6 +196,8 @@ const CSS = `
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
+/* 忙碌态靠变淡表示，而不是换文案：换文案会改按钮宽度，把这行挤到第二行。 */
+.mc-catalog-btn:disabled{cursor:default;opacity:.6}
 .mc-catalog-tabs{padding:8px 16px 0}
 .mc-catalog-path{padding:8px 16px 0;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
@@ -211,8 +221,12 @@ body[data-ds-dark-theme] .mc-chip--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-chip--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;justify-content:space-between;gap:22px}
-/* 名字过滤框：两个 tab 共用一条，宽度占满，与下方列表左对齐。 */
-.mc-filter{display:flex;padding-top:12px}
+/* 名字过滤框：两个 tab 共用一条，宽度占满，与下方列表左对齐。
+   它属于上面的主 tab 栏，不属于下面的列表，所以两侧都把 .mc-section 的 12px
+   栏距收掉一部分：下划线—6px—输入框—8px—全局/项目 子页签文字（后者里的 4px
+   是子页签自己的 padding-top）。改之前是 12+12=24px 和 12+4=16px，读起来像
+   两个不相干的块。 */
+.mc-filter{display:flex;padding-top:0;margin-top:-6px;margin-bottom:-8px}
 .mc-filter input{box-sizing:border-box;width:100%;min-width:0;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px;line-height:18px}
 .mc-filter input:hover{border-color:var(--dsw-alias-border-l3)}
 .mc-filter input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;border-color:transparent}
@@ -223,13 +237,17 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tab:hover,.mc-tab[data-active=true]{color:var(--dsw-alias-label-primary)}
 .mc-tab[data-active=true]:after,.mc-tab:focus-visible:after{background:var(--dsw-alias-label-primary);content:"";border-radius:2px 2px 0 0;height:2px;position:absolute;bottom:-1px;left:0;right:0}
 .mc-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px;color:var(--dsw-alias-label-primary);border-radius:2px}
-.mc-panel{min-width:0;padding-top:12px}
-/* Skills panel: its first row is the 全局技能/项目技能 sub-tab bar, which sits
-   directly under the main tab bar. It is a second level of the same control, so
-   the two bars have to read as one stack: no panel padding at all, and the
-   sub-tabs keep a token top padding instead of the 7px they share with the
-   primary tabs. Together the label sits ~13px under the main label rather than
-   ~20px, with the main bar's rule between them. */
+/* 面板的第一行必须和另一个 tab 的第一行从过滤框下沿出发走同样远，否则切 tab 时
+   首行会跳一下。这里留 4px，加上 .mc-section 的 4px 栏距（过滤框那侧被 -8px 收
+   掉后剩 4px）= 8px，正好是 Skills 面板子页签文字的位置（4px 栏距 + 子页签自己
+   的 4px padding-top）。原来这里是 12px，Tools 的首个分组因此落在过滤框下 16px
+   处，比「全局技能」那行低一半。 */
+.mc-panel{min-width:0;padding-top:4px}
+/* Skills panel: its first row is the 全局技能/项目技能 sub-tab bar, and that bar
+   belongs to the header stack above it (rule → name filter → sub-tabs) rather
+   than to the list below. So the panel adds no padding of its own, and the
+   sub-tab labels keep a 4px top padding instead of the 7px they share with the
+   primary tabs. */
 .mc-panel--tight{padding-top:0}
 .mc-panel--tight .mc-subtabs .mc-tab{padding-top:4px}
 .mc-panel-inner{display:flex;flex-direction:column;gap:14px}
@@ -346,8 +364,23 @@ function sourceLabel(
   return key === undefined ? source : t(key)
 }
 
+/**
+ * Whether the document is visible. A hidden settings tab does no polling and
+ * takes no re-reads; coming back is itself a revalidation trigger.
+ */
+function useDocumentVisible(): boolean {
+  const [visible, setVisible] = useState(true)
+  useEffect(() => {
+    const update = (): void => setVisible(document.visibilityState !== 'hidden')
+    update()
+    document.addEventListener('visibilitychange', update)
+    return () => document.removeEventListener('visibilitychange', update)
+  }, [])
+  return visible
+}
+
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
-  const { remote, t, mountError } = props
+  const { remote, t, mountError, subscribeSignals } = props
   // Paint a previous snapshot immediately when this page session has one; the
   // mount effect below still revalidates.
   const [state, setState] = useState<ViewState>(() => {
@@ -370,7 +403,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       // A stale list beats a blank panel: if rows are already on screen, keep
       // them and report the failed revalidate instead of replacing everything
       // with an error (the most common cause is the carrier dying, which the
-      // 刷新 button and a hard refresh both recover from).
+      // reconnect signal and the version poll both recover from).
       setState(prev => prev.status === 'ready' ? prev : { status: 'error', message: String(e) })
       setNotice(String(e))
     }
@@ -410,6 +443,81 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       return next
     })
   }, [])
+
+  // ── Keeping the list fresh without a 刷新 button ─────────────────────────
+  //
+  // Four things can make what is on screen stale, and they are not the same
+  // kind of event. A settings edit or a reconnect means the *host* may not have
+  // reindexed yet, so those go through `refreshCatalog()` (rebuild, wait for it
+  // to converge, then re-read) — the scheduler debounces `tools/change` /
+  // `skills/change` by 200ms, so a bare re-read on the signal would read the
+  // pre-rebuild catalog. A moved version number means the rebuild already
+  // finished, so a plain `reload()` is enough.
+  const visible = useDocumentVisible()
+  const [pendingSignal, setPendingSignal] = useState(false)
+  const seenVersion = useRef<number | undefined>(undefined)
+  const pollFailures = useRef(0)
+  // Read by the subscription callback, which is created once and must not be
+  // re-created (that would re-subscribe on every keystroke in the filter box).
+  const gate = useRef<RevalidateGate>({ visible: true, ready: false, busy: false, rebuilding: false })
+  useEffect(() => {
+    gate.current = { visible, ready: state.status === 'ready', busy, rebuilding: refreshing }
+  })
+
+  /**
+   * A signal that the host catalog may have moved. Runs now when the page is
+   * idle; otherwise parks until it is, so a signal that lands mid-click is
+   * never dropped (and never repaints the row under the cursor).
+   */
+  const onExternalSignal = useCallback(() => {
+    if (canRevalidate(gate.current)) void refreshCatalog()
+    else setPendingSignal(true)
+  }, [refreshCatalog])
+
+  useEffect(() => {
+    const dispose = subscribeSignals?.(onExternalSignal)
+    return dispose
+  }, [subscribeSignals, onExternalSignal])
+
+  // The parked signal, flushed as soon as the page can take it.
+  useEffect(() => {
+    if (!pendingSignal) return
+    if (!canRevalidate({ visible, ready: state.status === 'ready', busy, rebuilding: refreshing })) return
+    setPendingSignal(false)
+    void refreshCatalog()
+  }, [pendingSignal, visible, state.status, busy, refreshing, refreshCatalog])
+
+  // The one change nothing on the wire announces: a file dropped into an
+  // already-registered skill directory reindexes the host through `skills/change`,
+  // which is not in the forwarded-event allowlist. So ask for a cheap version
+  // number and only re-read when it moves. Sampling restarts whenever this
+  // effect does — mount, becoming visible, and going idle again — which is
+  // exactly when a fresh answer is worth having.
+  useEffect(() => {
+    if (!visible || state.status !== 'ready' || busy || refreshing) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = async (): Promise<void> => {
+      try {
+        const version = unwrap(await remote.catalogVersion(), 'capabilityPolicy.catalogVersion')
+        pollFailures.current = 0
+        if (versionChanged(seenVersion.current, version)) {
+          seenVersion.current = version
+          await reload()
+        }
+      } catch {
+        // A dead carrier is the expected failure here; reload() already keeps
+        // the stale list and reports it. Back off instead of hammering.
+        pollFailures.current += 1
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), pollDelayMs(pollFailures.current))
+    }
+    timer = setTimeout(() => void tick(), 0)
+    return () => {
+      stopped = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [visible, state.status, busy, refreshing, remote, reload])
 
   /** Move one or more capability ids to the next class in the click cycle. */
   const cycleClass = useCallback(async (ids: readonly string[], kind: 'tool' | 'skill') => {
@@ -483,8 +591,9 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
               still holding the dsh process that has since restarted. Say so,
               because "Failed to fetch" alone reads like a plugin bug. */}
           {state.message.includes('Failed to fetch') && <p className="mc-error-hint">{t('carrierFailureHint')}</p>}
-          {/* The one recovery path: without it the panel is a dead end, since the
-              header's 刷新 button only exists in the ready body. */}
+          {/* The one recovery path: the automatic signals all need a snapshot to
+              be on screen first, so a page that never got one has to be able to
+              ask again. */}
           <div className="mc-error-actions">
             <button type="button" className="mc-catalog-btn" onClick={() => void reload()}>{t('retry')}</button>
           </div>
@@ -502,7 +611,6 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         onToggleServer={toggleServer}
         onCycle={cycleClass}
         onRefresh={() => void refreshCatalog()}
-        refreshing={refreshing}
         onNotice={setNotice}
       />}
     </section>
@@ -519,17 +627,23 @@ function ReadyBody(props: {
   onTabChange: (tab: 'tools' | 'skills') => void
   onToggleServer: (server: string) => void
   onCycle: (ids: readonly string[], kind: 'tool' | 'skill') => void
+  /** Rebuild the host catalog and re-read it now. */
   onRefresh: () => void
-  refreshing: boolean
   /** Surface a one-line message in the section header. */
   onNotice: (message: string | null) => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, refreshing, onNotice } = props
+  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onNotice } = props
   /** Name filter, shared by both tabs: it narrows whichever list is shown. */
   const [filter, setFilter] = useState('')
   // Distinguishes "nothing to show" from "the filter matched nothing".
-  const needle = filterNeedle(filter)
-  const shownRows = filterRows(snapshot.rows, filter)
+  const nameFilter = compileNameFilter(filter)
+  const needle = nameFilter.needle
+  // The two labels only the client can supply: both are localized or rendered,
+  // and both are what an operator actually reads off the screen.
+  const shownRows = filterRows(snapshot.rows, nameFilter, {
+    builtIn: t('builtInGroup'),
+    source: source => sourceLabel(source, t),
+  })
   const { servers, skills } = groupRows(shownRows)
   // Grouping rules live in `skillGroups.ts` so they are testable; see that
   // module for why the preset split keys off `preset` and not `source`.
@@ -684,7 +798,7 @@ function ReadyBody(props: {
       <h2 className="mc-heading">{t('title')}</h2>
       <div className="mc-desc-row">
         <p className="mc-desc">{t('desc')}</p>
-        {/* 只读文档入口留在说明行；计数行只放 chips + 刷新 + 注册能力。 */}
+        {/* 只读文档入口留在说明行；计数行只放 chips + 注册能力。 */}
         <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
           {t('viewCatalog')}
         </button>
@@ -721,14 +835,8 @@ function ReadyBody(props: {
             </span>
           ))}
           {/* 固定在最右侧：计数 chips 增减时按钮位置不漂移。 */}
-          <button
-            type="button"
-            className="mc-catalog-btn"
-            onClick={() => onRefresh()}
-            disabled={refreshing}
-          >
-            {refreshing ? t('refreshing') : t('refresh')}
-          </button>
+          {/* No 刷新 button here: the page re-reads itself — see the four
+              signals documented in `revalidate.ts` and the effects below. */}
           <button type="button" className="mc-catalog-btn" onClick={() => setRegisterOpen(true)}>
             {t('registerCapability')}
           </button>
@@ -737,8 +845,11 @@ function ReadyBody(props: {
 
       {/* Name filter. A long list is the actual problem behind "why can't I find
           this capability" — grouping only helps when you already know where to
-          look — and one box serves both tabs. Hidden when there is nothing to
-          filter at all, so the empty catalog keeps its plain message. */}
+          look — and one box serves both tabs. It matches the row name *and* the
+          group the row sits in (server / source root / preset), because typing
+          系统 should find 系统内置 and typing cordis should find that preset's
+          skills. Hidden when there is nothing to filter at all, so the empty
+          catalog keeps its plain message. */}
       {snapshot.rows.length > 0 && (
         <div className="mc-filter">
           <input
@@ -746,6 +857,7 @@ function ReadyBody(props: {
             value={filter}
             placeholder={t('filterByName')}
             aria-label={t('filterByName')}
+            title={t('filterHint')}
             onChange={e => setFilter(e.target.value)}
           />
         </div>
