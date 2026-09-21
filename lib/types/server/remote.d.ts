@@ -103,6 +103,12 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      * directory into the user root. The content is untouched — this is exactly how
      * the entries already in `~/.dsh/skills` are set up — and the skill becomes
      * editable afterwards. Returns the entry path written.
+     *
+     * A skill that ships inside an agent preset is refused: linking it into the
+     * user root would make it global, which is the opposite of what a preset
+     * skill is for. It is also the same check the UI applies (it hides the button),
+     * repeated here because the source label alone cannot tell a preset's
+     * `customSkillDirs` from a user's.
      */
     adoptSkillLocation(name: string): Promise<string>;
     /** Unregister a skill entry; `entryDir` addresses a project entry. */

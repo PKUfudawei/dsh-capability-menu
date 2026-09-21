@@ -64,6 +64,38 @@ describe('server gateway · @Remote wiring', () => {
   })
 })
 
+describe('server gateway · adoptSkillLocation', () => {
+  /**
+   * A gateway whose catalog knows one skill. The adopt path reads the record's
+   * source label and, for preset skills, its preset id; the location manager is
+   * a tripwire, because every refusal must happen before anything is linked.
+   */
+  function adoptGateway(record: unknown): CapabilityPolicyGateway {
+    const ctx = new Context()
+    ctx.provide('capability', {
+      get: (id: string, kind?: string) => kind === 'skill' && id === 'preset-skill' ? record : undefined,
+    } as unknown as CapabilityService)
+    ctx.provide('capabilityPolicy', {
+      addSkillLocation: async () => {
+        throw new Error('addSkillLocation must not run for a skill it refuses')
+      },
+    } as unknown as CapabilityPolicyService)
+    return new CapabilityPolicyGateway(ctx)
+  }
+
+  it('refuses to adopt a skill that ships with an agent preset', async () => {
+    // A preset's own skills are labelled `custom` just like a user's
+    // customSkillDirs entry, so the source label alone would let this through —
+    // and adopting would link a preset asset into the global skill root, making
+    // it apply to every session. That is the outcome issue #3 reports.
+    const gateway = adoptGateway({
+      origin: { provider: 'filesystem', source: 'custom', preset: 'cordis', path: '/presets/cordis/skills/preset-skill' },
+    })
+
+    await expect(gateway.adoptSkillLocation('preset-skill')).rejects.toThrow(/随预设 cordis 分发/)
+  })
+})
+
 describe('server gateway · listSkillLocations', () => {
   it('lists a project skill whose directory name differs from the name it declares', async () => {
     const project = await mkdtemp('/tmp/dsh-gateway-')

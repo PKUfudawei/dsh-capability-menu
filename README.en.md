@@ -68,16 +68,19 @@ Once installed, a Capability Management tab appears under Settings → General S
 | Edit or remove a registered entry | Edit on an MCP server's group header (Tools) or a skill row (Skills) |
 | See the effective policy and the On-demand catalog | Policy &amp; catalog, on the header's description row |
 | The list is stale (you changed a source outside dsh) | Refresh, at the top |
+| Find a capability in a long list | The filter box under the tab bar narrows the current tab by name (shared by Tools and Skills) |
 
 **The tier is that dot**: filled = Resident (the model calls it directly), half-filled ring = On-demand (reached through `meta_search` → `meta_invoke`), ring with a slash (a no-entry sign) = Disabled. If a higher-priority rule (a wildcard, say) overrides it, the UI reports that the classification did not apply.
 
-**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills". Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
+**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills" / "Preset skills" — **the third appears only when skills that ship with an agent preset actually exist** (without them the tab bar stays at two), and preset ids are section headings inside that tab rather than another level of tabs. A filter box under the tab bar narrows the current tab by name, which beats folding groups once a list gets long. Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
 
 **Three behaviours worth knowing**:
 
 - **A tier click does not hit disk immediately**: it changes memory first (so it feels instant) and is written back to `patchFile` (the home layer's `~/.dsh/cordis.patch.yml` by default) once you stop for ~1.5s — writing that file makes dsh hot-reload this plugin, so it cannot happen on every click.
 - **Registering writes files**: an MCP server goes into the same patch file (an `@deepseek-ai/dsh-mcp-client` row, mounted natively by dsh — this plugin never manages the connection), and a skill directory becomes a symlink under the skill root. Credentials such as headers are stored there in **plain text**.
-- **Some skill rows offer Adopt rather than Edit**: those are skills in user-level roots such as `~/.agents/skills` / `customSkillDirs`. The confirmation names the directory it currently lives in, and confirming links it into `~/.dsh/skills/` with the **content untouched**; rows that cannot be adopted show their source instead.
+- **Some skill rows offer Adopt rather than Edit**: those are skills in user-level roots such as `~/.agents/skills` / `customSkillDirs`. The confirmation names the directory it currently lives in, and confirming links it into `~/.dsh/skills/` with the **content untouched**; rows that cannot be adopted show their source instead. **Skills that ship with an agent preset are never adoptable**: linking a preset asset into the user skill root would make it apply to every session, the opposite of "visible only to sessions that mount this preset", so those rows just say "From preset X".
+
+> **Skill sources and same-name handling**: a row's source label comes from dsh's provider (`project-dsh` / `user-agents` / `custom` / `bundled` …), and a **preset skill and a user-configured `customSkillDirs` entry are both labelled `custom`** — only scope provenance tells them apart, so grouping uses the preset id recorded while scanning, never the source label. Tier rules apply by **bare name**: same-named skills across scopes share one switch, and indexing is **global layer first, then presets in order** (matching the tool side); a name collision does not affect tiers, but only one of the implementations shows up in the list.
 
 What each form field means, how visible a global versus a project skill is, what a removal actually costs, and how `SKILL.md` is validated are all stated where you act on them — no need to repeat them here.
 

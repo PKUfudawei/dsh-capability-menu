@@ -34,6 +34,15 @@ import type {
 import { cachedSnapshot, loadSnapshot, unwrap } from './store.ts'
 import { LocationModal } from './LocationModal.tsx'
 import { ADOPTABLE_SKILL_SOURCES, BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
+import {
+  countByClass,
+  filterNeedle,
+  filterRows,
+  groupRows,
+  resolveSkillTab,
+  splitSkillGroups,
+  type SkillTab,
+} from './skillGroups.ts'
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
@@ -60,10 +69,13 @@ export type CapabilityKey =
   | 'builtInGroup'
   | 'globalSkills'
   | 'projectSkills'
+  | 'presetSkills'
   | 'emptyTools'
   | 'emptySkills'
   | 'emptyGlobalSkills'
   | 'emptyProjectSkills'
+  | 'filterByName'
+  | 'filterNoMatch'
   | 'toolCount'
   | 'residentShort'
   | 'onDemandShort'
@@ -110,6 +122,8 @@ export type CapabilityKey =
   | 'skillAdopted'
   | 'skillSource'
   | 'skillSourceHint'
+  | 'skillFromPreset'
+  | 'skillFromPresetHint'
   | 'skillUnmanaged'
   | 'adoptSkill'
   | 'adoptSkillHint'
@@ -197,6 +211,11 @@ body[data-ds-dark-theme] .mc-chip--resident{color:#96b6d1}
 body[data-ds-dark-theme] .mc-chip--on-demand{color:#d4b26b}
 body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;justify-content:space-between;gap:22px}
+/* 名字过滤框：两个 tab 共用一条，宽度占满，与下方列表左对齐。 */
+.mc-filter{display:flex;padding-top:12px}
+.mc-filter input{box-sizing:border-box;width:100%;min-width:0;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px;line-height:18px}
+.mc-filter input:hover{border-color:var(--dsw-alias-border-l3)}
+.mc-filter input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;border-color:transparent}
 /* Skills sub-tab bar (全局技能/项目技能): same underline chrome, no right-side summary. */
 .mc-subtabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;gap:22px}
 .mc-tab-group{display:flex;align-items:flex-end;gap:22px}
@@ -270,6 +289,9 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-confirm-path{font-family:var(--dsw-font-markdown-code-block-font-family);word-break:break-all}
 .mc-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
 .mc-skill-body{border-top:1px solid var(--dsw-alias-border-l1);padding:8px 12px 12px}
+/* 预设技能组：预设 id 是页签之下的分组小标题，不是新一级页签。 */
+.mc-skill-group{display:flex;flex-direction:column;gap:8px;min-width:0}
+.mc-skill-group-title{font-size:12px;line-height:18px;font-weight:600;color:var(--dsw-alias-label-secondary);padding:0 2px}
 .mc-tree{display:flex;flex-direction:column;gap:2px;font-size:13px;line-height:20px}
 .mc-tree-row{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:6px;cursor:pointer;min-width:0}
 .mc-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -291,12 +313,6 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id
   tag.dataset.cssId = CSS_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
-}
-
-/** Group tools by server name; skills stay flat (no server). */
-interface Grouped {
-  servers: Array<{ server: string; tools: CapabilityRow[] }>
-  skills: CapabilityRow[]
 }
 
 /**
@@ -328,29 +344,6 @@ function sourceLabel(
   if (path !== undefined) return path
   const key = SOURCE_LABEL_KEYS[source]
   return key === undefined ? source : t(key)
-}
-
-function groupRows(rows: readonly CapabilityRow[]): Grouped {
-  const byServer = new Map<string, CapabilityRow[]>()
-  const skills: CapabilityRow[] = []
-  for (const row of rows) {
-    if (row.kind === 'skill') {
-      skills.push(row)
-      continue
-    }
-    const server = row.server ?? BUILT_IN_SERVER
-    const list = byServer.get(server)
-    if (list === undefined) byServer.set(server, [row])
-    else list.push(row)
-  }
-  const servers = [...byServer.entries()]
-    .map(([server, tools]) => ({ server, tools: [...tools].sort((a, b) => a.name.localeCompare(b.name)) }))
-    .sort((a, b) => a.server.localeCompare(b.server))
-  return { servers, skills: [...skills].sort((a, b) => a.name.localeCompare(b.name)) }
-}
-
-function countByClass(rows: readonly CapabilityRow[], cls: CapabilityClass): number {
-  return rows.reduce((n, row) => (row.class === cls ? n + 1 : n), 0)
 }
 
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
@@ -532,19 +525,25 @@ function ReadyBody(props: {
   onNotice: (message: string | null) => void
 }): JSX.Element {
   const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, refreshing, onNotice } = props
-  const { servers, skills } = groupRows(snapshot.rows)
-  // Skills whose source root is inside the current project vs. everything else
-  // (user/global dirs, bundled, custom, runtime); skills without a source label
-  // belong to the global group.
-  const projectSkills = skills.filter(skill => PROJECT_SKILL_SOURCES.has(skill.source ?? ''))
-  const globalSkills = skills.filter(skill => !PROJECT_SKILL_SOURCES.has(skill.source ?? ''))
+  /** Name filter, shared by both tabs: it narrows whichever list is shown. */
+  const [filter, setFilter] = useState('')
+  // Distinguishes "nothing to show" from "the filter matched nothing".
+  const needle = filterNeedle(filter)
+  const shownRows = filterRows(snapshot.rows, filter)
+  const { servers, skills } = groupRows(shownRows)
+  // Grouping rules live in `skillGroups.ts` so they are testable; see that
+  // module for why the preset split keys off `preset` and not `source`.
+  const { presetSkills, presetGroups, projectSkills, globalSkills } = splitSkillGroups(skills)
   // Which sub-tab the Skills panel shows. Persists across top-tab switches.
-  const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
+  const [skillTab, setSkillTab] = useState<SkillTab>('global')
+  // The 预设技能 tab only exists while there are preset skills, so a deployment
+  // without them keeps the two-tab layout.
+  const activeSkillTab = resolveSkillTab(skillTab, { presetSkills, presetGroups, projectSkills, globalSkills })
   // Per-tab statistics: the Tools tab counts tool rows; the Skills tab counts
-  // the currently active global/project sub-tab.
+  // the currently active global/project/preset sub-tab.
   const statRows = activeTab === 'tools'
-    ? snapshot.rows.filter(r => r.kind === 'tool')
-    : skillTab === 'project' ? projectSkills : globalSkills
+    ? shownRows.filter(r => r.kind === 'tool')
+    : activeSkillTab === 'project' ? projectSkills : activeSkillTab === 'preset' ? presetSkills : globalSkills
   const summary = CLASS_KEYS.map(cls => ({ cls, count: countByClass(statRows, cls) }))
 
   /** Tool-detail modal: one schema popup at a time. */
@@ -736,10 +735,26 @@ function ReadyBody(props: {
         </div>
       </div>
 
+      {/* Name filter. A long list is the actual problem behind "why can't I find
+          this capability" — grouping only helps when you already know where to
+          look — and one box serves both tabs. Hidden when there is nothing to
+          filter at all, so the empty catalog keeps its plain message. */}
+      {snapshot.rows.length > 0 && (
+        <div className="mc-filter">
+          <input
+            type="search"
+            value={filter}
+            placeholder={t('filterByName')}
+            aria-label={t('filterByName')}
+            onChange={e => setFilter(e.target.value)}
+          />
+        </div>
+      )}
+
       <div role="tabpanel" hidden={activeTab !== 'tools'} className="mc-panel">
         <div className="mc-panel-inner">
           {servers.length === 0 ? (
-            <p className="mc-empty">{t('emptyTools')}</p>
+            <p className="mc-empty">{needle === '' ? t('emptyTools') : t('filterNoMatch')}</p>
           ) : (
             <>
               {servers.map(({ server, tools }) => {
@@ -849,7 +864,7 @@ function ReadyBody(props: {
       <div role="tabpanel" hidden={activeTab !== 'skills'} className="mc-panel mc-panel--tight">
         <div className="mc-panel-inner">
           {skills.length === 0 ? (
-            <p className="mc-empty">{t('emptySkills')}</p>
+            <p className="mc-empty">{needle === '' ? t('emptySkills') : t('filterNoMatch')}</p>
           ) : (
             <>
               <div className="mc-subtabs">
@@ -858,8 +873,8 @@ function ReadyBody(props: {
                     type="button"
                     role="tab"
                     className="mc-tab"
-                    aria-selected={skillTab === 'global'}
-                    data-active={skillTab === 'global' ? 'true' : undefined}
+                    aria-selected={activeSkillTab === 'global'}
+                    data-active={activeSkillTab === 'global' ? 'true' : undefined}
                     onClick={() => setSkillTab('global')}
                   >
                     {t('globalSkills')}
@@ -868,15 +883,30 @@ function ReadyBody(props: {
                     type="button"
                     role="tab"
                     className="mc-tab"
-                    aria-selected={skillTab === 'project'}
-                    data-active={skillTab === 'project' ? 'true' : undefined}
+                    aria-selected={activeSkillTab === 'project'}
+                    data-active={activeSkillTab === 'project' ? 'true' : undefined}
                     onClick={() => setSkillTab('project')}
                   >
                     {t('projectSkills')}
                   </button>
+                  {/* Conditional third tab: rendered only when preset skills are
+                      actually present, so a deployment without them keeps the
+                      two-tab layout instead of showing an always-empty tab. */}
+                  {presetSkills.length > 0 && (
+                    <button
+                      type="button"
+                      role="tab"
+                      className="mc-tab"
+                      aria-selected={activeSkillTab === 'preset'}
+                      data-active={activeSkillTab === 'preset' ? 'true' : undefined}
+                      onClick={() => setSkillTab('preset')}
+                    >
+                      {t('presetSkills')}
+                    </button>
+                  )}
                 </div>
               </div>
-              {skillTab === 'global' ? (
+              {activeSkillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList
                     skills={globalSkills}
@@ -891,7 +921,7 @@ function ReadyBody(props: {
                 ) : (
                   <p className="mc-empty">{t('emptyGlobalSkills')}</p>
                 )
-              ) : (
+              ) : activeSkillTab === 'project' ? (
                 projectSkills.length > 0 ? (
                   <SkillList
                     skills={projectSkills}
@@ -906,6 +936,24 @@ function ReadyBody(props: {
                 ) : (
                   <p className="mc-empty">{t('emptyProjectSkills')}</p>
                 )
+              ) : (
+                /* One section per preset (preset id as a heading) rather than a
+                   fourth level of tabs: the id is provenance, not navigation. */
+                presetGroups.map(([preset, group]) => (
+                  <div key={preset} className="mc-skill-group">
+                    <div className="mc-skill-group-title">{preset}</div>
+                    <SkillList
+                      skills={group}
+                      remote={remote}
+                      busy={busy}
+                      t={t}
+                      onCycle={onCycle}
+                      editableSkills={editableSkills}
+                      onEditSkill={openSkillEdit}
+                      onAdoptSkill={adoptSkill}
+                    />
+                  </div>
+                ))
               )}
             </>
           )}
@@ -1201,30 +1249,40 @@ function SkillList(props: {
                 {/* A skill with no manageable entry cannot be repointed, so it
                     gets no 编辑 button. Each such row shows either the action it
                     can take (adopt) or the reason it has none (where it came
-                    from) — never both, which would say the same thing twice. */}
-                {!editableSkills.has(skill.id) && (ADOPTABLE_SKILL_SOURCES.has(skill.source ?? '')
+                    from) — never both, which would say the same thing twice.
+                    A skill shipped by an agent preset is never adoptable: 纳入管理
+                    links it into the user root, i.e. makes it global for every
+                    session, which is the opposite of what a preset skill is for
+                    (it is visible only to sessions that mount that preset). */}
+                {!editableSkills.has(skill.id) && (skill.preset !== undefined
                   ? (
-                    /* The confirmation is a dialog, not an inline strip: a row
-                       has no room for a sentence, and pushing one in there
-                       pushed the buttons themselves out of view. */
-                    <button
-                      type="button"
-                      className="mc-count mc-count--action"
-                      disabled={busy}
-                      title={t('adoptSkillHint')}
-                      onClick={(e: { stopPropagation(): void }) => {
-                        e.stopPropagation()
-                        setConfirmAdopt(skill.id)
-                      }}
-                    >
-                      {t('adoptSkill')}
-                    </button>
-                  )
-                  : (
-                    <span className="mc-source" title={t('skillSourceHint')}>
-                      {t('skillSource', { source: sourceLabel(skill.source, t) })}
+                    <span className="mc-source" title={t('skillFromPresetHint')}>
+                      {t('skillFromPreset', { preset: skill.preset })}
                     </span>
-                  ))}
+                  )
+                  : ADOPTABLE_SKILL_SOURCES.has(skill.source ?? '')
+                    ? (
+                      /* The confirmation is a dialog, not an inline strip: a row
+                         has no room for a sentence, and pushing one in there
+                         pushed the buttons themselves out of view. */
+                      <button
+                        type="button"
+                        className="mc-count mc-count--action"
+                        disabled={busy}
+                        title={t('adoptSkillHint')}
+                        onClick={(e: { stopPropagation(): void }) => {
+                          e.stopPropagation()
+                          setConfirmAdopt(skill.id)
+                        }}
+                      >
+                        {t('adoptSkill')}
+                      </button>
+                    )
+                    : (
+                      <span className="mc-source" title={t('skillSourceHint')}>
+                        {t('skillSource', { source: sourceLabel(skill.source, t) })}
+                      </span>
+                    ))}
                 {editableSkills.has(skill.id) && (
                   <button
                     type="button"

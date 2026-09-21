@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lstat, mkdtemp, mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, readFile, readlink, realpath, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { LocationRegistry } from '../src/locations.ts'
@@ -15,7 +15,12 @@ const PATCH = `- insert:
 `
 
 async function fixture(): Promise<{ registry: LocationRegistry; patchFile: string; skillsDir: string }> {
-  const dir = await mkdtemp('/tmp/dsh-locations-')
+  // Resolve the temp root physically before deriving anything from it: on macOS
+  // `/tmp` is a symlink to `/private/tmp`, and the registry reports physical
+  // paths (symlinks resolved) by design — `listSkills().target` and the links it
+  // writes are realpath'd. Deriving fixtures from the unresolved path left the
+  // two spellings of the same directory in every expectation.
+  const dir = await realpath(await mkdtemp('/tmp/dsh-locations-'))
   const patchFile = join(dir, 'cordis.patch.yml')
   const skillsDir = join(dir, 'skills')
   await writeFile(patchFile, PATCH, 'utf8')

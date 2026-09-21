@@ -46,6 +46,17 @@ export interface CapabilityOrigin {
     readonly path?: string;
     /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
     readonly source?: string;
+    /**
+     * Agent preset whose standing scope this skill was collected from, present
+     * only for skills that live in a preset layer.
+     *
+     * A preset's own `skill-filesystem` mounts its `skills/` directory through
+     * `customSkillDirs`, so such a skill is labelled `source: 'custom'` — the
+     * same label a user-configured `customSkillDirs` entry gets. The source
+     * label therefore cannot tell the two apart; this field is what the
+     * management surface groups on ("预设技能" vs. a user's custom root).
+     */
+    readonly preset?: string;
 }
 /** Objective and subjective usage statistics, written back from `tools/result`. */
 export interface CapabilityStats {
@@ -88,6 +99,8 @@ export interface CapabilitySummary {
     readonly server?: string;
     /** Skill source root label, present only for `kind: 'skill'`. */
     readonly source?: string;
+    /** Agent preset id, present only for skills collected from a preset scope. */
+    readonly preset?: string;
     readonly tags: readonly string[];
     readonly success_rate?: number;
     readonly uses: number;

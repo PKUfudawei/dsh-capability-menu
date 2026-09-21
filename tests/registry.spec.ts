@@ -5,6 +5,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
 import yaml from 'js-yaml'
@@ -248,6 +249,61 @@ describe('meta-registry', () => {
     // Broken presets are skipped; the mountable preset's scope was enumerated.
     expect(scopes.has('coding-plus')).toBe(true)
     expect(scopes.has('broken-preset')).toBe(false)
+  })
+
+  it('records which agent preset a scoped skill came from, and keeps the global copy of a same-named skill', async () => {
+    const { mkdtemp } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await mkdtemp('/tmp/dsh-registry-')
+    const presetSkills = join(home, 'presets/cordis/skills')
+    await writeSkill(`${home}/.agents/skills`, 'global-skill', 'A global-layer skill', 'Global body.')
+    await writeSkill(`${home}/.agents/skills`, 'shared-name', 'The global copy', 'Global body.')
+    await writeSkill(presetSkills, 'preset-skill', 'Ships inside the preset', 'Preset body.')
+    await writeSkill(presetSkills, 'shared-name', 'The preset copy', 'Preset body.')
+
+    const ctx = await setup(home)
+    // A preset's standing mount is a scope of its own that hosts its own skill
+    // provider; `customSkillDirs` is how dsh's shipped presets mount `skills/`.
+    // Its skills are therefore labelled `custom` — the same label a user's own
+    // customSkillDirs entry gets — which is why the preset id has to be
+    // recorded separately.
+    const key = { agentPreset: 'cordis' }
+    const scoped = createScope(ctx, key)
+    await scoped.ctx.plugin(SkillFileSystem, {
+      dshHome: `${home}/.dsh`,
+      agentsHome: `${home}/.agents`,
+      customSkillDirs: [presetSkills],
+      includeDefaultRoots: false,
+      watch: false,
+    })
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string; broken?: string }>> {
+        return [{ id: 'cordis' }]
+      },
+      async standingKeyFor(): Promise<unknown> {
+        return key
+      },
+    })
+    await ctx.capability.refresh()
+
+    const summaries = new Map(
+      ctx.capability.search({ kind: 'skill', maxResults: 100 }).map(summary => [summary.id, summary]),
+    )
+    // A skill that exists only in the preset layer carries its preset id.
+    expect(summaries.get('preset-skill')?.preset).toBe('cordis')
+    expect(summaries.get('preset-skill')?.source).toBe('custom')
+    expect(ctx.capability.get('preset-skill', 'skill')?.origin.preset).toBe('cordis')
+
+    // A scoped view is the global layer plus that preset's own layer, so the
+    // preset pass sees global skills too. Re-indexing them must not relabel
+    // them as preset skills.
+    expect(summaries.get('global-skill')?.preset).toBeUndefined()
+    expect(ctx.capability.get('global-skill', 'skill')?.origin.source).toBe('user-agents')
+
+    // Same name in both layers: the global layer wins and the preset's copy is
+    // not the indexed record (a skill id is a bare name, so only one may be).
+    expect(summaries.get('shared-name')?.preset).toBeUndefined()
+    expect(ctx.capability.get('shared-name', 'skill')?.origin.path).toBe(join(home, '.agents/skills/shared-name'))
   })
 
   it('enumerates agent-preset standing scopes for tools as well as skills', async () => {

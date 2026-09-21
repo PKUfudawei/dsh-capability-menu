@@ -156,6 +156,12 @@ export interface CapabilityClassification {
     /** Skill source root label, present only for skills. */
     readonly source?: string;
     /**
+     * Agent preset this skill belongs to, present only for skills collected from
+     * a preset's standing scope. The management surface uses it to group preset
+     * skills and to keep "纳入管理" (which would globalise the skill) off them.
+     */
+    readonly preset?: string;
+    /**
      * The skill's own directory on disk, present only for skills whose provider
      * has one. The 纳入管理 confirmation shows it so the operator sees which
      * directory is about to be linked, not just the root it came from.
