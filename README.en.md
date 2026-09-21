@@ -90,11 +90,13 @@ Prerequisites: Node.js and the dsh CLI installed (`dsh plugin` forwards to pnpm 
 
 ### Install from npm (recommended)
 
-A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings:
+A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings. **Installing and upgrading are the same command** — it points the profile at whatever version npm has now:
 
 ```sh
-dsh plugin --profile web add @daweifu/capability-menu
+dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu version)"
 ```
+
+> **Do not write `@latest`.** Measured on pnpm 12 it resolves to an older version (0.1.3 for this package while npm's `latest` was already 0.1.4); naming the version is the reliable form, and the `$(…)` fetches it for you.
 
 ### Install from source
 
@@ -109,6 +111,10 @@ dsh plugin --profile web add ./dsh-capability-menu
 ### Verify the install
 
 ```sh
+# installed version (ask pnpm in the profile directory; the UI shows no version)
+cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu
+
+# the plugin really is in the profile tree
 dsh --profile web --dump-config | grep -E 'capability-menu'
 ```
 
