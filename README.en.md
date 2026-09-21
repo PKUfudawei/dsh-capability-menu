@@ -67,12 +67,12 @@ Once installed, a Capability Management tab appears under Settings → General S
 | Register an MCP server / skill directory | Register capability, top right |
 | Edit or remove a registered entry | Edit on an MCP server's group header (Tools) or a skill row (Skills) |
 | See the effective policy and the On-demand catalog | Policy &amp; catalog, on the header's description row |
-| The list is stale (you changed a source outside dsh) | Refresh, at the top |
-| Find a capability in a long list | The filter box under the tab bar narrows the current tab by name (shared by Tools and Skills) |
+| The list is stale (you changed a source outside dsh) | Nothing to do: returning to the tab, a settings change and a carrier reconnect all re-read it, with a ~5s poll as the backstop |
+| Find a capability in a long list | The filter box under the tab bar matches a name **and the group it sits in** (server / source / preset id), case-insensitively, and takes a regex (shared by Tools and Skills) |
 
 **The tier is that dot**: filled = Resident (the model calls it directly), half-filled ring = On-demand (reached through `meta_search` → `meta_invoke`), ring with a slash (a no-entry sign) = Disabled. If a higher-priority rule (a wildcard, say) overrides it, the UI reports that the classification did not apply.
 
-**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills" / "Preset skills" — **the third appears only when skills that ship with an agent preset actually exist** (without them the tab bar stays at two), and preset ids are section headings inside that tab rather than another level of tabs. A filter box under the tab bar narrows the current tab by name, which beats folding groups once a list gets long. Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
+**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills" / "Preset skills" — **the third appears only when skills that ship with an agent preset actually exist** (without them the tab bar stays at two), and preset ids are section headings inside that tab rather than another level of tabs. A filter box under the tab bar matches names and the group a row sits in and accepts a regex, which beats folding groups once a list gets long. Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
 
 **Three behaviours worth knowing**:
 
