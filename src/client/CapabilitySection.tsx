@@ -80,6 +80,7 @@ export type CapabilitySectionProps = CapabilitySectionInjected
 export type CapabilityKey =
   | 'nav'
   | 'title'
+  | 'packageName'
   | 'desc'
   | 'resident'
   | 'on-demand'
@@ -202,6 +203,8 @@ const CSS_ID = 'capability-menu-section-css'
 const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
+.mc-heading-row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;min-width:0}
+.mc-package-name{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 /* 说明行右侧放只读文档入口：把它从头部的计数行挪出来，计数多（Tools 常驻 ·
    167）时那一行不再因此折行。 */
@@ -355,7 +358,7 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id
  * inlined by `tsdown` (see `src/client/env.d.ts`).
  */
 const PLUGIN_VERSION = __CAPABILITY_MENU_VERSION__
-const PLUGIN_TITLE = `@daweifu/capability-menu v${PLUGIN_VERSION}`
+const PLUGIN_TITLE = `capability-menu v${PLUGIN_VERSION}`
 
 /**
  * dsh's skill source labels, shown on rows this plugin cannot edit — so "why is
@@ -823,12 +826,13 @@ function ReadyBody(props: {
 
   return (
     <>
-      <h2 className="mc-heading">{t('title')}</h2>
+      <div className="mc-heading-row">
+        <h2 className="mc-heading">{t('title')}</h2>
+        <span className="mc-package-name">{t('packageName')}</span>
+        <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
+      </div>
       <div className="mc-desc-row">
         <p className="mc-desc">{t('desc')}</p>
-        {/* The build stamp, on the header's description row: quiet enough to
-            ignore, and the one thing that ends "which version is loaded?" */}
-        <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
         {/* 只读文档入口留在说明行；计数行只放 chips + 注册能力。 */}
         <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
           {t('viewCatalog')}

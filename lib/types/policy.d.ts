@@ -227,6 +227,8 @@ export interface CapabilityPolicyService {
      * entry path actually written.
      */
     addSkillLocation(dir: string, projectPath?: string): Promise<string>;
+    /** Import one public GitHub skill subdirectory into a managed skill root. */
+    importSkillFromGitHub(url: string, projectPath?: string): Promise<string>;
     /** Unregister a skill entry; `entryDir` addresses a project entry, omit it for the user root. */
     removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
     /** Repoint a registered skill entry at a different directory. */

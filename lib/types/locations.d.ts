@@ -119,6 +119,8 @@ export declare class LocationRegistry {
      * skill landed instead of leaving the operator to guess.
      */
     addSkill(dir: string, projectPath?: string): Promise<string>;
+    /** Import one public GitHub skill directory into the selected managed root. */
+    importSkillFromGitHub(url: string, projectPath?: string): Promise<string>;
     /**
      * Unregister a skill entry. Only removes a symlink or a directory that
      * actually carries a `SKILL.md` — never an arbitrary file.

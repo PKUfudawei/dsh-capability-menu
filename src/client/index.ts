@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { installSettingsNavIcon } from './settings-nav-icon.ts'
 import { TYPERT_REMOTE } from './remote.ts'
 import { CapabilitySection, type CapabilitySectionInjected, type CapabilityKey } from './CapabilitySection.tsx'
 
@@ -42,6 +43,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
   const zh = {
     nav: '能力菜单',
     title: '能力菜单',
+    packageName: 'capability-menu',
     desc: '管理工具与技能的 常驻 / 按需 / 禁用 三档分类。',
     resident: 'Resident（常驻上下文）',
     'on-demand': 'On-demand（按需发现）',
@@ -113,7 +115,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     adoptSkill: '纳入管理',
     adoptSkillHint: '把它软链进 dsh 的技能根目录（默认 ~/.dsh/skills），内容不动；之后就能编辑与移除了。',
     adoptSkillTitle: '纳入管理「{name}」？',
-    skillDirHint: '目录内需有 SKILL.md（按 dsh 的 skill 格式校验）。技能名以 SKILL.md 里声明的为准，目录名只决定注册后的软链名，两者不同也可以。',
+    skillDirHint: '输入本机目录，或公开 GitHub 链接（https://github.com/{owner}/{repo}/tree/{branch}/{技能目录}）。GitHub 导入会稀疏检出该目录，校验 SKILL.md 后只保留此目录；需要安装 git。技能名以 SKILL.md 声明为准。',
     serverName: 'serverName',
     serverNameImmutable: 'serverName 不可修改：它构成工具名前缀 mcp__<serverName>__<tool>，并已被既有会话历史与权限规则引用；修改后这些记录将不再匹配。',
     transport: '传输方式',
@@ -140,6 +142,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
   const en = {
     nav: 'Capability Management',
     title: 'Capability Management',
+    packageName: 'capability-menu',
     desc: 'Manage the Resident / On-demand / Disabled classification of tools and skills.',
     resident: 'Resident',
     'on-demand': 'On-demand',
@@ -211,7 +214,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     adoptSkill: 'Adopt',
     adoptSkillHint: "Link it into dsh's skill root (default ~/.dsh/skills); the content is untouched, and it becomes editable and removable.",
     adoptSkillTitle: 'Adopt "{name}"?',
-    skillDirHint: 'The directory must hold a SKILL.md in dsh\'s skill format. The skill name is the one declared in SKILL.md; the directory name only names the link this registers, so the two may differ.',
+    skillDirHint: 'Enter a local directory or a public GitHub URL (https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}). GitHub imports sparsely check out that directory, validate SKILL.md, and keep only the selected directory. Git must be installed. The skill name comes from SKILL.md.',
     serverName: 'serverName',
     serverNameImmutable: 'serverName is immutable: it forms the tool name prefix mcp__<serverName>__<tool> and is referenced by existing session history and permission rules, which stop matching once it changes.',
     transport: 'Transport',
@@ -251,6 +254,7 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     console.error('[capability-menu] $mount failed:', error)
   }
   const t = ctx.locale.bind(NS) as CapabilitySectionInjected['t']
+  installSettingsNavIcon(ctx, () => t('nav'))
   const remote = (): unknown => {
     try {
       // Resolve the mounted namespace service by its registered key; a property

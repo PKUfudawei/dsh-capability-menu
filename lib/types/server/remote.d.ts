@@ -97,6 +97,8 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      * Returns the entry path actually written so the UI can report it.
      */
     addSkillLocation(dir: string, projectPath?: string): Promise<string>;
+    /** Clone and validate the selected directory from a public GitHub skill URL. */
+    importSkillFromGitHub(url: string, projectPath?: string): Promise<string>;
     /**
      * Adopt a skill that already lives in a user-level root this plugin reads but
      * does not manage (`~/.agents/skills`, custom dirs) by linking its own

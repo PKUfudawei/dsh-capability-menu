@@ -247,6 +247,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     updateLocation: (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     listSkillLocations: () => Promise<RemoteResult<SkillLocation[]>>
     addSkillLocation: (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
+    importSkillFromGitHub: (url: string, projectPath?: string) => Promise<RemoteResult<string>>
     removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     adoptSkillLocation: (name: string) => Promise<RemoteResult<string>>
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
@@ -267,6 +268,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/updateLocation': (id: string, input: McpUpdateInput) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/listSkillLocations': () => Promise<RemoteResult<SkillLocation[]>>
     'capabilityPolicy/addSkillLocation': (dir: string, projectPath?: string) => Promise<RemoteResult<string>>
+    'capabilityPolicy/importSkillFromGitHub': (url: string, projectPath?: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/adoptSkillLocation': (name: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
@@ -438,6 +440,19 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: strictCodec('string', z.string()),
       sourceLocation: { file: 'src/server/remote.ts', line: 252, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/importSkillFromGitHub',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'importSkillFromGitHub',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'url', wire: 'url', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'projectPath', wire: 'projectPath', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
+      ],
+      result: strictCodec('string', z.string()),
+      sourceLocation: { file: 'src/server/remote.ts', line: 263, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/removeSkillLocation',

@@ -8,13 +8,15 @@
  *   and disposes it. That is why this module never imports `dsh-mcp-client`,
  *   never mounts a fiber, and never has to arbitrate `serverName` reservations:
  *   there is exactly one source of truth (the file) and one owner (dsh).
- * - **Skill directories** are symlinked into `~/.dsh/skills/`, the default user
- *   root `skill-filesystem` discovers with no configuration at all. No patch
- *   entry, no hot reload.
+ * - **Skill directories** are registered in the user or project skill root.
+ *   Local sources are symlinked; GitHub imports copy only the selected subtree.
+ *   No patch entry, no hot reload.
  */
-import { access, readdir, lstat, mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { access, cp, readdir, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import yaml from 'js-yaml'
 import { addEntry, defaultPatchFile, mutatePatch, readEntries, removeEntry, setEntryConfig } from './patch-file.ts'
@@ -24,6 +26,8 @@ export const MCP_CLIENT_PLUGIN = '@deepseek-ai/dsh-mcp-client'
 
 /** `serverName` must match `[A-Za-z0-9_-]{1,32}` and be unique per scope. */
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
+const GITHUB_IMPORT_PREFIX = '.capability-menu-import-'
+const execFileAsync = promisify(execFile)
 
 export interface LocationConfig {
   /** Patch file holding the MCP rows. Defaults to the home-level layer. */
@@ -264,6 +268,7 @@ export class LocationRegistry {
     }
     const rows: SkillLocation[] = []
     for (const name of names) {
+      if (name.startsWith(GITHUB_IMPORT_PREFIX)) continue
       const row = await describeSkillEntry(this.config.skillsDir, name, 'user')
       if (row !== undefined) rows.push(row)
     }
@@ -324,6 +329,71 @@ export class LocationRegistry {
     await symlink(target, link, 'dir')
     this.ctx.logger.info(`capability-locations: linked skill "${name}" → ${target} (root ${skillsDir})`)
     return link
+  }
+
+  /** Import one public GitHub skill directory into the selected managed root. */
+  async importSkillFromGitHub(url: string, projectPath?: string): Promise<string> {
+    const source = parseGitHubSkillUrl(url)
+    const skillsDir = await this.resolveSkillsDir(undefined, projectPath)
+    const name = basename(source.path)
+    const destination = join(skillsDir, name)
+    if (await lstat(destination).then(() => true, () => false)) {
+      throw new Error(`技能「${name}」已存在于 ${skillsDir}`)
+    }
+    const checkoutRootParent = this.config.skillsDir
+    await mkdir(checkoutRootParent, { recursive: true })
+    const checkoutRoot = await mkdtemp(join(checkoutRootParent, GITHUB_IMPORT_PREFIX))
+    const repoDir = join(checkoutRoot, 'repo')
+    let targetStage: string | undefined
+
+    try {
+      await runGit([
+        '-c', 'credential.helper=',
+        '-c', 'credential.interactive=never',
+        'clone', '--depth=1', '--filter=blob:none', '--sparse', '--single-branch',
+        `--branch=${source.ref}`, '--', source.repoUrl, repoDir,
+      ])
+      await runGit(['-C', repoDir, 'sparse-checkout', 'set', '--cone', '--', source.path])
+
+      const sourceDir = resolve(repoDir, ...source.path.split('/'))
+      const outsideRepo = relative(repoDir, sourceDir)
+      if (outsideRepo === '..' || outsideRepo.startsWith(`..${sep}`) || isAbsolute(outsideRepo)) {
+        throw new Error('GitHub 技能目录路径无效')
+      }
+      const sourceStat = await stat(sourceDir).catch(() => undefined)
+      if (sourceStat?.isDirectory() !== true) {
+        throw new Error(`仓库中没有该目录：${source.path}`)
+      }
+      await assertSafeSkillTree(sourceDir)
+      const manifest = await checkSkillManifest(sourceDir)
+      if (!manifest.ok) throw new Error(manifest.message)
+
+      await mkdir(skillsDir, { recursive: true })
+      if (await lstat(destination).then(() => true, () => false)) {
+        throw new Error(`技能「${name}」已存在于 ${skillsDir}`)
+      }
+
+      targetStage = await mkdtemp(join(skillsDir, GITHUB_IMPORT_PREFIX))
+      const stagedSkill = join(targetStage, name)
+      await cp(sourceDir, stagedSkill, { recursive: true, force: false, errorOnExist: true })
+      const copiedManifest = await checkSkillManifest(stagedSkill)
+      if (!copiedManifest.ok) throw new Error(copiedManifest.message)
+      await rename(stagedSkill, destination)
+      this.ctx.logger.info(`capability-locations: imported GitHub skill "${manifest.name}" from ${source.repoUrl}/tree/${source.ref}/${source.path} → ${destination}`)
+      return destination
+    } catch (error) {
+      if (isGitMissing(error)) throw new Error('导入 GitHub Skill 需要在运行 dsh 的机器上安装 git')
+      if (isGitFailure(error)) {
+        const detail = gitFailureMessage(error)
+        throw new Error(`GitHub 检出失败：${detail}`)
+      }
+      throw error
+    } finally {
+      if (targetStage !== undefined) await rm(targetStage, { recursive: true, force: true }).catch(() => undefined)
+      await rm(checkoutRoot, { recursive: true, force: true }).catch(error => {
+        this.ctx.logger.warn(`capability-locations: cannot clean temporary GitHub checkout ${checkoutRoot}: ${String(error)}`)
+      })
+    }
   }
 
   /**
@@ -458,6 +528,89 @@ async function assertSkillsDir(dir: string): Promise<void> {
   if (!(await pathExists(join(projectRoot, '.git')))) {
     throw new Error(`项目根下没有 .git，dsh 不会扫描该目录：${projectRoot}`)
   }
+}
+
+interface GitHubSkillSource {
+  readonly repoUrl: string
+  readonly ref: string
+  readonly path: string
+}
+
+/** Accept only public GitHub tree URLs with an explicit ref and subdirectory. */
+function parseGitHubSkillUrl(input: string): GitHubSkillSource {
+  let url: URL
+  try {
+    url = new URL(input.trim())
+  } catch {
+    throw new Error('请输入有效的 GitHub 目录链接')
+  }
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.port.length > 0
+    || url.username.length > 0 || url.password.length > 0 || url.search.length > 0 || url.hash.length > 0) {
+    throw new Error('仅支持不带凭据、参数或片段的公开 GitHub HTTPS 链接')
+  }
+  if (url.pathname.includes('//')) throw new Error('GitHub 技能目录链接格式无效')
+  let parts: string[]
+  try {
+    parts = url.pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part))
+  } catch {
+    throw new Error('GitHub 技能目录链接包含无效的 URL 编码')
+  }
+  const [owner, repo, tree, ref, ...pathParts] = parts
+  if (owner === undefined || repo === undefined || tree !== 'tree' || ref === undefined || pathParts.length === 0
+    || !/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)
+    || ref.length === 0 || ref.startsWith('-') || ref.includes('..') || ref.includes('\\') || /[\u0000-\u0020]/.test(ref)) {
+    throw new Error('链接格式应为 https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}')
+  }
+  if (pathParts.some(part => part.length === 0 || part === '.' || part === '..' || part.includes('/') || part.includes('\\') || part.includes('\0'))) {
+    throw new Error('GitHub 技能目录路径无效')
+  }
+  return {
+    repoUrl: `https://github.com/${owner}/${repo}.git`,
+    ref,
+    path: pathParts.join('/'),
+  }
+}
+
+async function runGit(args: string[]): Promise<void> {
+  await execFileAsync('git', args, {
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+  })
+}
+
+/** Reject links and special files so an imported tree cannot escape its folder. */
+async function assertSafeSkillTree(dir: string): Promise<void> {
+  const root = await lstat(dir)
+  if (!root.isDirectory()) throw new Error('GitHub 中指定的技能目录必须是普通目录')
+  const entries = await readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const path = join(dir, entry.name)
+    if (entry.isSymbolicLink()) throw new Error(`技能目录不接受符号链接：${entry.name}`)
+    if (entry.isDirectory()) await assertSafeSkillTree(path)
+    else if (!entry.isFile()) throw new Error(`技能目录包含不支持的文件类型：${entry.name}`)
+  }
+}
+
+function isGitMissing(error: unknown): boolean {
+  return error !== null && typeof error === 'object'
+    && 'path' in error && (error as { path?: unknown }).path === 'git'
+    && 'code' in error && (error as { code?: unknown }).code === 'ENOENT'
+}
+
+function isGitFailure(error: unknown): boolean {
+  return error !== null && typeof error === 'object'
+    && 'stderr' in error && 'cmd' in error && String((error as { cmd?: unknown }).cmd).includes('git')
+}
+
+function gitFailureMessage(error: unknown): string {
+  if (error !== null && typeof error === 'object') {
+    const stderr = 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '').trim() : ''
+    const message = 'message' in error ? String((error as { message?: unknown }).message ?? '').trim() : ''
+    if (stderr.length > 0) return stderr
+    if (message.length > 0) return message
+  }
+  return String(error)
 }
 
 /** Build the `config:` block of a `dsh-mcp-client` row. */

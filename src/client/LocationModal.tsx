@@ -210,13 +210,18 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   }, [submit, remote, editMcp, serverName, transport, command, args, cwd, env, url, headers, timeoutSec, t])
 
   const submitSkill = useCallback(() => {
+    const source = skillDir.trim()
     const asked = skillRoot === 'project' ? projectPath.trim() : undefined
     void submit(
-      async () => editSkill !== undefined
-        ? unwrapMessage(await remote.updateSkillLocation(editSkill.name, skillDir.trim(), editSkill.entryDir))
-        : unwrapMessage(await remote.addSkillLocation(skillDir.trim(), asked)),
+      async () => {
+        if (editSkill !== undefined) {
+          return unwrapMessage(await remote.updateSkillLocation(editSkill.name, source, editSkill.entryDir))
+        }
+        if (/^https?:\/\//i.test(source)) return unwrapMessage(await remote.importSkillFromGitHub(source, asked))
+        return unwrapMessage(await remote.addSkillLocation(source, asked))
+      },
       result => editSkill !== undefined
-        ? t('skillRepointed', { dir: skillDir.trim() })
+        ? t('skillRepointed', { dir: source })
         : t('skillRegisteredAt', { path: String(result) }),
     )
   }, [submit, remote, editSkill, skillDir, skillRoot, projectPath, t])

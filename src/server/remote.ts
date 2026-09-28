@@ -261,6 +261,12 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capabilityPolicy.addSkillLocation(dir, projectPath)
   }
 
+  /** Clone and validate the selected directory from a public GitHub skill URL. */
+  @Remote('importSkillFromGitHub')
+  async importSkillFromGitHub(url: string, projectPath?: string): Promise<string> {
+    return this.ctx.capabilityPolicy.importSkillFromGitHub(url, projectPath)
+  }
+
   /**
    * Adopt a skill that already lives in a user-level root this plugin reads but
    * does not manage (`~/.agents/skills`, custom dirs) by linking its own
