@@ -51,6 +51,13 @@
 # Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`
 # rules to pull capabilities out of the model surface.
+# The web surface disables the host skill filesystem provider by default, but
+# this plugin's global Skill registration writes to its standard ~/.dsh/skills
+# root. Re-enable the native provider so registered skills are indexed and
+# available through ctx.skills; no upstream source or skill implementation is
+# replaced.
+- id: skill-filesystem
+  disabled: false
 - insert:
     - id: capability-menu-registry
       name: '@daweifu/capability-menu/registry'
