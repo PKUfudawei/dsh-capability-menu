@@ -203,7 +203,7 @@ const CSS_ID = 'capability-menu-section-css'
 const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
-.mc-heading-row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;min-width:0}
+.mc-heading-row{display:flex;align-items:baseline;gap:8px;min-width:0}
 .mc-package-name{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 /* 说明行右侧放只读文档入口：把它从头部的计数行挪出来，计数多（Tools 常驻 ·
