@@ -1008,7 +1008,11 @@ function ReadyBody(props: {
         </div>
       </div>
 
-      <div role="tabpanel" hidden={activeTab !== 'skills'} className="mc-panel mc-panel--tight">
+      <div
+        role="tabpanel"
+        hidden={activeTab !== 'skills'}
+        className={`mc-panel${skills.length > 0 ? ' mc-panel--tight' : ''}`}
+      >
         <div className="mc-panel-inner">
           {skills.length === 0 ? (
             <p className="mc-empty">{needle === '' ? t('emptySkills') : t('filterNoMatch')}</p>
