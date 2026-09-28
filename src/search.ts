@@ -45,8 +45,8 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult
 /**
  * Register the `meta_search` tool.
  *
- * - Mode A (list, default): query by keyword/tag/server, returns id + short summary.
- * - Mode B (detail): pass an exact id (optionally `detail: true`) to get the full schema.
+ * - Mode A (list, default): search by keyword/tag/server and return candidate ids + short summaries.
+ * - Mode B (detail): pass a candidate's exact id (optionally `detail: true`) to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
  * - `query` and `id` are mutually exclusive.
@@ -60,11 +60,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const tool = defineTool({
     name: 'meta_search',
-    description: 'Search capabilities (tools and skills) by keyword/tag/source, or get full detail for one capability by exact id. Mode A (list, default): returns id + short summary for each hit. Mode B (detail): pass an exact id (optionally detail:true) to get the full schema/description. Use meta_invoke with a returned id to run/load the capability.',
+    description: 'Search capabilities (tools and skills) by keyword/tag/source to find candidate ids, or inspect one candidate by exact id. List mode (default) returns an id and short summary for each match to help choose a capability. Detail mode returns the full description and, for tools, the parameter schema; for skills, it returns usage guidance. Use meta_invoke with a returned id to run/load the capability.',
     parameters: {
       query: { type: 'string', description: 'Natural-language or keyword query; mutually exclusive with id.' },
       id: { type: 'string', description: 'Exact capability id (from a previous search results[].id); mutually exclusive with query, takes precedence.' },
-      detail: { type: 'boolean', description: 'When true, returns the single capability full schema; only meaningful with an exact id.' },
+      detail: { type: 'boolean', description: 'When true with an exact id, returns the full description and tool parameter schema or Skill usage guidance.' },
       kind: { type: 'string', enum: ['tool', 'skill', 'all'], description: 'Filter by capability kind (default all).' },
       server: { type: 'string', description: 'Filter by server name — an MCP server (gongfeng/iwiki/km/zhiyan_qci) or the reserved built-in pseudo-server grouping harness-native tools.' },
       tag: { type: 'string', description: 'Filter by tag.' },

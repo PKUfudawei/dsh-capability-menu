@@ -30,7 +30,9 @@
 
 ## Capability Overview
 
-dsh-capability-menu is a Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It builds a unified capability catalog (`ctx.capability`) over a large number of tools / skills (MCP tools and harness-native built-in tools) and manages their **exposure level and execution** in three tiers — **Resident / On-demand / Disabled** — so you can adjust the agent's capability boundary at any time, keep a flood of tools/skills out of a single request, and save tokens and context. Changes apply immediately without restarting, and the plugin composes into the Harness runtime purely through the Cordis plugin mechanism — no upstream source is modified. **Without this plugin (policy) mounted, everything stays visible as before; mounted with no rules at all, every capability defaults to Resident.**
+- Builds a unified capability catalog (`ctx.capability`) for DeepSeek Harness tools (including MCP and built-in tools) and skills.
+- Provides three policy tiers — **Resident / On-demand / Disabled** — to manage capability exposure and invocation.
+- Supplies on-demand capabilities only when needed, reducing the tool definitions sent with each request and saving tokens and context.
 
 ### Capability Model
 
@@ -45,7 +47,7 @@ The model gets two meta tools:
 
 | tool | role | corresponding entry |
 | --- | --- | --- |
-| `meta_search` | search the capability catalog (Tool / Skill), list/detail dual mode | `@daweifu/capability-menu/search` |
+| `meta_search` | search Tool / Skill candidates; list summaries help choose one, while detail returns its full description and the tool schema or Skill usage guidance | `@daweifu/capability-menu/search` |
 | `meta_invoke` | unified execution surface: really executes Tools (full `ctx.tools` pipeline) + loads Skills | `@daweifu/capability-menu/invoke` |
 
 ### Capability Management
@@ -59,30 +61,20 @@ The model gets two meta tools:
   <img src="assets/screenshot-catalog.png" alt="Policy &amp; catalog · On-demand catalog" width="48%"/>
 </p>
 
-Once installed, a Capability Management tab appears under Settings → General Settings (between "Model" and "Plugins"). It is where you view and adjust a capability's exposure tier; changes apply immediately, no restart needed.
+After installation, open **Settings → General Settings → Capability Management** to manage Tools and Skills.
 
-| What you want to do | Where |
+| Task | How to do it |
 | --- | --- |
-| Change a tier | Click the dot on a capability row, or a tier count at the top to switch the whole group |
-| Register an MCP server / skill directory | Register capability, top right |
-| Edit or remove a registered entry | Edit on an MCP server's group header (Tools) or a skill row (Skills) |
-| See the effective policy and the On-demand catalog | Policy &amp; catalog, on the header's description row |
-| The list is stale (you changed a source outside dsh) | Nothing to do: returning to the tab, a settings change and a carrier reconnect all re-read it, with a ~5s poll as the backstop |
-| Find a capability in a long list | The filter box under the tab bar matches a name **and the group it sits in** (server / source / preset id), case-insensitively, and takes a regex (shared by Tools and Skills) |
+| Change a tier | Click the dot beside a capability. Click a tier count at the top to change the whole group. |
+| Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
+| View details | Click a Tool to see its definition. Click a Skill to expand its files, then click a file to preview it. |
+| Register a capability | Click **Register capability** in the top right to add an MCP server or Skill directory. |
+| Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
+| View policies and catalog | Click **Policy &amp; catalog** on the right side of the page header. |
 
-**The tier is that dot**: filled = Resident (the model calls it directly), half-filled ring = On-demand (reached through `meta_search` → `meta_invoke`), ring with a slash (a no-entry sign) = Disabled. If a higher-priority rule (a wildcard, say) overrides it, the UI reports that the classification did not apply.
+Tier meanings: **Resident** capabilities are available directly; **On-demand** capabilities are found with `meta_search` and used with `meta_invoke`; **Disabled** capabilities cannot be used. Changes apply immediately and save automatically about 1.5 seconds after you stop clicking.
 
-**How the page is laid out**: the Tools tab groups by server and folds — MCP tools under their own server, harness-native tools together under the built-in group; the Skills tab splits into "Global skills" / "Project skills" / "Preset skills" — **the third appears only when skills that ship with an agent preset actually exist** (without them the tab bar stays at two), and preset ids are section headings inside that tab rather than another level of tabs. A filter box under the tab bar matches names and the group a row sits in and accepts a regex, which beats folding groups once a list gets long. Click a capability row for its model-facing definition, a skill row to expand its directory tree, and a file to preview it.
-
-**Three behaviours worth knowing**:
-
-- **A tier click does not hit disk immediately**: it changes memory first (so it feels instant) and is written back to `patchFile` (the home layer's `~/.dsh/cordis.patch.yml` by default) once you stop for ~1.5s — writing that file makes dsh hot-reload this plugin, so it cannot happen on every click.
-- **Registering writes files**: an MCP server goes into the same patch file (an `@deepseek-ai/dsh-mcp-client` row, mounted natively by dsh — this plugin never manages the connection), and a skill directory becomes a symlink under the skill root. Credentials such as headers are stored there in **plain text**.
-- **Some skill rows offer Adopt rather than Edit**: those are skills in user-level roots such as `~/.agents/skills` / `customSkillDirs`. The confirmation names the directory it currently lives in, and confirming links it into `~/.dsh/skills/` with the **content untouched**; rows that cannot be adopted show their source instead. **Skills that ship with an agent preset are never adoptable**: linking a preset asset into the user skill root would make it apply to every session, the opposite of "visible only to sessions that mount this preset", so those rows just say "From preset X".
-
-> **Skill sources and same-name handling**: a row's source label comes from dsh's provider (`project-dsh` / `user-agents` / `custom` / `bundled` …), and a **preset skill and a user-configured `customSkillDirs` entry are both labelled `custom`** — only scope provenance tells them apart, so grouping uses the preset id recorded while scanning, never the source label. Tier rules apply by **bare name**: same-named skills across scopes share one switch, and indexing is **global layer first, then presets in order** (matching the tool side); a name collision does not affect tiers, but only one of the implementations shows up in the list.
-
-What each form field means, how visible a global versus a project skill is, what a removal actually costs, and how `SKILL.md` is validated are all stated where you act on them — no need to repeat them here.
+Registering an MCP server or Skill directory writes configuration files. MCP credentials such as request headers are stored in the config file; keep it secure.
 
 ## Quick Install
 
@@ -96,9 +88,14 @@ A single package ships both the server-side plugin and the front-end Capability 
 # install
 dsh plugin --profile web add @daweifu/capability-menu
 
-# upgrade to the latest (name the version: without one pnpm only has to satisfy the range, so it will not move)
-dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu version)"
+# upgrade to the version tagged latest on npm (name the version to avoid keeping the installed one)
+dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu dist-tags.latest)"
+
+# To install a prerelease tag such as next, use that tag instead:
+# dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu dist-tags.next)"
 ```
+
+`npm view ... dist-tags.latest` only selects a version already published under npm's `latest` tag. If `0.1.5` has not been published or is only under another tag, this command will not select it. Run the upgrade command after publishing the new version.
 
 ### Install from source
 
@@ -113,25 +110,7 @@ dsh plugin --profile web add ./dsh-capability-menu
 ### Verify the install
 
 ```sh
-# installed version (ask pnpm in the profile directory; the UI shows no version)
-cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu
-
-# the plugin really is in the profile tree
-dsh --profile web --dump-config | grep -E 'capability-menu'
-```
-
-```
-# == @daweifu/capability-menu
-- id: capability-menu-registry
-  name: '@daweifu/capability-menu/registry'
-- id: capability-menu-search
-  name: '@daweifu/capability-menu/search'
-- id: capability-menu-invoke
-  name: '@daweifu/capability-menu/invoke'
-- id: capability-menu-policy
-  name: '@daweifu/capability-menu/policy'
-- id: capability-menu
-  name: '@daweifu/capability-menu'
+cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu && dsh --profile web --dump-config | grep -m1 '== @daweifu/capability-menu'
 ```
 
 ### Uninstall
@@ -146,14 +125,14 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 
 ### Tools / Skills three-tier exposure and execution
 
-| tier | capability | exposure (model view) | discovery | execution |
+| tier | capability | what the model sees | how to find it | how to use it |
 | --- | --- | --- | --- | --- |
-| **Resident** | tool | full schema in `assembly.tools` → the model's `tools` request payload, visible at every step | none (already resident) | model calls it directly; at runtime it goes through the full `ctx.tools` pipeline |
-| | skill | name + description in the `<available_skills>` catalog (body not in the catalog) | none (already resident) | the `skill` tool loads the body on demand (on-demand loading) |
-| **On-demand** | tool | not in the payload (zero context cost) | `meta_search` list / `grep` the materialized catalog YAML (`catalogFile`) | executed by `meta_invoke` (via `ctx.tools.execute`, full pipeline); or fetch the schema through detail and call it directly |
-| | skill | not in the `<available_skills>` catalog | `meta_search`, or `grep` the materialized catalog YAML (`catalogFile`) | `meta_invoke` loads the SKILL.md body (via `ctx.skills`) |
-| **Disabled** | tool | not in the payload | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; hallucinated direct calls are also hard-rejected in `tools/pre-execute` |
-| | skill | not in the `<available_skills>` catalog | not returned by `meta_search`, not written to the catalog YAML | refused by `meta_invoke`; the `skill` tool is hard-rejected in `tools/pre-execute` |
+| **Resident** | tool | Tool definition is included with every request | No search needed | Call directly; it goes through the full `ctx.tools` pipeline |
+| | skill | Name and summary appear in `<available_skills>` | No search needed | The `skill` tool loads the content when needed |
+| **On-demand** | tool | Tool definition is not included with requests | Search candidates with `meta_search` or search the capability catalog YAML (`catalogFile`) | Call with `meta_invoke`, or fetch details and parameters by exact id before calling directly |
+| | skill | Not shown in `<available_skills>` | Search with `meta_search` or search the capability catalog YAML (`catalogFile`) | Load `SKILL.md` with `meta_invoke` |
+| **Disabled** | tool | Tool definition is not included with requests | Hidden from search results and the capability catalog | Calls are rejected |
+| | skill | Not shown in `<available_skills>` | Hidden from search results and the capability catalog | Loads are rejected |
 
 > **Scope & reserved tools**:
 > - The tool tiers cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers exactly like MCP tools). **Do not name a real MCP server `built-in`.**
@@ -167,30 +146,28 @@ Rules are declared under the `config` of this plugin's `capability-menu-policy` 
 ```yaml
 config:
   tools:
-    resident:
+    resident: # Resident
       - execute_cmd
       - get_session_context
       - search_kb
       - 'mcp__gongfeng__*'    # wildcard: everything under this server is resident
-    on-demand:
+    on-demand: # On-demand
       - 'mcp__*'              # wildcard fallback
       - 'server:km:*'         # bulk on-demand by server prefix
-    disabled:
+    disabled: # Disabled
       - 'mcp__secret__*'      # disabled outranks everything, even resident
   skills:
-    resident:
+    resident: # Resident
       - debugging
       - coding
-    on-demand:
+    on-demand: # On-demand
       - legacy_skill          # explicit on-demand (unlisted skills default to resident)
-    disabled:
+    disabled: # Disabled
       - forbidden_skill
   metaTools:
     - meta_search             # always resident; cannot be disabled
     - meta_invoke
 ```
-
-> Config keys are the tier words themselves: `resident` (常驻) / `on-demand` (按需) / `disabled` (禁用).
 
 ### All configuration options
 
@@ -202,6 +179,8 @@ config:
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
 | `persistDebounceMs` | `capability-menu-policy` | `1500` | Debounce window (ms) before a clicked tier change is written back to the patch file |
+
+These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`; they do not require separate config files. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
 
 **Rule priority** (first match wins; within one tier, an exact rule beats a wildcard):
 
@@ -215,21 +194,13 @@ config:
 | 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
 | default | no rule matched | — | resident |
 
-Key points:
-- **Exact rules win over wildcards (even across tiers)**: e.g. with `resident: ['mcp__gongfeng__*']` in place, clicking a tool to On-demand in the Capability Management writes an exact `on-demand` rule that takes effect instead of being pushed back by the wildcard (if a higher-priority rule still overrides it, the UI reports that the classification did not apply).
+**Rule priority**: Exact rules take precedence over wildcards, including across tiers. For example, an exact `on-demand` rule for a tool still applies under `resident: ['mcp__gongfeng__*']`. If another rule overrides it, the UI reports that the classification did not apply.
 
-> **Two kinds of change, both persisted**:
->
-> - **Tier classification** changes memory first (so a click takes effect immediately) and is written back to this plugin's entry `config` (`patchFile`, the home layer's `~/.dsh/cordis.patch.yml` by default) once you stop for ~1.5s — writing that file makes dsh hot-reload this plugin and re-run the capability enumeration, so it cannot happen on every click. To batch-declare rules under version control, edit that same entry; no import/export buttons are needed.
-> - **Registered sources** (MCP servers, skill directories) hit disk as you click: MCP rows go into the same patch file (as `@deepseek-ai/dsh-mcp-client` entries), skill directories are linked into the skill root.
+### On-demand capability catalog (`catalogFile`)
 
-### On-demand capability catalog (`catalogFile`, the single materialized catalog, searchable with `grep`)
+The plugin writes On-demand Tools and Skills to the YAML file specified by `catalogFile` so the model can search them. The default is `~/.dsh/capability-catalog.yaml`; set it to an empty string to disable the catalog. The catalog is updated when Tools, Skills, or tiers change. When there are no On-demand capabilities, the model receives no catalog hint.
 
-On-demand capabilities are materialized into **one auto-generated YAML file** the model can browse:
-
-- The file location is the `config.catalogFile` of the **registry entry** (`capability-menu-registry`): it defaults to `~/.dsh/capability-catalog.yaml` and an empty string disables emission. The registry rewrites it automatically on any tool/skill or classification change. When nothing is On-demand, the catalog pointer is not injected (saving context).
-- A skill must first be **registered in `ctx.skills`** (a skill provider — e.g. its SKILL.md under a user/project skills root or `customSkillDirs`) to show up automatically; there is **no separate user-maintained input file**.
-- The model browses the file with `grep`/`read` (or calls `meta_search`) to get an entry's id and `kind`, then calls `meta_invoke(id, kind)` to run/load it. Skill ids are the bare name (e.g. `frontend-design`); `kind` distinguishes tools from skills.
+A Skill must be registered in `ctx.skills` to appear in the catalog. The model can search it with `grep` / `read` or call `meta_search`, then use the capability with `meta_invoke`. Each entry has an `id` and `kind`; a Skill's id is its name.
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand
@@ -249,7 +220,7 @@ capabilities:
     whenToUse: Use when working on legacy projects
 ```
 
-> The catalog file is written under the host's `~/.dsh` by default, so the sandbox of the model-side `bash`/`read` tools must be able to reach that path. If the sandbox isolates the host directory, explicitly configure `catalogFile` to a path the sandbox can see. The default path is shared across multiple dsh instances (last-write-wins); in multi-instance deployments, give each instance its own `catalogFile`.
+If the model-side `bash` / `read` sandbox cannot access the default directory, set `catalogFile` to a path it can reach. Multiple DSH instances share the default file; use a different path for each instance when they need separate catalogs.
 
 ## License
 
