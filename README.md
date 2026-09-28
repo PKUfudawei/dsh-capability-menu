@@ -76,7 +76,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 注册 MCP 服务器或 Skill 目录会修改配置文件。MCP 请求头等凭据保存在配置文件中，请妥善保管。
 
-GitHub Skill 链接格式为 `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`。导入需要运行 dsh 的机器安装 Git；插件会稀疏检出指定目录、校验 `SKILL.md`，并只复制该目录到所选技能位置。仅支持公开仓库。
+GitHub Skill 支持两种链接：仓库首页（仓库根目录含 `SKILL.md`，使用 GitHub 默认分支），或具体技能目录 `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`。也可输入本机目录。导入需要运行 dsh 的机器安装 Git；插件会校验 `SKILL.md`，并只复制对应目录到所选技能位置。仅支持公开仓库。Tools 的工具说明与 Skills 下的 Markdown 文件会按 Markdown 渲染。
 
 ## 快速安装
 

@@ -335,7 +335,7 @@ export class LocationRegistry {
   async importSkillFromGitHub(url: string, projectPath?: string): Promise<string> {
     const source = parseGitHubSkillUrl(url)
     const skillsDir = await this.resolveSkillsDir(undefined, projectPath)
-    const name = basename(source.path)
+    const name = source.path === '.' ? source.repo : basename(source.path)
     const destination = join(skillsDir, name)
     if (await lstat(destination).then(() => true, () => false)) {
       throw new Error(`技能「${name}」已存在于 ${skillsDir}`)
@@ -351,11 +351,12 @@ export class LocationRegistry {
         '-c', 'credential.helper=',
         '-c', 'credential.interactive=never',
         'clone', '--depth=1', '--filter=blob:none', '--sparse', '--single-branch',
-        `--branch=${source.ref}`, '--', source.repoUrl, repoDir,
+        ...source.ref !== undefined ? [`--branch=${source.ref}`] : [],
+        '--', source.repoUrl, repoDir,
       ])
       await runGit(['-C', repoDir, 'sparse-checkout', 'set', '--cone', '--', source.path])
 
-      const sourceDir = resolve(repoDir, ...source.path.split('/'))
+      const sourceDir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
       const outsideRepo = relative(repoDir, sourceDir)
       if (outsideRepo === '..' || outsideRepo.startsWith(`..${sep}`) || isAbsolute(outsideRepo)) {
         throw new Error('GitHub 技能目录路径无效')
@@ -364,7 +365,7 @@ export class LocationRegistry {
       if (sourceStat?.isDirectory() !== true) {
         throw new Error(`仓库中没有该目录：${source.path}`)
       }
-      await assertSafeSkillTree(sourceDir)
+      await assertSafeSkillTree(sourceDir, source.path === '.')
       const manifest = await checkSkillManifest(sourceDir)
       if (!manifest.ok) throw new Error(manifest.message)
 
@@ -375,11 +376,16 @@ export class LocationRegistry {
 
       targetStage = await mkdtemp(join(skillsDir, GITHUB_IMPORT_PREFIX))
       const stagedSkill = join(targetStage, name)
-      await cp(sourceDir, stagedSkill, { recursive: true, force: false, errorOnExist: true })
+      await cp(sourceDir, stagedSkill, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+        filter: path => !(source.path === '.' && basename(path) === '.git'),
+      })
       const copiedManifest = await checkSkillManifest(stagedSkill)
       if (!copiedManifest.ok) throw new Error(copiedManifest.message)
       await rename(stagedSkill, destination)
-      this.ctx.logger.info(`capability-locations: imported GitHub skill "${manifest.name}" from ${source.repoUrl}/tree/${source.ref}/${source.path} → ${destination}`)
+      this.ctx.logger.info(`capability-locations: imported GitHub skill "${manifest.name}" from ${url.trim()} → ${destination}`)
       return destination
     } catch (error) {
       if (isGitMissing(error)) throw new Error('导入 GitHub Skill 需要在运行 dsh 的机器上安装 git')
@@ -532,11 +538,15 @@ async function assertSkillsDir(dir: string): Promise<void> {
 
 interface GitHubSkillSource {
   readonly repoUrl: string
-  readonly ref: string
+  /** Omitted when the repository URL should use GitHub's default branch. */
+  readonly ref?: string
+  /** `.` means the repository root itself is the Skill directory. */
   readonly path: string
+  /** Used as the managed folder name when importing the repository root. */
+  readonly repo: string
 }
 
-/** Accept only public GitHub tree URLs with an explicit ref and subdirectory. */
+/** Accept a public GitHub repo root or an explicit tree URL. */
 function parseGitHubSkillUrl(input: string): GitHubSkillSource {
   let url: URL
   try {
@@ -556,18 +566,21 @@ function parseGitHubSkillUrl(input: string): GitHubSkillSource {
     throw new Error('GitHub 技能目录链接包含无效的 URL 编码')
   }
   const [owner, repo, tree, ref, ...pathParts] = parts
-  if (owner === undefined || repo === undefined || tree !== 'tree' || ref === undefined || pathParts.length === 0
+  const repositoryRoot = parts.length === 2
+  if (owner === undefined || repo === undefined || (!repositoryRoot && tree !== 'tree')
     || !/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)
-    || ref.length === 0 || ref.startsWith('-') || ref.includes('..') || ref.includes('\\') || /[\u0000-\u0020]/.test(ref)) {
-    throw new Error('链接格式应为 https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}')
+    || repo === '.' || repo === '..'
+    || (!repositoryRoot && (ref === undefined || ref.length === 0 || ref.startsWith('-') || ref.includes('..') || ref.includes('\\') || /[\u0000-\u0020]/.test(ref)))) {
+    throw new Error('链接应为含根目录 SKILL.md 的仓库地址 https://github.com/{owner}/{repo}，或目录地址 https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}')
   }
-  if (pathParts.some(part => part.length === 0 || part === '.' || part === '..' || part.includes('/') || part.includes('\\') || part.includes('\0'))) {
+  if (!repositoryRoot && pathParts.some(part => part.length === 0 || part === '.' || part === '..' || part.includes('/') || part.includes('\\') || part.includes('\0'))) {
     throw new Error('GitHub 技能目录路径无效')
   }
   return {
     repoUrl: `https://github.com/${owner}/${repo}.git`,
-    ref,
-    path: pathParts.join('/'),
+    ...ref !== undefined ? { ref } : {},
+    path: repositoryRoot || pathParts.length === 0 ? '.' : pathParts.join('/'),
+    repo,
   }
 }
 
@@ -580,11 +593,12 @@ async function runGit(args: string[]): Promise<void> {
 }
 
 /** Reject links and special files so an imported tree cannot escape its folder. */
-async function assertSafeSkillTree(dir: string): Promise<void> {
+async function assertSafeSkillTree(dir: string, repositoryRoot = false): Promise<void> {
   const root = await lstat(dir)
   if (!root.isDirectory()) throw new Error('GitHub 中指定的技能目录必须是普通目录')
   const entries = await readdir(dir, { withFileTypes: true })
   for (const entry of entries) {
+    if (repositoryRoot && entry.name === '.git') continue
     const path = join(dir, entry.name)
     if (entry.isSymbolicLink()) throw new Error(`技能目录不接受符号链接：${entry.name}`)
     if (entry.isDirectory()) await assertSafeSkillTree(path)

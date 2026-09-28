@@ -20,6 +20,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { KeyboardEvent, ReactElement } from 'react'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import * as ClientUiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   CapabilityPolicyRemote,
@@ -108,6 +109,12 @@ export type CapabilityKey =
   | 'cycleHint'
   | 'notPreviewable'
   | 'previewClose'
+  | 'markdownCode'
+  | 'markdownWrap'
+  | 'markdownUnwrap'
+  | 'markdownCopy'
+  | 'markdownCopied'
+  | 'markdownFootnotes'
   | 'detailNotFound'
   | 'cycleOverridden'
   | 'refreshFailed'
@@ -341,7 +348,9 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-preview-title{font-size:13px;line-height:20px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .mc-preview-close{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .mc-preview-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.mc-preview-body{overflow:auto;flex:1 1 auto;min-height:0;padding:14px 16px;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary)}
+.mc-preview-body{overflow:auto;flex:1 1 auto;min-height:0;padding:14px 16px;color:var(--dsw-alias-label-primary)}
+.mc-preview-body>pre,.mc-preview-plain{margin:0;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
+.mc-tool-description{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .mc-preview-hint{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary)}
 `
 if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id="${CSS_ID}"]`) === null) {
@@ -349,6 +358,31 @@ if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id
   tag.dataset.cssId = CSS_ID
   tag.textContent = CSS
   document.head.appendChild(tag)
+}
+
+/** Reuse dsh's safe Markdown renderer in tool descriptions and skill files. */
+function MarkdownPreview(props: {
+  text: string
+  t(key: CapabilityKey, params?: Record<string, unknown>): string
+}): ReactElement {
+  const { text, t } = props
+  return (
+    <MarkdownText
+      text={text}
+      labels={{
+        code: {
+          copyLabel: t('markdownCopy'),
+          copiedLabel: t('markdownCopied'),
+          toolbarLabels: {
+            codeLabel: t('markdownCode'),
+            wrapLabel: t('markdownWrap'),
+            unwrapLabel: t('markdownUnwrap'),
+          },
+        },
+        footnotes: t('markdownFootnotes'),
+      }}
+    />
+  )
 }
 
 /**
@@ -1123,14 +1157,20 @@ function ReadyBody(props: {
             {toolDetail.status === 'loading' && <div className="mc-preview-hint">…</div>}
             {toolDetail.status === 'error' && <div className="mc-preview-hint">{toolDetail.message}</div>}
             {toolDetail.status === 'ready' && toolDetail.detail !== undefined && (
-              <pre className="mc-preview-body">{JSON.stringify({
-                type: 'function',
-                function: {
-                  name: toolDetail.detail.name,
-                  description: toolDetail.detail.description,
-                  parameters: toolDetail.detail.parameters,
-                },
-              }, null, 2)}</pre>
+              <div className="mc-preview-body">
+                {toolDetail.detail.description.length > 0 && (
+                  <div className="mc-tool-description">
+                    <MarkdownPreview text={toolDetail.detail.description} t={t} />
+                  </div>
+                )}
+                <pre className="mc-preview-plain">{JSON.stringify({
+                  type: 'function',
+                  function: {
+                    name: toolDetail.detail.name,
+                    parameters: toolDetail.detail.parameters,
+                  },
+                }, null, 2)}</pre>
+              </div>
             )}
           </div>
         </div>
@@ -1509,7 +1549,13 @@ function SkillList(props: {
               </button>
             </div>
             {preview.content !== undefined ? (
-              <pre className="mc-preview-body">{preview.content}</pre>
+              <div className="mc-preview-body">
+                {/\.md$/i.test(preview.relPath) ? (
+                  <MarkdownPreview text={preview.content} t={t} />
+                ) : (
+                  <pre className="mc-preview-plain">{preview.content}</pre>
+                )}
+              </div>
             ) : (
               <div className="mc-preview-hint">{preview.error ?? '…'}</div>
             )}

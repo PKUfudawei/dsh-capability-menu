@@ -115,7 +115,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   const [subTab, setSubTab] = useState<SubTab>(
     editSkill !== undefined ? 'skill' : editMcp !== undefined ? 'mcp' : defaultKind,
   )
-  const [error, setError] = useState<string | null>(null)
+  const [errors, setErrors] = useState<Partial<Record<SubTab, string>>>({})
   const [busy, setBusy] = useState(false)
   /**
    * Which action is waiting for confirmation, if any. Two need one: 移除, and
@@ -170,21 +170,25 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
     try {
       const changed = await action()
       if (changed === false) throw new Error(t('entryNotFound'))
-      setError(null)
+      setErrors(prev => {
+        const next = { ...prev }
+        delete next[subTab]
+        return next
+      })
       onChanged(noticeFor?.(changed))
       onClose()
     } catch (e) {
-      setError(String(e))
+      setErrors(prev => ({ ...prev, [subTab]: String(e) }))
     } finally {
       setBusy(false)
     }
-  }, [busy, onChanged, onClose, t])
+  }, [busy, onChanged, onClose, subTab, t])
 
   const submitMcp = useCallback(() => {
     const trimmedTimeout = timeoutSec.trim()
     const timeoutMs = trimmedTimeout.length === 0 ? undefined : Math.round(Number(trimmedTimeout) * 1000)
     if (timeoutMs !== undefined && !Number.isFinite(timeoutMs)) {
-      setError(t('timeoutInvalid'))
+      setErrors(prev => ({ ...prev, mcp: t('timeoutInvalid') }))
       return
     }
     const parsedEnv = fromLines(env)
@@ -331,7 +335,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
         )}
 
         <div className="lm-body">
-          {error !== null && <p className="lm-error">{error}</p>}
+          {errors[subTab] !== undefined && <p className="lm-error">{errors[subTab]}</p>}
 
           {subTab === 'mcp'
             ? (
