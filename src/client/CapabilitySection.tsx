@@ -351,6 +351,7 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-preview-body{overflow:auto;flex:1 1 auto;min-height:0;padding:14px 16px;color:var(--dsw-alias-label-primary)}
 .mc-preview-body>pre,.mc-preview-plain{margin:0;font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
 .mc-tool-description{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.mc-frontmatter{margin:0 0 16px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
 .mc-preview-hint{padding:16px;text-align:center;font-size:13px;color:var(--dsw-alias-label-tertiary)}
 `
 if (typeof document !== 'undefined' && document.querySelector(`style[data-css-id="${CSS_ID}"]`) === null) {
@@ -382,6 +383,29 @@ function MarkdownPreview(props: {
         footnotes: t('markdownFootnotes'),
       }}
     />
+  )
+}
+
+/** Keep YAML frontmatter as line-preserving text; the remaining body is Markdown. */
+function splitMarkdownFrontmatter(text: string): { frontmatter?: string; body: string } {
+  const match = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
+  if (match === null) return { body: text }
+  return {
+    frontmatter: `---\n${match[1] ?? ''}\n---`,
+    body: text.slice(match[0].length),
+  }
+}
+
+function MarkdownFilePreview(props: {
+  text: string
+  t(key: CapabilityKey, params?: Record<string, unknown>): string
+}): ReactElement {
+  const { frontmatter, body } = splitMarkdownFrontmatter(props.text)
+  return (
+    <>
+      {frontmatter !== undefined && <pre className="mc-frontmatter">{frontmatter}</pre>}
+      <MarkdownPreview text={body} t={props.t} />
+    </>
   )
 }
 
@@ -1551,7 +1575,7 @@ function SkillList(props: {
             {preview.content !== undefined ? (
               <div className="mc-preview-body">
                 {/\.md$/i.test(preview.relPath) ? (
-                  <MarkdownPreview text={preview.content} t={t} />
+                  <MarkdownFilePreview text={preview.content} t={t} />
                 ) : (
                   <pre className="mc-preview-plain">{preview.content}</pre>
                 )}
