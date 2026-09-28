@@ -67,6 +67,11 @@ textarea.lm-input{resize:vertical;font-family:var(--dsw-font-markdown-code-block
    annotates and takes the caption colour so it does not read as another label. */
 .lm-hint{grid-column:2;margin:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
 .lm-error{margin:0;font-size:12px;color:#b3261e;word-break:break-word}
+.lm-progress{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary)}
+.lm-spinner{width:12px;height:12px;flex:none;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);border-radius:50%;animation:lm-spin .8s linear infinite}
+@keyframes lm-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.lm-spinner{animation-duration:2s}}
+.mc-tab:disabled,.mc-preview-close:disabled{cursor:default;opacity:.6}
 .lm-actions{display:flex;gap:8px;justify-content:flex-end;padding:4px 0 0}
 /* Removal is irreversible, so it takes over the action row for one confirmation
    step: the message states the consequence, then the buttons act. */
@@ -117,6 +122,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   )
   const [errors, setErrors] = useState<Partial<Record<SubTab, string>>>({})
   const [busy, setBusy] = useState(false)
+  const [progressMessage, setProgressMessage] = useState<string | null>(null)
   /**
    * Which action is waiting for confirmation, if any. Two need one: 移除, and
    * 保存 on an entry that is a real directory — repointing unlinks the entry
@@ -164,9 +170,19 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
   }, [editMcp, editSkill, skillLabel, t])
 
   /** Run a mutation; on success close and ask the parent to re-pull. */
-  const submit = useCallback(async (action: () => Promise<unknown>, noticeFor?: (result: unknown) => string) => {
+  const submit = useCallback(async (
+    action: () => Promise<unknown>,
+    noticeFor?: (result: unknown) => string,
+    progress?: string,
+  ) => {
     if (busy) return
     setBusy(true)
+    setProgressMessage(progress ?? null)
+    setErrors(prev => {
+      const next = { ...prev }
+      delete next[subTab]
+      return next
+    })
     try {
       const changed = await action()
       if (changed === false) throw new Error(t('entryNotFound'))
@@ -181,6 +197,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
       setErrors(prev => ({ ...prev, [subTab]: String(e) }))
     } finally {
       setBusy(false)
+      setProgressMessage(null)
     }
   }, [busy, onChanged, onClose, subTab, t])
 
@@ -227,6 +244,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
       result => editSkill !== undefined
         ? t('skillRepointed', { dir: source })
         : t('skillRegisteredAt', { path: String(result) }),
+      editSkill === undefined && /^https:\/\//i.test(source) ? t('githubImporting') : undefined,
     )
   }, [submit, remote, editSkill, skillDir, skillRoot, projectPath, t])
 
@@ -287,7 +305,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
           disabled={busy}
           onClick={() => { if (needsSaveConfirm) setConfirm('save'); else onSubmit() }}
         >
-          {editing ? t('save') : t('register')}
+          {progressMessage !== null ? t('importing') : editing ? t('save') : t('register')}
         </button>
         {editing && (
           <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => setConfirm('remove')}>
@@ -298,11 +316,11 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
     )
 
   return (
-    <div className="mc-preview-mask" onClick={onClose}>
+    <div className="mc-preview-mask" onClick={busy ? undefined : onClose}>
       <div className="mc-preview" onClick={e => e.stopPropagation()}>
         <div className="mc-preview-head">
           <span className="mc-preview-title">{title}</span>
-          <button type="button" className="mc-preview-close" onClick={onClose}>
+          <button type="button" className="mc-preview-close" disabled={busy} onClick={onClose}>
             {t('previewClose')}
           </button>
         </div>
@@ -316,6 +334,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                 className="mc-tab"
                 aria-selected={subTab === 'mcp'}
                 data-active={subTab === 'mcp' ? 'true' : undefined}
+                disabled={busy}
                 onClick={() => setSubTab('mcp')}
               >
                 {t('mcpServers')}
@@ -326,6 +345,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                 className="mc-tab"
                 aria-selected={subTab === 'skill'}
                 data-active={subTab === 'skill' ? 'true' : undefined}
+                disabled={busy}
                 onClick={() => setSubTab('skill')}
               >
                 {t('skillDirs')}
@@ -336,6 +356,12 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
 
         <div className="lm-body">
           {errors[subTab] !== undefined && <p className="lm-error">{errors[subTab]}</p>}
+          {progressMessage !== null && (
+            <p className="lm-progress" role="status" aria-live="polite">
+              <span className="lm-spinner" aria-hidden="true" />
+              {progressMessage}
+            </p>
+          )}
 
           {subTab === 'mcp'
             ? (

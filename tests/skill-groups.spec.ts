@@ -85,10 +85,8 @@ describe('splitSkillGroups', () => {
 })
 
 describe('resolveSkillTab', () => {
-  it('falls back to 全局技能 when 预设技能 is selected but no preset ships skills', () => {
-    // Deployed presets are re-scanned on every refresh, so the tab can vanish
-    // under an operator who is looking at it.
-    expect(resolveSkillTab('preset', emptyGroups())).toBe('global')
+  it('keeps 预设技能 selected when no preset ships skills', () => {
+    expect(resolveSkillTab('preset', emptyGroups())).toBe('preset')
   })
 
   it('keeps 预设技能 while preset skills exist', () => {

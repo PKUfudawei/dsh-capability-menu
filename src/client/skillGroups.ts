@@ -165,13 +165,11 @@ export function splitSkillGroups(skills: readonly CapabilityRow[]): SkillGroups 
 }
 
 /**
- * The sub-tab the Skills panel actually shows: the requested one, unless it is
- * 预设技能 while no preset ships skills. That tab does not exist then, and a
- * selection left on it must not survive — deployed presets are re-scanned on
- * every refresh, so the tab can disappear under the operator.
+ * Keep the selected sub-tab even when its current group is empty. In particular,
+ * the preset tab is always available so the operator can see its empty state.
  */
-export function resolveSkillTab(selected: SkillTab, groups: SkillGroups): SkillTab {
-  return selected === 'preset' && groups.presetSkills.length === 0 ? 'global' : selected
+export function resolveSkillTab(selected: SkillTab, _groups: SkillGroups): SkillTab {
+  return selected
 }
 
 /** Rows in one tier. Counts the *displayed* rows, not the whole catalog. */

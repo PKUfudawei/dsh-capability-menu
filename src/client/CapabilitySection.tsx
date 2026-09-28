@@ -99,6 +99,7 @@ export type CapabilityKey =
   | 'emptySkills'
   | 'emptyGlobalSkills'
   | 'emptyProjectSkills'
+  | 'emptyPresetSkills'
   | 'filterByName'
   | 'filterHint'
   | 'filterNoMatch'
@@ -154,6 +155,8 @@ export type CapabilityKey =
   | 'skillSourceHint'
   | 'skillFromPreset'
   | 'skillFromPresetHint'
+  | 'githubImporting'
+  | 'importing'
   | 'skillUnmanaged'
   | 'adoptSkill'
   | 'adoptSkillHint'
@@ -776,8 +779,6 @@ function ReadyBody(props: {
   const { presetSkills, presetGroups, projectSkills, globalSkills } = splitSkillGroups(skills)
   // Which sub-tab the Skills panel shows. Persists across top-tab switches.
   const [skillTab, setSkillTab] = useState<SkillTab>('global')
-  // The 预设技能 tab only exists while there are preset skills, so a deployment
-  // without them keeps the two-tab layout.
   const activeSkillTab = resolveSkillTab(skillTab, { presetSkills, presetGroups, projectSkills, globalSkills })
   // Per-tab statistics: the Tools tab counts tool rows; the Skills tab counts
   // the currently active global/project/preset sub-tab.
@@ -1135,21 +1136,16 @@ function ReadyBody(props: {
                   >
                     {t('projectSkills')}
                   </button>
-                  {/* Conditional third tab: rendered only when preset skills are
-                      actually present, so a deployment without them keeps the
-                      two-tab layout instead of showing an always-empty tab. */}
-                  {presetSkills.length > 0 && (
-                    <button
-                      type="button"
-                      role="tab"
-                      className="mc-tab"
-                      aria-selected={activeSkillTab === 'preset'}
-                      data-active={activeSkillTab === 'preset' ? 'true' : undefined}
-                      onClick={() => setSkillTab('preset')}
-                    >
-                      {t('presetSkills')}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    role="tab"
+                    className="mc-tab"
+                    aria-selected={activeSkillTab === 'preset'}
+                    data-active={activeSkillTab === 'preset' ? 'true' : undefined}
+                    onClick={() => setSkillTab('preset')}
+                  >
+                    {t('presetSkills')}
+                  </button>
                 </div>
               </div>
               {activeSkillTab === 'global' ? (
@@ -1185,7 +1181,7 @@ function ReadyBody(props: {
               ) : (
                 /* One section per preset (preset id as a heading) rather than a
                    fourth level of tabs: the id is provenance, not navigation. */
-                presetGroups.map(([preset, group]) => (
+                presetGroups.length > 0 ? presetGroups.map(([preset, group]) => (
                   <div key={preset} className="mc-skill-group">
                     <div className="mc-skill-group-title">{preset}</div>
                     <SkillList
@@ -1199,7 +1195,7 @@ function ReadyBody(props: {
                       onAdoptSkill={adoptSkill}
                     />
                   </div>
-                ))
+                )) : <p className="mc-empty">{t('emptyPresetSkills')}</p>
               )}
             </>
           )}
