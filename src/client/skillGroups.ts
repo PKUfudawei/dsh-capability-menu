@@ -10,7 +10,7 @@
 import { BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 import type { CapabilityRow } from './store.ts'
 
-/** The Skills panel's sub-tab. `preset` exists only while presets ship skills. */
+/** The Skills panel's sub-tabs; preset stays available even when its list is empty. */
 export type SkillTab = 'global' | 'project' | 'preset'
 
 export interface Grouped {
@@ -162,14 +162,6 @@ export function splitSkillGroups(skills: readonly CapabilityRow[]): SkillGroups 
   }
   presetGroups.sort(([a], [b]) => a.localeCompare(b))
   return { presetSkills, presetGroups, projectSkills, globalSkills }
-}
-
-/**
- * Keep the selected sub-tab even when its current group is empty. In particular,
- * the preset tab is always available so the operator can see its empty state.
- */
-export function resolveSkillTab(selected: SkillTab, _groups: SkillGroups): SkillTab {
-  return selected
 }
 
 /** Rows in one tier. Counts the *displayed* rows, not the whole catalog. */

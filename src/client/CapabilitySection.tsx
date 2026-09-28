@@ -47,7 +47,6 @@ import {
   countByClass,
   filterRows,
   groupRows,
-  resolveSkillTab,
   splitSkillGroups,
   type SkillTab,
 } from './skillGroups.ts'
@@ -779,12 +778,11 @@ function ReadyBody(props: {
   const { presetSkills, presetGroups, projectSkills, globalSkills } = splitSkillGroups(skills)
   // Which sub-tab the Skills panel shows. Persists across top-tab switches.
   const [skillTab, setSkillTab] = useState<SkillTab>('global')
-  const activeSkillTab = resolveSkillTab(skillTab, { presetSkills, presetGroups, projectSkills, globalSkills })
   // Per-tab statistics: the Tools tab counts tool rows; the Skills tab counts
   // the currently active global/project/preset sub-tab.
   const statRows = activeTab === 'tools'
     ? shownRows.filter(r => r.kind === 'tool')
-    : activeSkillTab === 'project' ? projectSkills : activeSkillTab === 'preset' ? presetSkills : globalSkills
+    : skillTab === 'project' ? projectSkills : skillTab === 'preset' ? presetSkills : globalSkills
   const summary = CLASS_KEYS.map(cls => ({ cls, count: countByClass(statRows, cls) }))
 
   /** Tool-detail modal: one schema popup at a time. */
@@ -1120,8 +1118,8 @@ function ReadyBody(props: {
                     type="button"
                     role="tab"
                     className="mc-tab"
-                    aria-selected={activeSkillTab === 'global'}
-                    data-active={activeSkillTab === 'global' ? 'true' : undefined}
+                    aria-selected={skillTab === 'global'}
+                    data-active={skillTab === 'global' ? 'true' : undefined}
                     onClick={() => setSkillTab('global')}
                   >
                     {t('globalSkills')}
@@ -1130,8 +1128,8 @@ function ReadyBody(props: {
                     type="button"
                     role="tab"
                     className="mc-tab"
-                    aria-selected={activeSkillTab === 'project'}
-                    data-active={activeSkillTab === 'project' ? 'true' : undefined}
+                    aria-selected={skillTab === 'project'}
+                    data-active={skillTab === 'project' ? 'true' : undefined}
                     onClick={() => setSkillTab('project')}
                   >
                     {t('projectSkills')}
@@ -1140,15 +1138,15 @@ function ReadyBody(props: {
                     type="button"
                     role="tab"
                     className="mc-tab"
-                    aria-selected={activeSkillTab === 'preset'}
-                    data-active={activeSkillTab === 'preset' ? 'true' : undefined}
+                    aria-selected={skillTab === 'preset'}
+                    data-active={skillTab === 'preset' ? 'true' : undefined}
                     onClick={() => setSkillTab('preset')}
                   >
                     {t('presetSkills')}
                   </button>
                 </div>
               </div>
-              {activeSkillTab === 'global' ? (
+              {skillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList
                     skills={globalSkills}
@@ -1163,7 +1161,7 @@ function ReadyBody(props: {
                 ) : (
                   <p className="mc-empty">{t('emptyGlobalSkills')}</p>
                 )
-              ) : activeSkillTab === 'project' ? (
+              ) : skillTab === 'project' ? (
                 projectSkills.length > 0 ? (
                   <SkillList
                     skills={projectSkills}

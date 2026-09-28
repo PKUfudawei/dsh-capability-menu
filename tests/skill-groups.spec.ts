@@ -12,10 +12,8 @@ import {
   countByClass,
   filterRows,
   groupRows,
-  resolveSkillTab,
   searchableText,
   splitSkillGroups,
-  type SkillGroups,
 } from '../src/client/skillGroups.ts'
 import type { CapabilityRow } from '../src/client/store.ts'
 
@@ -25,10 +23,6 @@ function skill(name: string, extra: Partial<CapabilityRow> = {}): CapabilityRow 
 
 function tool(name: string, server?: string): CapabilityRow {
   return { id: name, kind: 'tool', name, class: 'resident', mandatory: false, ...server !== undefined ? { server } : {} }
-}
-
-function emptyGroups(): SkillGroups {
-  return { presetSkills: [], presetGroups: [], projectSkills: [], globalSkills: [] }
 }
 
 describe('splitSkillGroups', () => {
@@ -81,22 +75,6 @@ describe('splitSkillGroups', () => {
     const groups = splitSkillGroups([skill('alpha', { preset: 'p' }), skill('beta', { preset: 'p' })])
     expect(groups.presetGroups).toEqual([['p', groups.presetSkills]])
     expect(groups.presetSkills.map(s => s.name)).toEqual(['alpha', 'beta'])
-  })
-})
-
-describe('resolveSkillTab', () => {
-  it('keeps 预设技能 selected when no preset ships skills', () => {
-    expect(resolveSkillTab('preset', emptyGroups())).toBe('preset')
-  })
-
-  it('keeps 预设技能 while preset skills exist', () => {
-    const groups = splitSkillGroups([skill('x', { preset: 'cordis' })])
-    expect(resolveSkillTab('preset', groups)).toBe('preset')
-  })
-
-  it('passes the other two selections through untouched', () => {
-    expect(resolveSkillTab('global', emptyGroups())).toBe('global')
-    expect(resolveSkillTab('project', emptyGroups())).toBe('project')
   })
 })
 
