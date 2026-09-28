@@ -32,8 +32,8 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult;
 /**
  * Register the `meta_search` tool.
  *
- * - Mode A (list, default): query by keyword/tag/server, returns id + short summary.
- * - Mode B (detail): pass an exact id (optionally `detail: true`) to get the full schema.
+ * - Mode A (list, default): search by keyword/tag/server and return candidate ids + short summaries.
+ * - Mode B (detail): pass a candidate's exact id (optionally `detail: true`) to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
  * - `query` and `id` are mutually exclusive.

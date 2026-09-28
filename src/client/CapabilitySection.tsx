@@ -19,8 +19,8 @@
  *                       chip plus a directory tree / file preview
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { KeyboardEvent } from 'react'
-import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { KeyboardEvent, ReactElement } from 'react'
+import * as ClientUiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   CapabilityPolicyRemote,
   CapabilitySnapshot,
@@ -32,6 +32,13 @@ import type {
   ToolDetail,
 } from './store.ts'
 import { cachedSnapshot, loadSnapshot, unwrap } from './store.ts'
+
+type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
+const chevronIcons = ClientUiPrimitives as unknown as {
+  IconTriangleRightFillMedium?: ChevronIcon
+  IconTriangleRightFill14?: ChevronIcon
+}
+const IconTriangleRightFill: ChevronIcon = (chevronIcons.IconTriangleRightFillMedium ?? chevronIcons.IconTriangleRightFill14)!
 import { LocationModal } from './LocationModal.tsx'
 import { ADOPTABLE_SKILL_SOURCES, BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 import {
@@ -911,7 +918,7 @@ function ReadyBody(props: {
                         }
                       }}
                     >
-                      <IconTriangleRightFill14 size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
+                      <IconTriangleRightFill size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
                       <span className="mc-server-name">{server === BUILT_IN_SERVER ? t('builtInGroup') : server}</span>
                       <span className="mc-server-count">{t('toolCount', { count: tools.length })}</span>
                       <span className="mc-server-meta">
@@ -1306,7 +1313,7 @@ function SkillList(props: {
             >
               <span className="mc-tree-indent" style={{ width: 8 + indent * 16 }} />
               <span className="mc-tree-icon">
-                <IconTriangleRightFill14 size={10} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
+                <IconTriangleRightFill size={10} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
               </span>
               <span className="mc-tree-name">{entry.name}/</span>
             </div>
@@ -1365,7 +1372,7 @@ function SkillList(props: {
                 }
               }}
             >
-              <IconTriangleRightFill14 size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
+              <IconTriangleRightFill size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
               <span className="mc-skill-name">{skill.name}</span>
               <span className="mc-skill-meta">
                 {skill.mandatory && <span className="mc-tag">{t('mandatory')}</span>}

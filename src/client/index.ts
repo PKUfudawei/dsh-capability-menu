@@ -7,11 +7,13 @@
  * register a `settings.section` (order 12, between `models`=10 and `plugins`=15)
  * whose card renders the classification lists.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { TYPERT_REMOTE } from './remote.ts'
 import { CapabilitySection, type CapabilitySectionInjected, type CapabilityKey } from './CapabilitySection.tsx'
 

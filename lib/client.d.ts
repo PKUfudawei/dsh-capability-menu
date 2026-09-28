@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({ id: "@daweifu/capability-menu", factory: (require
 var module = { exports: {} };
 var exports = module.exports;
 
-import { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
+import { Context } from "@deepseek-ai/cordis";
 import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
 //#region src/client/remote.d.ts
 /** Read-only row: one capability's Resident/On-demand/Disabled classification. */
@@ -380,7 +380,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  which resolves the mounted namespace service without the inject gate. */
 declare const inject: string[];
 /** Register the 能力菜单 section once `settings.section` is on the ledger. */
-declare function apply(ctx: ClientContext): Promise<() => void>;
+declare function apply(ctx: Context): Promise<() => void>;
 //#endregion
 export { type CapabilityKey, type CapabilityPolicyRemote, type CapabilityRow, type CapabilitySectionInjected, type CapabilitySectionProps, type CapabilitySnapshot, apply, inject };
 
