@@ -22,9 +22,18 @@
 ## Table of Contents
 
 - [Capability Overview](#capability-overview)
-- [Quick Install](#quick-install)
+  - [Capability Model](#capability-model)
+  - [Capability Management](#capability-management)
+- [Installation and Uninstallation](#installation-and-uninstallation)
+  - [Install from npm (recommended)](#install-from-npm-recommended)
+  - [Install from source](#install-from-source)
+  - [Verify the install](#verify-the-install)
+  - [Uninstall](#uninstall)
 - [Exposure Policy](#exposure-policy)
+  - [Tools and Skills three-tier exposure and execution](#tools-and-skills-three-tier-exposure-and-execution)
 - [Configuration](#configuration)
+  - [All configuration options](#all-configuration-options)
+  - [On-demand capability catalog (`catalogFile`)](#on-demand-capability-catalog-catalogfile)
 
 ---
 
@@ -56,11 +65,6 @@ The model gets two meta tools:
   <img src="assets/screenshot-tools.png" alt="Tools tab" width="48%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="48%"/>
 </p>
-<p align="center">
-  <img src="assets/screenshot-policy.png" alt="Policy &amp; catalog · Policy (effective)" width="48%"/>
-  <img src="assets/screenshot-catalog.png" alt="Policy &amp; catalog · On-demand catalog" width="48%"/>
-</p>
-
 After installation, open **Settings** and select **Capability Management** from the settings navigation to manage Tools and Skills.
 
 | Task | How to do it |
@@ -76,7 +80,7 @@ Registering an MCP server writes its patch configuration; a missing file or pare
 
 GitHub Skill imports accept a default-branch root URL (the root must contain `SKILL.md`), a specific branch root `https://github.com/{owner}/{repo}/tree/{branch}`, or a Skill subdirectory `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`. Local paths are also supported. Only public repositories are supported; Git must be installed on the machine running dsh. The plugin validates `SKILL.md` and copies only the selected directory.
 
-## Quick Install
+## Installation and Uninstallation
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness) (`dsh plugin` forwards to pnpm internally, so pnpm needs no separate install).
 
@@ -123,7 +127,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 
 All capabilities (Tool and Skill) fall into three tiers by their **exposure level** (what the model sees in the context) and their **execution mode**:
 
-### Tools / Skills three-tier exposure and execution
+### Tools and Skills three-tier exposure and execution
 
 | tier | capability | what the model sees | how to find it | how to use it |
 | --- | --- | --- | --- | --- |

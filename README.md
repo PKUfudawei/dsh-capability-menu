@@ -22,9 +22,18 @@
 ## 目录
 
 - [能力总览](#能力总览)
-- [快速安装](#快速安装)
+  - [能力模型](#能力模型)
+  - [能力菜单](#能力菜单)
+- [安装与卸载](#安装与卸载)
+  - [从 npm 安装（推荐）](#从-npm-安装推荐)
+  - [从源码安装](#从源码安装)
+  - [验证安装](#验证安装)
+  - [卸载](#卸载)
 - [暴露策略](#暴露策略)
-- [配置文件](#配置文件)
+  - [Tools 和 Skills 三档暴露与执行对照](#tools-和-skills-三档暴露与执行对照)
+- [配置](#配置)
+  - [全部配置项](#全部配置项)
+  - [按需能力目录（`catalogfile`）](#按需能力目录catalogfile)
 
 ---
 
@@ -56,11 +65,6 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
   <img src="assets/screenshot-tools.png" alt="Tools 页" width="48%"/>
   <img src="assets/screenshot-skills.png" alt="Skills 页" width="48%"/>
 </p>
-<p align="center">
-  <img src="assets/screenshot-policy.png" alt="策略与目录 · 三档策略配置" width="48%"/>
-  <img src="assets/screenshot-catalog.png" alt="策略与目录 · 按需能力目录" width="48%"/>
-</p>
-
 安装后，在「设置」导航中选择「能力菜单」，即可管理 Tools 和 Skills。
 
 | 操作 | 用法 |
@@ -76,7 +80,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 GitHub Skill 支持默认分支根目录链接（需含 `SKILL.md`）、指定分支根目录 `https://github.com/{owner}/{repo}/tree/{branch}`，以及指定分支下的技能目录 `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`。也可输入本机目录。仅支持公开仓库；导入需要运行 dsh 的机器安装 Git，插件会校验 `SKILL.md` 并只复制所选目录。
 
-## 快速安装
+## 安装与卸载
 
 前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)（`dsh plugin` 内部会转发给 pnpm，不用单独装 pnpm）。
 
@@ -123,7 +127,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 
 所有能力（Tool 与 Skill）按 **暴露程度**（模型在上下文中看到什么）与 **执行方式** 分为三档：
 
-### Tools / Skills 三档暴露与执行对照
+### Tools 和 Skills 三档暴露与执行对照
 
 | 档位 | 能力 | 模型能看到什么 | 如何找到 | 如何使用 |
 | --- | --- | --- | --- | --- |
@@ -139,7 +143,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 > - `meta_search` 和 `meta_invoke` 固定常驻且不可禁用。`run_code` 是 Code Mode 保留工具，不进目录或菜单，也无需配置档位。
 > - **高频核心工具建议设为常驻**：按需内置工具需经 `meta_search` → `meta_invoke` 两步调用。
 
-## 配置文件
+## 配置
 
 规则写在本插件 `capability-menu-policy` entry 的 `config` 下：
 

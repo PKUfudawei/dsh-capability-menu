@@ -102,6 +102,43 @@ export interface CapabilityRecord {
   readonly summary: string
 }
 
+/** Agent-preset APIs across DSH releases. */
+interface AgentPresetScopes {
+  list(): Promise<Array<{ id: string; broken?: string }>>
+  /** DSH 0.1.x standing-scope API. */
+  standingKeyFor?(id?: string): Promise<ScopeKey>
+  /** DSH 0.2.x lease API; the scope must stay retained during enumeration. */
+  acquireScope?(id?: string): Promise<{ key: ScopeKey; [key: symbol]: unknown }>
+}
+
+const ASYNC_DISPOSE =
+  (Symbol as unknown as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('nodejs.asyncDispose')
+
+/**
+ * Read one preset's tool/skill view across both Agent preset APIs.
+ * Newer DSH versions return a lease so hot-replaced preset generations cannot
+ * be disposed while the registry is reading their scoped capabilities.
+ */
+async function withAgentPresetScope<T>(
+  agentPresets: AgentPresetScopes,
+  id: string,
+  read: (scope: ScopeKey) => Promise<T> | T,
+): Promise<T> {
+  if (agentPresets.acquireScope !== undefined) {
+    const lease = await agentPresets.acquireScope(id)
+    try {
+      return await read(lease.key)
+    } finally {
+      const dispose = lease[ASYNC_DISPOSE]
+      if (typeof dispose === 'function') await (dispose as () => Promise<void>).call(lease)
+    }
+  }
+  if (agentPresets.standingKeyFor !== undefined) {
+    return await read(await agentPresets.standingKeyFor(id))
+  }
+  throw new Error('agentPresets exposes neither acquireScope() nor standingKeyFor()')
+}
+
 /** Lightweight list-mode projection of one capability (no full schema). */
 export interface CapabilitySummary {
   readonly id: string
@@ -478,9 +515,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const nextToolRecords = new Map<string, CapabilityRecord>()
     for (const schema of ctx.tools.schemas()) indexToolSchema(nextToolRecords, schema)
 
-    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as
-      | { list(): Promise<Array<{ id: string; broken?: string }>>; standingKeyFor(id?: string): Promise<ScopeKey> }
-      | undefined
+    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as AgentPresetScopes | undefined
     if (agentPresets !== undefined) {
       let presets: Array<{ id: string; broken?: string }> = []
       try {
@@ -491,8 +526,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       for (const preset of presets) {
         if (preset.broken !== undefined) continue
         try {
-          const scope = await agentPresets.standingKeyFor(preset.id)
-          for (const schema of ctx.tools.schemas(scope)) indexToolSchema(nextToolRecords, schema)
+          await withAgentPresetScope(agentPresets, preset.id, scope => {
+            for (const schema of ctx.tools.schemas(scope)) indexToolSchema(nextToolRecords, schema)
+          })
         } catch (error) {
           ctx.logger.warn(`meta-registry: preset "${preset.id}" tool scope unavailable: ${String(error)}`)
         }
@@ -578,9 +614,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     // Preset layers: agent presets mount skill providers into their own scope
     // (web surface disables the host-plane rows by design). `agentPresets` is
     // optional — headless bundles without it index the global layer only.
-    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as
-      | { list(): Promise<Array<{ id: string; broken?: string }>>; standingKeyFor(id?: string): Promise<ScopeKey> }
-      | undefined
+    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as AgentPresetScopes | undefined
     if (agentPresets !== undefined) {
       let presets: Array<{ id: string; broken?: string }> = []
       try {
@@ -591,8 +625,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       for (const preset of presets) {
         if (preset.broken !== undefined) continue
         try {
-          const scope = await agentPresets.standingKeyFor(preset.id)
-          await collectScoped(`preset "${preset.id}"`, scope, preset.id)
+          await withAgentPresetScope(agentPresets, preset.id, scope =>
+            collectScoped(`preset "${preset.id}"`, scope, preset.id))
         } catch (error) {
           ctx.logger.warn(`meta-registry: preset "${preset.id}" skill scope unavailable: ${String(error)}`)
         }
@@ -772,6 +806,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (!stopped && !rebuilding) void runRebuild()
   }
 
+  // The registry is also used in bundles without agent presets, so this is
+  // intentionally an optional dependency. In the web host, however, the
+  // capability plugin can mount before the preset service. Its first pass then
+  // sees only global tools (which may be non-empty) and the later preset mounts
+  // do not necessarily emit tools/change from this scope. Re-run the complete
+  // inventory when agentPresets becomes available or is replaced; rebuildTools
+  // will enumerate every healthy standing preset scope, independent of which
+  // preset is the default for new sessions.
+  ctx.inject(['agentPresets'], () => {
+    eventSeq++
+    schedule()
+  })
+
   /**
    * Refresh the whole catalog, resolving once the rebuild chain covering this
    * call has converged (including any coalesced follow-up).
@@ -796,11 +843,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     eventSeq++
     schedule()
   }))
-  // Index the global tool view eagerly (the synchronous part of
-  // `rebuildTools`); preset standing scopes and skills are enumerated by the
-  // first explicit `refresh()` (policy mounts it before the surface is used)
-  // or a change event, so an eager load never snapshots — and caches inside the
-  // tool/skill registries — an incomplete catalog.
+  // Index the global tool view eagerly. The first explicit refresh enumerates
+  // preset standing scopes; the optional-service injection above also triggers
+  // a full pass if agentPresets is mounted after this plugin.
   void rebuildTools()
   void refreshSkills()
   ctx.effect(() => () => {
