@@ -1,7 +1,7 @@
 <h1 align="center">dsh-capability-menu</h1>
 
 <p align="center">
-  <strong>One unified capability management surface for DeepSeek Harness: control the exposure level (context footprint) and execution of Tools and Skills</strong>
+  <strong>Manage how Tools and Skills are exposed and invoked in DeepSeek Harness, reducing context use through on-demand discovery</strong>
 </p>
 
 <p align="center">
@@ -61,20 +61,20 @@ The model gets two meta tools:
   <img src="assets/screenshot-catalog.png" alt="Policy &amp; catalog · On-demand catalog" width="48%"/>
 </p>
 
-After installation, open **Settings → General Settings → Capability Management** to manage Tools and Skills.
+After installation, open **Settings** and select **Capability Management** from the settings navigation to manage Tools and Skills.
 
 | Task | How to do it |
 | --- | --- |
 | Change a tier | Click the dot beside a capability. Click a tier count at the top to change the whole group. |
 | Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
-| View details | Click a Tool to see its definition. Click a Skill to expand its files, then click a file to preview it. |
-| Register a capability | Click **Register capability** in the top right to add an MCP server or Skill directory. |
+| View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
+| Register a capability | Click **Register capability** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
 | Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
 | View policies and catalog | Click **Policy &amp; catalog** on the right side of the page header. |
 
-Tier meanings: **Resident** capabilities are available directly; **On-demand** capabilities are found with `meta_search` and used with `meta_invoke`; **Disabled** capabilities cannot be used. Changes apply immediately and save automatically about 1.5 seconds after you stop clicking.
+Registering an MCP server writes its patch configuration; a missing file or parent directory is created automatically. MCP credentials such as request headers are stored in the config; keep it secure. Skill registration creates a link or imports a directory into the selected skill root.
 
-Registering an MCP server or Skill directory writes configuration files. MCP credentials such as request headers are stored in the config file; keep it secure.
+GitHub Skill imports accept a default-branch root URL (the root must contain `SKILL.md`), a specific branch root `https://github.com/{owner}/{repo}/tree/{branch}`, or a Skill subdirectory `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`. Local paths are also supported. Only public repositories are supported; Git must be installed on the machine running dsh. The plugin validates `SKILL.md` and copies only the selected directory.
 
 ## Quick Install
 
@@ -82,7 +82,7 @@ Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https
 
 ### Install from npm (recommended)
 
-A single package ships both the server-side plugin and the front-end Capability Management tab; once installed it shows up under Settings → General Settings:
+A single package ships both the server-side plugin and the front-end Capability Management page; after installation it appears as its own section in Settings:
 
 ```sh
 # install
@@ -95,7 +95,7 @@ dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capab
 # dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu dist-tags.next)"
 ```
 
-`npm view ... dist-tags.latest` only selects a version already published under npm's `latest` tag. If `0.1.5` has not been published or is only under another tag, this command will not select it. Run the upgrade command after publishing the new version.
+The upgrade command installs the version pointed to by npm's `latest` tag; use the matching tag or an explicit version for prereleases.
 
 ### Install from source
 
@@ -135,13 +135,17 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | | skill | Not shown in `<available_skills>` | Hidden from search results and the capability catalog | Loads are rejected |
 
 > **Scope & reserved tools**:
-> - The tool tiers cover both `mcp__` cataloged tools and harness-native built-in tools (native tools are grouped under the reserved `built-in` server and are managed in all three tiers exactly like MCP tools). **Do not name a real MCP server `built-in`.**
-> - `meta_search`/`meta_invoke` are this plugin's control plane: always Resident, cannot be disabled (a rule that disables one fails at startup). `run_code` is the reserved Code Mode transport: it never enters the catalog, does not appear in Capability Management, and should not get tier rules.
-> - **Keep high-frequency core tools Resident**: an On-demand built-in tool leaves the model's resident view and needs a `meta_search` → `meta_invoke` two-hop call.
+> - Tiers apply to MCP and harness-native built-in tools; built-ins use the reserved `built-in` group. **Do not name an MCP server `built-in`.**
+> - `meta_search` and `meta_invoke` are always Resident and cannot be disabled. `run_code` is reserved for Code Mode; it is excluded from the catalog and menu and needs no tier rule.
+> - **Keep high-frequency core tools Resident**: On-demand built-ins require `meta_search` → `meta_invoke` to use.
 
 ## Configuration
 
-Rules are declared under the `config` of this plugin's `capability-menu-policy` entry — by default in the home layer's `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins), and a profile's `cordis.patch.yml` can also amend it with an id-targeted override patch (the outer `- insert:` / `id` / `name` is Cordis patch boilerplate and has nothing to do with the rules):
+Rules live under `config` in this plugin's `capability-menu-policy` entry:
+
+- The default file is `~/.dsh/cordis.patch.yml`; when `$DSH_HOME` is set, the file is `$DSH_HOME/cordis.patch.yml`.
+- Edit the YAML directly or use Capability Management. UI clicks update memory immediately and write back about 1.5 seconds after input stops, batching writes to avoid repeated hot reloads and catalog rebuilds.
+- A profile can override the rules in its own `cordis.patch.yml`, targeting the entry ID. In examples, `- insert:`, `id`, and `name` are Cordis patch structure, not policy fields.
 
 ```yaml
 config:
@@ -182,7 +186,7 @@ config:
 
 These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`; they do not require separate config files. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
 
-**Rule priority** (first match wins; within one tier, an exact rule beats a wildcard):
+**Rule priority** (evaluated in order: Disabled always wins; between Resident and On-demand, exact rules beat wildcards):
 
 | priority | rule | example | effect |
 | --- | --- | --- | --- |
@@ -194,7 +198,7 @@ These settings belong to their respective plugin entries and usually live in the
 | 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
 | default | no rule matched | — | resident |
 
-**Rule priority**: Exact rules take precedence over wildcards, including across tiers. For example, an exact `on-demand` rule for a tool still applies under `resident: ['mcp__gongfeng__*']`. If another rule overrides it, the UI reports that the classification did not apply.
+If a higher-priority rule overrides a selected tier, the UI reports that the classification did not apply.
 
 ### On-demand capability catalog (`catalogFile`)
 

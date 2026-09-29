@@ -32,7 +32,7 @@ import type {
   SkillLocation,
   ToolDetail,
 } from './store.ts'
-import { cachedSnapshot, loadSnapshot, unwrap } from './store.ts'
+import { cachedSnapshot, loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools } from './store.ts'
 
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
 const chevronIcons = ClientUiPrimitives as unknown as {
@@ -118,6 +118,8 @@ export type CapabilityKey =
   | 'detailNotFound'
   | 'cycleOverridden'
   | 'refreshFailed'
+  | 'mcpToolsPending'
+  | 'feedback'
   | 'retry'
   | 'carrierFailureHint'
   | 'registerCapability'
@@ -212,7 +214,13 @@ const CSS_ID = 'capability-menu-section-css'
 const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
-.mc-heading-row{display:flex;align-items:baseline;gap:8px;min-width:0}
+.mc-heading-row{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
+.mc-heading-meta{display:flex;align-items:baseline;gap:8px;min-width:0}
+.mc-feedback-link{margin-left:auto;flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;white-space:nowrap;text-decoration:none}
+.mc-feedback-link:hover,.mc-feedback-link:focus-visible{color:#527a9c;text-decoration:underline;text-underline-offset:3px}
+.mc-feedback-link:focus-visible{outline:2px solid #527a9c;outline-offset:2px;border-radius:2px}
+body[data-ds-dark-theme] .mc-feedback-link:hover,body[data-ds-dark-theme] .mc-feedback-link:focus-visible{color:#96b6d1}
+body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 .mc-package-name{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 /* 说明行右侧放只读文档入口：把它从头部的计数行挪出来，计数多（Tools 常驻 ·
@@ -316,7 +324,7 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-error p{margin:0}
 .mc-error p.mc-error-hint{margin-top:8px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
 .mc-error-actions{display:flex;justify-content:flex-end;margin-top:10px}
-.mc-notice{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
+.mc-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
 .mc-skill{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
 .mc-skill-row{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:0 0;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .mc-skill-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -513,6 +521,8 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   })
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [retryMcp, setRetryMcp] = useState<string | null>(null)
+  const queuedMcpRefresh = useRef<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'tools' | 'skills'>('tools')
 
@@ -547,6 +557,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const refreshCatalog = useCallback(async () => {
     if (refreshing) return
     setRefreshing(true)
+    setRetryMcp(null)
     try {
       if (remote !== undefined) unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
       await reload()
@@ -558,6 +569,49 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       setRefreshing(false)
     }
   }, [refreshing, remote, reload, t])
+
+  /**
+   * A new MCP row is persisted before dsh applies it and registers its tools.
+   * Wait for that asynchronous host reload instead of taking one snapshot too
+   * early and requiring the operator to leave and reopen this settings page.
+   */
+  const refreshRegisteredMcp = useCallback(async (serverName: string) => {
+    if (refreshing) {
+      queuedMcpRefresh.current = serverName
+      return
+    }
+    if (remote === undefined) return
+    setRefreshing(true)
+    setRetryMcp(null)
+    try {
+      unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
+      const delays = [250, 500, 750, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000]
+      const snapshot = await waitForMcpTools(remote, serverName, delays)
+      if (snapshot !== undefined) {
+        setState({ status: 'ready', snapshot: rememberSnapshot(snapshot) })
+        setNotice(null)
+        setRetryMcp(null)
+      } else {
+        // Keep the last known-good list and cache while the newly registered
+        // server is still connecting; a later tools/change signal can refresh it.
+        setNotice(t('mcpToolsPending', { name: serverName }))
+        setRetryMcp(serverName)
+      }
+    } catch (e) {
+      console.error('[capability-menu] MCP refresh failed:', e)
+      setNotice(t('refreshFailed'))
+      setRetryMcp(serverName)
+    } finally {
+      setRefreshing(false)
+    }
+  }, [refreshing, remote, t])
+
+  useEffect(() => {
+    if (refreshing || queuedMcpRefresh.current === null) return
+    const serverName = queuedMcpRefresh.current
+    queuedMcpRefresh.current = null
+    void refreshRegisteredMcp(serverName)
+  }, [refreshing, refreshRegisteredMcp])
 
   const toggleServer = useCallback((server: string) => {
     setOpenServers(prev => {
@@ -727,7 +781,16 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
           </div>
         </div>
       )}
-      {notice !== null && <div className="mc-notice">{notice}</div>}
+      {notice !== null && (
+        <div className="mc-notice">
+          <span>{notice}</span>
+          {retryMcp !== null && (
+            <button type="button" className="mc-catalog-btn" disabled={refreshing} onClick={() => void refreshRegisteredMcp(retryMcp)}>
+              {t('retry')}
+            </button>
+          )}
+        </div>
+      )}
       {state.status === 'ready' && <ReadyBody
         remote={remote}
         snapshot={state.snapshot}
@@ -739,6 +802,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         onToggleServer={toggleServer}
         onCycle={cycleClass}
         onRefresh={() => void refreshCatalog()}
+        onRefreshMcp={serverName => void refreshRegisteredMcp(serverName)}
         onNotice={setNotice}
       />}
     </section>
@@ -757,10 +821,12 @@ function ReadyBody(props: {
   onCycle: (ids: readonly string[], kind: 'tool' | 'skill') => void
   /** Rebuild the host catalog and re-read it now. */
   onRefresh: () => void
+  /** Wait for tools from a newly registered MCP server to appear. */
+  onRefreshMcp: (serverName: string) => void
   /** Surface a one-line message in the section header. */
   onNotice: (message: string | null) => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onNotice } = props
+  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
   /** Name filter, shared by both tabs: it narrows whichever list is shown. */
   const [filter, setFilter] = useState('')
   // Distinguishes "nothing to show" from "the filter matched nothing".
@@ -921,9 +987,20 @@ function ReadyBody(props: {
   return (
     <>
       <div className="mc-heading-row">
-        <h2 className="mc-heading">{t('title')}</h2>
-        <span className="mc-package-name">{t('packageName')}</span>
-        <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
+        <div className="mc-heading-meta">
+          <h2 className="mc-heading">{t('title')}</h2>
+          <span className="mc-package-name">{t('packageName')}</span>
+          <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
+        </div>
+        <a
+          className="mc-feedback-link"
+          href="https://github.com/PKUfudawei/dsh-capability-menu"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t('feedback')}
+        >
+          {t('feedback')}
+        </a>
       </div>
       <div className="mc-desc-row">
         <p className="mc-desc">{t('desc')}</p>
@@ -1243,8 +1320,9 @@ function ReadyBody(props: {
             setEditMcp(undefined)
             setEditSkill(undefined)
           }}
-          onChanged={notice => {
-            onRefresh()
+          onChanged={(notice, refreshMcpServer) => {
+            if (refreshMcpServer !== undefined) onRefreshMcp(refreshMcpServer)
+            else onRefresh()
             // A registration that lands in a project root is worth reporting:
             // whether it is visible depends on which project the session runs in.
             if (notice !== undefined) onNotice(notice)

@@ -37,7 +37,7 @@ export interface LocationModalProps {
   editSkill?: SkillLocation
   onClose: () => void
   /** Runs after a successful mutation; `notice` reports what changed, when worth saying. */
-  onChanged: (notice?: string) => void
+  onChanged: (notice?: string, refreshMcpServer?: string) => void
 }
 
 const CSS_ID = 'capability-menu-location-css'
@@ -174,6 +174,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
     action: () => Promise<unknown>,
     noticeFor?: (result: unknown) => string,
     progress?: string,
+    registeredMcp?: string,
   ) => {
     if (busy) return
     setBusy(true)
@@ -191,7 +192,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
         delete next[subTab]
         return next
       })
-      onChanged(noticeFor?.(changed))
+      onChanged(noticeFor?.(changed), registeredMcp)
       onClose()
     } catch (e) {
       setErrors(prev => ({ ...prev, [subTab]: String(e) }))
@@ -225,9 +226,14 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
           },
       ...timeoutMs !== undefined ? { toolCallTimeoutMs: timeoutMs } : {},
     }
-    void submit(async () => editMcp !== undefined
-      ? unwrapMessage(await remote.updateLocation(editMcp.id, common))
-      : unwrapMessage(await remote.addLocation({ serverName: serverName.trim(), ...common })))
+    void submit(
+      async () => editMcp !== undefined
+        ? unwrapMessage(await remote.updateLocation(editMcp.id, common))
+        : unwrapMessage(await remote.addLocation({ serverName: serverName.trim(), ...common })),
+      undefined,
+      undefined,
+      editMcp?.serverName ?? serverName.trim(),
+    )
   }, [submit, remote, editMcp, serverName, transport, command, args, cwd, env, url, headers, timeoutSec, t])
 
   const submitSkill = useCallback(() => {
@@ -393,7 +399,7 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
                       disabled={editMcp !== undefined}
                       onChange={e => setServerName(e.target.value)}
                     />
-                    {editMcp !== undefined && <p className="lm-hint">{t('serverNameImmutable')}</p>}
+                    <p className="lm-hint">{t('serverNameImmutable')}</p>
                   </div>
                   {transport === 'stdio'
                     ? (

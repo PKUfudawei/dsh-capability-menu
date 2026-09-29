@@ -18,10 +18,10 @@
  * comment spacing and quoting style. That is why "did this change anything?" is
  * decided by the mutation, never by comparing before/after text.
  */
-import { copyFile, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import YAML from 'yaml'
 
 /** One `- id: … / name: … / config: …` row in a patch file. */
@@ -168,7 +168,29 @@ export async function mutatePatch(
   file: string,
   mutate: (doc: YAML.Document.Parsed) => boolean,
 ): Promise<boolean> {
-  const original = await readFile(file, 'utf8')
+  let original: string
+  try {
+    original = await readFile(file, 'utf8')
+  } catch (error) {
+    if (!isMissingFile(error)) throw error
+
+    // Do not create anything for a no-op (for example, removing an unknown id).
+    // If this mutation needs a write, seed the patch file without ever replacing
+    // a file another process may have created in the meantime.
+    const initial = '- insert: []\n'
+    const initialDoc = YAML.parseDocument(initial)
+    if (!mutate(initialDoc)) return false
+
+    await mkdir(dirname(file), { recursive: true })
+    try {
+      await writeFile(file, initial, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+      original = initial
+    } catch (createError) {
+      if (!isAlreadyExists(createError)) throw createError
+      original = await readFile(file, 'utf8')
+    }
+  }
+
   const doc = YAML.parseDocument(original)
   if (!mutate(doc)) return false
 
@@ -191,4 +213,12 @@ export async function mutatePatch(
     await copyFile(backup, file).catch(() => {})
     throw error
   }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return error !== null && typeof error === 'object' && 'code' in error && error.code === 'EEXIST'
 }

@@ -98,14 +98,60 @@ export function unwrapMessage<T>(
  */
 let lastSnapshot: CapabilitySnapshot | undefined
 
+/** Short grace period for host tools that register just after the section mounts. */
+const EMPTY_SNAPSHOT_RETRY_DELAYS = [250, 500, 1_000, 1_500] as const
+
 /** The previously loaded snapshot, when this page session has one. */
 export function cachedSnapshot(): CapabilitySnapshot | undefined {
   return lastSnapshot
 }
 
-/** Load the classification list from the remote, remembering it for remounts. */
-export async function loadSnapshot(remote: CapabilityPolicyRemote): Promise<CapabilitySnapshot> {
+/** Read one authoritative classification list without changing the view cache. */
+export async function readSnapshot(remote: CapabilityPolicyRemote): Promise<CapabilitySnapshot> {
   const rows = unwrap(await remote.classifyAll(), 'capabilityPolicy.classifyAll')
-  lastSnapshot = { rows }
+  return { rows }
+}
+
+/** Remember a snapshot after its contents are ready to replace the current view. */
+export function rememberSnapshot(snapshot: CapabilitySnapshot): CapabilitySnapshot {
+  lastSnapshot = snapshot
   return lastSnapshot
+}
+
+/**
+ * Load the classification list, retrying an empty result briefly because
+ * built-in tools can register just after the settings section mounts.
+ * Non-empty results remain authoritative and return immediately.
+ */
+export async function loadSnapshot(
+  remote: CapabilityPolicyRemote,
+  retryDelays: readonly number[] = EMPTY_SNAPSHOT_RETRY_DELAYS,
+): Promise<CapabilitySnapshot> {
+  let snapshot = await readSnapshot(remote)
+  for (const delayMs of retryDelays) {
+    if (snapshot.rows.length > 0) break
+    await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+    snapshot = await readSnapshot(remote)
+  }
+  return rememberSnapshot(snapshot)
+}
+
+/** Wait briefly for an MCP's tools to enter the host catalog after registration. */
+export async function waitForMcpTools(
+  remote: CapabilityPolicyRemote,
+  serverName: string,
+  retryDelays: readonly number[],
+): Promise<CapabilitySnapshot | undefined> {
+  const prefix = `mcp__${serverName}__`
+  const hasServerTools = (snapshot: CapabilitySnapshot): boolean =>
+    snapshot.rows.some(row => row.kind === 'tool' && row.id.startsWith(prefix))
+
+  let snapshot = await readSnapshot(remote)
+  if (hasServerTools(snapshot)) return snapshot
+  for (const delayMs of retryDelays) {
+    await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+    snapshot = await readSnapshot(remote)
+    if (hasServerTools(snapshot)) return snapshot
+  }
+  return undefined
 }
