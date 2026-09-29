@@ -23,18 +23,20 @@ export default defineConfig([{
   outExtensions: () => ({ js: '.js' }),
   // The dsh client module system injects these via the factory `require`:
   // never bundle them, keep them as external `require("...")` calls.
-  external: [
-    'react',
-    'react/jsx-runtime',
-    'react/jsx-dev-runtime',
-    // NOTE: `zod` is deliberately NOT external — the real client bundles (e.g.
-    // @deepseek-ai/dsh-api-remotes) inline it, and it is not a platform seed
-    // word, so an external `require("zod")` would miss the module table.
-    // It also has to stay in `devDependencies`: tsdown externalizes
-    // `dependencies` by default, and moving it there silently turns this into
-    // `require("zod")` in the browser bundle (verified — it breaks at runtime).
-    /^@deepseek-ai\//,
-  ],
+  deps: {
+    neverBundle: [
+      'react',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      // NOTE: `zod` is deliberately NOT external — the real client bundles (e.g.
+      // @deepseek-ai/dsh-api-remotes) inline it, and it is not a platform seed
+      // word, so an external `require("zod")` would miss the module table.
+      // It also has to stay in `devDependencies`: tsdown externalizes
+      // `dependencies` by default, and moving it there silently turns this into
+      // `require("zod")` in the browser bundle (verified — it breaks at runtime).
+      /^@deepseek-ai\//,
+    ],
+  },
   // The dsh ModuleLoader invokes the factory with only `require` — the bundle
   // must declare its own CommonJS locals, mirroring every official client
   // bundle (`var module = { exports: {} }; var exports = module.exports;`),
