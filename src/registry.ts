@@ -510,6 +510,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   // reason: a shared one would be reset by the newer run mid-flight, letting
   // the older run publish a partial catalog when it wins the epoch check.
   let toolIndexEpoch = 0
+  // Remember which optional agent-preset service instance the registry has
+  // already observed. Cordis may invoke an inject callback after another path
+  // (such as an explicit refresh) has already enumerated the same instance;
+  // scheduling again would trigger a redundant full scan on policy-only edits.
+  let observedAgentPresets: AgentPresetScopes | undefined
   const rebuildTools = async (): Promise<void> => {
     const epoch = ++toolIndexEpoch
     const nextToolRecords = new Map<string, CapabilityRecord>()
@@ -517,6 +522,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as AgentPresetScopes | undefined
     if (agentPresets !== undefined) {
+      observedAgentPresets = agentPresets
       let presets: Array<{ id: string; broken?: string }> = []
       try {
         presets = await agentPresets.list()
@@ -815,6 +821,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   // will enumerate every healthy standing preset scope, independent of which
   // preset is the default for new sessions.
   ctx.inject(['agentPresets'], () => {
+    const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as AgentPresetScopes | undefined
+    if (agentPresets === undefined || agentPresets === observedAgentPresets) return
+    observedAgentPresets = agentPresets
     eventSeq++
     schedule()
   })

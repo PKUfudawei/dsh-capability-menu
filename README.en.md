@@ -17,8 +17,6 @@
   <a href="./README.md">简体中文</a> · <strong>English</strong>
 </p>
 
-<br/>
-
 ## Table of Contents
 
 - [Capability Overview](#capability-overview)

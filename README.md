@@ -17,8 +17,6 @@
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
 </p>
 
-<br/>
-
 ## 目录
 
 - [能力总览](#能力总览)
