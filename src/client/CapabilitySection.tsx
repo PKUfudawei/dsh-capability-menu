@@ -274,8 +274,7 @@ body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
-.mc-heading-actions .mc-catalog-btn{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-label-secondary) 12%);color:var(--dsw-alias-label-secondary)}
-.mc-heading-actions .mc-catalog-btn:hover{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,var(--dsw-alias-label-secondary) 22%);color:var(--dsw-alias-state-business-primary)}
+.mc-heading-actions .mc-catalog-btn,.mc-heading-actions .mc-catalog-btn:hover{background:transparent}
 .mc-heading-actions .mc-catalog-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 /* 忙碌态靠变淡表示，而不是换文案：换文案会改按钮宽度，把这行挤到第二行。 */
 .mc-catalog-btn:disabled{cursor:default;opacity:.6}
@@ -387,11 +386,14 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-source{font-size:11px;line-height:18px;color:var(--dsw-alias-label-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
 /* One sentence to confirm a row action: the shared modal chrome, sized down. */
 .mc-confirm-dialog{width:min(420px,calc(100vw - 48px))}
+.mc-search-dialog{width:min(520px,calc(100vw - 48px))}
 .mc-confirm-body{display:flex;flex-direction:column;gap:12px;padding:14px 16px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
 .mc-confirm-body p{margin:0}
 .mc-search-field{display:flex;flex-direction:column;gap:5px;color:var(--dsw-alias-label-primary)}
+.mc-search-label-row{display:flex;align-items:baseline;justify-content:space-between;gap:4px 8px;flex-wrap:wrap}
+.mc-search-label-row span{flex:1 1 260px;text-align:right;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 .mc-search-field input,.mc-search-field textarea{box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px}
-.mc-search-field textarea{min-height:76px;resize:vertical}
+.mc-search-field textarea{min-height:116px;resize:vertical}
 .mc-search-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .mc-search-restore{margin-right:auto}
 /* A directory has no spaces to break at, and the modal is where it can show in
@@ -1569,7 +1571,7 @@ function ReadyBody(props: {
 
       {searchEdit !== null && (
         <div className="mc-preview-mask" onClick={() => setSearchEdit(null)}>
-          <div className="mc-preview mc-confirm-dialog" onClick={e => e.stopPropagation()}>
+          <div className="mc-preview mc-search-dialog" onClick={e => e.stopPropagation()}>
             <div className="mc-preview-head">
               <span className="mc-preview-title">{t('editSearchMetadata')} · {searchEdit.id}</span>
               <button type="button" className="mc-preview-close" onClick={() => setSearchEdit(null)}>{t('previewClose')}</button>
@@ -1578,10 +1580,13 @@ function ReadyBody(props: {
             {searchEdit.status === 'error' && <div className="mc-preview-hint">{searchEdit.message}</div>}
             {searchEdit.status === 'ready' && (
               <div className="mc-confirm-body">
-                <p>{t('searchMetadataNote')}</p>
-                <label className="mc-search-field">{t('searchDescription')}
-                  <textarea value={searchDescription} maxLength={searchEdit.metadata?.maxChars} disabled={searchSaving} onChange={e => setSearchDescription(e.target.value)} />
-                </label>
+                <div className="mc-search-field">
+                  <div className="mc-search-label-row">
+                    <label htmlFor="mc-search-description">{t('searchDescription')}</label>
+                    <span id="mc-search-description-note">{t('searchMetadataNote')}</span>
+                  </div>
+                  <textarea id="mc-search-description" aria-describedby="mc-search-description-note" value={searchDescription} maxLength={searchEdit.metadata?.maxChars} disabled={searchSaving} onChange={e => setSearchDescription(e.target.value)} />
+                </div>
                 <span className="mc-search-hint">{searchDescription.length}/{searchEdit.metadata?.maxChars}</span>
                 {searchEdit.message !== undefined && <p className="mc-error">{searchEdit.message}</p>}
                 <div className="mc-confirm-actions">
