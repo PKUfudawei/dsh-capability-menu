@@ -79,7 +79,6 @@ export type CapabilitySectionProps = CapabilitySectionInjected
 export type CapabilityKey =
   | 'nav'
   | 'title'
-  | 'packageName'
   | 'desc'
   | 'resident'
   | 'on-demand'
@@ -236,23 +235,23 @@ const CSS_ID = 'capability-menu-section-css'
 const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
-.mc-heading-row{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
+.mc-heading-row{display:flex;align-items:center;gap:12px;min-width:0;flex-wrap:wrap}
 .mc-heading-meta{display:flex;align-items:baseline;gap:8px;min-width:0}
-.mc-feedback-link{margin-left:auto;flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;white-space:nowrap;text-decoration:none}
+.mc-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-left:auto;min-width:0}
+.mc-feedback-link{flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;white-space:nowrap;text-decoration:none}
 .mc-feedback-link:hover,.mc-feedback-link:focus-visible{color:#527a9c;text-decoration:underline;text-underline-offset:3px}
 .mc-feedback-link:focus-visible{outline:2px solid #527a9c;outline-offset:2px;border-radius:2px}
 body[data-ds-dark-theme] .mc-feedback-link:hover,body[data-ds-dark-theme] .mc-feedback-link:focus-visible{color:#96b6d1}
 body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
-.mc-package-name{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
-/* 说明行右侧放只读文档入口：把它从头部的计数行挪出来，计数多（Tools 常驻 ·
-   167）时那一行不再因此折行。 */
-.mc-desc-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.mc-desc-row .mc-desc{flex:1 1 auto;min-width:0}
+@media(max-width:640px){.mc-heading-actions{width:100%;justify-content:flex-start;margin-left:0}}
 .mc-version{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;white-space:nowrap}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
+.mc-heading-actions .mc-catalog-btn{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-label-secondary) 12%);color:var(--dsw-alias-label-secondary)}
+.mc-heading-actions .mc-catalog-btn:hover{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,var(--dsw-alias-label-secondary) 22%);color:var(--dsw-alias-state-business-primary)}
+.mc-heading-actions .mc-catalog-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 /* 忙碌态靠变淡表示，而不是换文案：换文案会改按钮宽度，把这行挤到第二行。 */
 .mc-catalog-btn:disabled{cursor:default;opacity:.6}
 .mc-catalog-tabs{padding:8px 16px 0}
@@ -339,10 +338,10 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-count--action{color:var(--dsw-alias-label-secondary)}
 .mc-count--action:hover{color:var(--dsw-alias-state-business-primary);text-decoration:underline}
 .mc-tools{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
-.mc-tool{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 26px;font-size:13px;line-height:20px;cursor:pointer}
+.mc-tool{box-sizing:border-box;display:flex;align-items:center;flex-wrap:wrap;gap:10px;width:100%;min-width:0;padding:7px 12px 7px 26px;font-size:13px;line-height:20px;cursor:pointer}
 .mc-tool:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.mc-tool-name{font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;color:var(--dsw-alias-label-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mc-tool-meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0}
+.mc-tool-name{font-family:var(--dsw-font-markdown-code-block-font-family);font-size:12px;color:var(--dsw-alias-label-primary);flex:1 1 0;min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-tool-meta{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
 .mc-dot-btn{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid transparent;border-radius:999px;background:0 0;cursor:pointer}
 .mc-dot-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
 .mc-dot-btn:disabled{cursor:default;opacity:.6;border-color:transparent;background:0 0}
@@ -1102,26 +1101,27 @@ function ReadyBody(props: {
       <div className="mc-heading-row">
         <div className="mc-heading-meta">
           <h2 className="mc-heading">{t('title')}</h2>
-          <span className="mc-package-name">{t('packageName')}</span>
           <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
         </div>
-        <a
-          className="mc-feedback-link"
-          href="https://github.com/PKUfudawei/dsh-capability-menu"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={t('feedback')}
-        >
-          {t('feedback')}
-        </a>
+        <div className="mc-heading-actions">
+          <button type="button" className="mc-catalog-btn" onClick={() => setRegisterOpen(true)}>
+            {t('registerCapability')}
+          </button>
+          <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
+            {t('viewCatalog')}
+          </button>
+          <a
+            className="mc-feedback-link"
+            href="https://github.com/PKUfudawei/dsh-capability-menu"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={t('feedback')}
+          >
+            {t('feedback')}
+          </a>
+        </div>
       </div>
-      <div className="mc-desc-row">
-        <p className="mc-desc">{t('desc')}</p>
-        {/* 只读文档入口留在说明行；计数行只放 chips + 注册能力。 */}
-        <button type="button" className="mc-catalog-btn" onClick={() => void openCatalogDocs()}>
-          {t('viewCatalog')}
-        </button>
-      </div>
+      <p className="mc-desc">{t('desc')}</p>
       {diagnostics !== null && (skillDiagnosticCount > 0 || catalogProblem) && (
         <details className="mc-diagnostics">
           <summary>
@@ -1168,12 +1168,6 @@ function ReadyBody(props: {
               {t(CLASS_SHORT_KEYS[cls])} · {count}
             </span>
           ))}
-          {/* 固定在最右侧：计数 chips 增减时按钮位置不漂移。 */}
-          {/* No 刷新 button here: the page re-reads itself — see the four
-              signals documented in `revalidate.ts` and the effects below. */}
-          <button type="button" className="mc-catalog-btn" onClick={() => setRegisterOpen(true)}>
-            {t('registerCapability')}
-          </button>
         </div>
       </div>
 
@@ -1278,7 +1272,11 @@ function ReadyBody(props: {
                               }
                             }}
                           >
-                            <span className="mc-tool-name">{tool.name}</span>
+                            <span className="mc-tool-name" title={tool.name}>
+                              {server !== BUILT_IN_SERVER && tool.name.startsWith(`mcp__${server}__`)
+                                ? tool.name.slice(`mcp__${server}__`.length)
+                                : tool.name}
+                            </span>
                             <span className="mc-tool-meta">
                               {tool.mandatory && <span className="mc-tag">{t('mandatory')}</span>}
                               {tool.class === 'on-demand' && (

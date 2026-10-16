@@ -1,5 +1,5 @@
 /**
- * Types + small helpers for the 能力菜单 (Capability Management) settings
+ * Types + small helpers for the 能力菜单 (Capability Menu) settings
  * section. The component reads/writes the Host `ctx.capabilityPolicy` through
  * the generated `remote.capabilityPolicy` face (see `./remote.ts`), mirroring
  * how `dsh-client-ui-settings-plugin-inventory` consumes

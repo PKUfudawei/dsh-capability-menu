@@ -21,7 +21,7 @@
 
 - [Capability Overview](#capability-overview)
   - [Capability Model](#capability-model)
-  - [Capability Management](#capability-management)
+  - [Capability Menu](#capability-menu)
 - [Installation and Uninstallation](#installation-and-uninstallation)
   - [Install from npm (recommended)](#install-from-npm-recommended)
   - [Install from source](#install-from-source)
@@ -57,23 +57,25 @@ The model gets two meta tools:
 | `meta_search` | Search capabilities visible to the current session; list mode supports offset pagination and reports total, returned, and has-more values; detail returns descriptions and tool schemas | `@daweifu/capability-menu/search` |
 | `meta_invoke` | Unified execution surface for Tools and Skills; pass `force: true` to reload updated Skill instructions | `@daweifu/capability-menu/invoke` |
 
-### Capability Management
+### Capability Menu
 
 <p align="center">
   <img src="assets/screenshot-tools.png" alt="Tools tab" width="48%"/>
   <img src="assets/screenshot-skills.png" alt="Skills tab" width="48%"/>
 </p>
-After installation, open **Settings** and select **Capability Management** from the settings navigation to manage Tools and Skills.
+After installation, open **Settings** and select **Capability Menu** from the settings navigation to manage Tools and Skills.
 
 | Task | How to do it |
 | --- | --- |
 | Change a tier | Click the dot beside a capability. Click a tier count at the top to change the whole group. |
 | Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
 | View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
-| Register a capability | Click **Register capability** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
+| Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
 | Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
-| View rules and catalog | Click **Exposure &amp; search** on the right side of the page header. The catalog tab also sets the search description limit. |
+| View rules and catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
 | Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
+
+MCP tool rows omit the repeated `mcp__server__` display prefix inside their server group. Hover to see the full name; search and invocation still use the full ID.
 
 Registering an MCP server writes its patch configuration; a missing file or parent directory is created automatically. MCP credentials such as request headers are stored in the config; keep it secure. Skill registration creates a link or imports a directory into the selected skill root.
 
@@ -85,7 +87,7 @@ Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https
 
 ### Install from npm (recommended)
 
-A single package ships both the server-side plugin and the front-end Capability Management page; after installation it appears as its own section in Settings:
+A single package ships both the server-side plugin and the front-end Capability Menu page; after installation it appears as its own section in Settings:
 
 ```sh
 # install
@@ -147,7 +149,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 Hand-written rules live under `config` in this plugin's `capability-menu-policy` entry:
 
 - The default file is `~/.dsh/cordis.patch.yml`; when `$DSH_HOME` is set, the file is `$DSH_HOME/cordis.patch.yml`.
-- Edit the YAML directly or use Capability Management. UI clicks update memory immediately and write to a separate `capability-menu-policy.json` about 1.5 seconds after input stops, without triggering a plugin reload. Existing patch rules still load; UI moves override exact rules for the same capability, while Disabled wildcards retain their priority.
+- Edit the YAML directly or use Capability Menu. UI clicks update memory immediately and write to a separate `capability-menu-policy.json` about 1.5 seconds after input stops, without triggering a plugin reload. Existing patch rules still load; UI moves override exact rules for the same capability, while Disabled wildcards retain their priority.
 - A profile can override the rules in its own `cordis.patch.yml`, targeting the entry ID. In examples, `- insert:`, `id`, and `name` are Cordis patch structure, not policy fields.
 - The state file defaults to the directory containing `patchFile`, so UI moves are shared across profiles by default. Set a different `stateFile` in each profile's policy config to isolate them.
 - Tier rules written to the patch by earlier versions remain active as base rules. To discard UI overrides and use the hand-written rules again, stop dsh and delete the state file.
@@ -201,7 +203,7 @@ These settings belong to their respective plugin entries and usually live in the
 | 1 | `disabled` exact | `disabled: [forbidden_skill]` | hardest deny, overrides everything |
 | 2 | `disabled` wildcard | `disabled: ['mcp__secret__*']` | block a whole group |
 | 3 | `resident` exact | `resident: [bash]` | keep one capability resident |
-| 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Management click writes) |
+| 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Menu click writes) |
 | 5 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` | keep a whole group resident |
 | 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
 | default | no rule matched | — | resident |
@@ -214,7 +216,7 @@ The plugin writes On-demand Tools and Skills to the YAML file specified by `cata
 
 On-demand capability rows show a **Search description** button. The editor starts with the description currently used by the catalog, shortened from the provider description to `summaryMaxChars` characters (320 by default). Truncation prefers a word or punctuation boundary. Changes are saved in `searchMetadataFile` and affect `meta_search` list results and keyword matching as well as the generated catalog. The provider definition and exact detail stay unchanged. **Restore** puts the provider text back into the editor; **Save** applies it. Direct edits to the generated YAML will be overwritten. Legacy `summary` values are read as search descriptions; custom tags stop affecting search. The old state file is backed up as `.legacy.bak` before its first rewrite.
 
-The global **Search description limit** is editable at the top of **Exposure & search → On-demand search catalog** (minimum 20 characters). Saving rebuilds the catalog immediately without editing the patch or reloading the plugin. The value is saved as `_settings.summaryMaxChars` in `searchMetadataFile` and takes precedence over the patch configuration on later starts. If an existing custom description exceeds a proposed lower limit, saving asks you to shorten that description first; it never discards it.
+The global **Search description limit** is editable at the top of **Policy & catalog → On-demand search catalog** (minimum 20 characters). Saving rebuilds the catalog immediately without editing the patch or reloading the plugin. The value is saved as `_settings.summaryMaxChars` in `searchMetadataFile` and takes precedence over the patch configuration on later starts. If an existing custom description exceeds a proposed lower limit, saving asks you to shorten that description first; it never discards it.
 
 A Skill must be registered in `ctx.skills` to appear in the catalog. The model can search it with `grep` / `read` or call `meta_search`, then use the capability with `meta_invoke`. List mode returns up to 20 items by default (50 maximum per page); use `offset: 50` for the next page. `total` counts matches after scope and Disabled filtering; `returned` counts the current page. Skill details contain metadata and usage guidance; `meta_invoke` loads the body. Pass `force: true` to reload instructions changed during the session.
 
