@@ -45,8 +45,8 @@
 #   `updateSkillLocation`/`removeSkillLocation`/`adoptSkillLocation`), the
 #   read-only catalog docs (`getCatalogDocs`), a rebuild trigger (`refresh`), and
 #   skill browsing (`getDetail`/`listSkillDir`/`readSkillFile`). Tier clicks land
-#   in this entry's own `config` after `persistDebounceMs`; registered MCP servers
-#   land in `patchFile` and skill directories as links under `skillsDir`.
+#   in the plugin's separate `stateFile` after `persistDebounceMs`; registered
+#   MCP servers land in `patchFile` and skill directories under `skillsDir`.
 #
 # Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`

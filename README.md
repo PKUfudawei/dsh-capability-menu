@@ -143,11 +143,13 @@ dsh plugin --profile web remove @daweifu/capability-menu
 
 ## 配置
 
-规则写在本插件 `capability-menu-policy` entry 的 `config` 下：
+手写规则放在本插件 `capability-menu-policy` entry 的 `config` 下：
 
 - 默认文件是 `~/.dsh/cordis.patch.yml`；设置了 `$DSH_HOME` 时使用 `$DSH_HOME/cordis.patch.yml`。
-- 可手写 YAML，也可在「能力菜单」里点选。点选立即更新内存，停手约 1.5 秒后统一写回，避免频繁热重载和能力重建。
+- 可手写 YAML，也可在「能力菜单」里点选。点选立即更新内存，停手约 1.5 秒后写入独立的 `capability-menu-policy.json`，不会因档位写入而触发插件重载。已有 patch 规则仍会加载；同名能力的界面改动覆盖其中的精确规则，禁用通配规则仍按优先级生效。
 - Profile 可在自己的 `cordis.patch.yml` 中按 entry ID 覆盖规则。示例中的 `- insert:`、`id`、`name` 属于 Cordis 补丁结构，不是策略字段。
+- 状态文件默认与 `patchFile` 同目录，因此默认的界面改动由各 Profile 共用；若要分别管理，可在各 Profile 的策略配置中指定不同的 `stateFile`。
+- 升级前已写入 patch 的档位规则会继续作为基础规则生效。若要清除界面覆盖并重新采用手写规则，先停止 dsh，再删除状态文件。
 
 ```yaml
 config:
@@ -179,14 +181,15 @@ config:
 
 | 配置项 | 归属 entry | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | 三档分类规则；能力菜单的改动会（防抖后）自动写回本 entry 的 `config` |
+| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | patch 中的基础分类规则；界面档位改动保存在独立状态文件 |
 | `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 注册 MCP 服务器写入的 patch 文件 |
+| `stateFile` | `capability-menu-policy` | 与 `patchFile` 同目录的 `capability-menu-policy.json` | 界面档位改动的状态文件，置空禁用持久化 |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | 注册 Skill 目录的技能根 |
-| `persistDebounceMs` | `capability-menu-policy` | `1500` | 点选改动写回 patch 文件前的防抖窗口（ms）|
+| `persistDebounceMs` | `capability-menu-policy` | `1500` | 点选改动写入状态文件前的防抖窗口（ms）|
 
-这些配置项分别属于对应的插件 entry，通常都写在同一份 `cordis.patch.yml` 里，不需要为每项单独建配置文件。`catalogFile` 是插件自动生成、供模型检索的目录文件；`skillsDir` 是 Skill 存放目录。
+这些配置项分别属于对应的插件 entry，通常都写在同一份 `cordis.patch.yml` 里。`stateFile` 由插件自动创建；`catalogFile` 是供模型检索的目录文件，`skillsDir` 是 Skill 存放目录。
 
 **规则优先级**（按序匹配：禁用始终优先；在常驻与按需之间，精确规则优先于通配）：
 

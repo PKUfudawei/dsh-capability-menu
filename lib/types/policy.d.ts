@@ -85,6 +85,8 @@ export interface Config {
     patchFile?: string;
     /** Skill root that UI skill registration links into. Defaults to `~/.dsh/skills`. */
     skillsDir?: string;
+    /** UI tier moves; defaults beside `patchFile`, outside dsh's watched patch paths. */
+    stateFile?: string;
     /** Milliseconds to coalesce tier changes before persisting them. */
     persistDebounceMs?: number;
 }

@@ -103,9 +103,9 @@ let lastSnapshot: CapabilitySnapshot | undefined
 const EMPTY_SNAPSHOT_RETRY_DELAYS = [250, 500, 1_000, 1_500] as const
 
 /**
- * Grace period for the reload a tier write causes.
+ * Grace period for reloads caused by editing the MCP patch.
  *
- * Writing the profile patch makes dsh hot-reload this plugin, and for the few
+ * Editing the MCP patch makes dsh hot-reload this plugin, and for the few
  * seconds that takes the whole `capabilityPolicy/*` surface answers
  * `gateway/service-unavailable`. The sum (9.5s) is longer than an observed
  * reload (~8s).

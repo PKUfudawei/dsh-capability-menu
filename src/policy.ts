@@ -8,9 +8,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import { dirname, join } from 'node:path'
 import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
-import { addEntryOverride, findEntry, mutatePatch, setEntryConfig } from './patch-file.ts'
+import { readTierState, writeTierState, type TierState } from './policy-state.ts'
 import {
   LocationRegistry,
   defaultLocationConfig,
@@ -99,6 +100,8 @@ export interface Config {
   patchFile?: string
   /** Skill root that UI skill registration links into. Defaults to `~/.dsh/skills`. */
   skillsDir?: string
+  /** UI tier moves; defaults beside `patchFile`, outside dsh's watched patch paths. */
+  stateFile?: string
   /** Milliseconds to coalesce tier changes before persisting them. */
   persistDebounceMs?: number
 }
@@ -127,10 +130,10 @@ export const Config: z<Config> = z.object({
   // schemastery object properties are optional-by-default; no `.optional()` needed.
   patchFile: z.string(),
   skillsDir: z.string(),
+  stateFile: z.string(),
   /**
-   * How long a tier change waits before it is written to the patch file. Long
-   * enough that a burst of clicks produces one write, because every write makes
-   * dsh hot-reload this plugin and re-run the catalog enumeration.
+   * How long a tier change waits before it is written to the state file.
+   * A burst of clicks produces one atomic write.
    */
   persistDebounceMs: z.number().default(1500),
 })
@@ -449,52 +452,37 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // plugin never imports or drives `dsh-mcp-client` directly.
   const defaults = defaultLocationConfig()
   const patchFile = (config.patchFile ?? defaults.patchFile).trim()
+  const stateFile = (config.stateFile ?? (patchFile.length > 0 ? join(dirname(patchFile), 'capability-menu-policy.json') : '')).trim()
+  let savedTiers: TierState = { tool: new Map(), skill: new Map() }
+  if (stateFile.length > 0) {
+    try {
+      savedTiers = await readTierState(stateFile)
+    } catch (error) {
+      throw new Error(`cannot load capability tier state from ${stateFile}: ${String(error)}`)
+    }
+  }
   const locations = new LocationRegistry(ctx, {
     patchFile,
     skillsDir: (config.skillsDir ?? defaults.skillsDir).trim(),
   })
 
-  /**
-   * Tier rules are persisted into the profile patch, in the entry the bundle
-   * already declares for this plugin.
-   *
-   * Persisting is deferred rather than done per click. A click recompiles the
-   * rule sets in memory, which is what makes it feel instant; a patch write, by
-   * contrast, makes dsh hot-reload this plugin and start catalog enumeration.
-   * Debouncing puts that cost after the operator stops clicking instead of on
-   * every click.
-   */
-  const POLICY_ENTRY_ID = 'capability-menu-policy'
-  const POLICY_ENTRY_NAME = '@daweifu/capability-menu/policy'
+  /** UI tier moves are kept outside the watched patch while patch rules remain the base. */
   const persistDebounceMs = config.persistDebounceMs ?? 1500
   let persistTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * Tier moves this instance made, per capability kind: id → the class the
-   * operator put it in. Persisting replays exactly these onto the lists the
-   * *file* already has, so the file stays authoritative.
+   * operator put it in. Persisting merges only these moves into the latest
+   * state file, leaving other changes alone.
    *
-   * Writing the whole in-memory rule set out instead loses entries this
-   * instance never saw: another profile (or a hand edit) can have added or
-   * moved rules since this instance loaded, and any later write — including the
-   * teardown flush — would then put the stale set back, so flipping one
-   * capability silently rewrote its neighbours.
+   * Writing the whole in-memory rule set would lose edits by another instance.
    */
   const movedTiers: Record<CapabilityKind, Map<string, CapabilityClass>> = {
     tool: new Map(),
     skill: new Map(),
   }
 
-  /** Order-insensitive signature of one rule set (resident / on-demand / disabled). */
-  const tierSetSignature = (rules: unknown): string => {
-    if (rules === null || typeof rules !== 'object') return ''
-    const record = rules as Record<string, unknown>
-    return ['resident', 'on-demand', 'disabled']
-      .map(tier => Array.isArray(record[tier]) ? [...(record[tier] as unknown[])].sort().join('\u0000') : '')
-      .join('\u0001')
-  }
-
-  /** The three classes, in the order every patch file lists them. */
+  /** The three classes, in the order the effective rule lists use. */
   const TIER_KEYS = ['resident', 'on-demand', 'disabled'] as const
 
   /** One set config's three lists as writable arrays (non-string entries dropped). */
@@ -542,80 +530,24 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return lists
   }
 
-  /**
-   * Order-insensitive signature of the whole policy config (tools + skills).
-   *
-   * The function operates on the *full config* object (`{ tools, skills,
-   * metaTools, ... }`) — the tier arrays live at `config.tools.*` and
-   * `config.skills.*`, never at the top level. Passing the config directly
-   * (rather than the inner `tools` / `skills` objects) used to make both
-   * sides of the comparison empty (`'\u0001\u0001'`) and silently swallow
-   * every tier change after the first write. Splitting the comparison along
-   * the real structure keeps the no-op optimization while letting an actual
-   * change land.
-   */
-  const policyTierSignature = (config: unknown): string => {
-    if (config === null || typeof config !== 'object') return '\u0002'
-    const record = config as Record<string, unknown>
-    return [
-      tierSetSignature(record['tools']),
-      tierSetSignature(record['skills']),
-    ].join('\u0002')
-  }
-
-  /** Serialize writes so a later click cannot race an earlier patch rewrite. */
+  /** Serialize writes so a later click cannot race an earlier state rewrite. */
   let persistInFlight: Promise<void> = Promise.resolve()
 
-  /** Write validated moves into the patch, when they differ from the file. */
+  /** Write validated moves into the state file, when they differ from disk. */
   const writeTiers = async (): Promise<void> => {
-    if (patchFile.length === 0) return
+    if (stateFile.length === 0) return
     const toolMoves = new Map(movedTiers.tool)
     const skillMoves = new Map(movedTiers.skill)
-    const configAtWrite = current
     try {
-      const written = await mutatePatch(patchFile, doc => {
-        const existing = findEntry(doc, POLICY_ENTRY_ID)
-        // Merge instead of replace: the row can carry keys this surface never
-        // edits (`metaTools`, a legacy rule spelling), and patch semantics
-        // replace the whole `config:` value.
-        const raw = existing?.get('config') as { toJSON?: () => unknown } | undefined
-        const prior = raw?.toJSON?.()
-        const next: Record<string, unknown> = typeof prior === 'object' && prior !== null
-          ? { ...(prior as Record<string, unknown>) }
-          : {}
-        if (existing === undefined) {
-          // An override row, never an insert: this file is normally not where the
-          // policy row comes from — the package's own bundle patch inserts it,
-          // and a home/profile layer is applied after that one. Inserting a
-          // second row with the same id would compose into a tree the loader
-          // rejects (`duplicate loader entry id: capability-menu-policy`), so the
-          // config has to be landed on the row that already exists.
-          next['tools'] = configAtWrite.tools ?? {}
-          next['skills'] = configAtWrite.skills ?? {}
-          addEntryOverride(doc, { id: POLICY_ENTRY_ID, name: POLICY_ENTRY_NAME, config: next })
-          return true
-        }
-        // Nothing moved since the last write: not writing at all is what keeps a
-        // no-op flush — and a plain restart — from making dsh reload the plugin.
-        if (toolMoves.size === 0 && skillMoves.size === 0) return false
-        // Replay this instance's own moves onto the file's lists instead of
-        // writing the in-memory sets out wholesale (see `movedTiers`): entries
-        // another writer touched since this instance loaded stay as it left them.
-        const priorRecord = (prior ?? {}) as Record<string, unknown>
-        if (toolMoves.size > 0) next['tools'] = replayMoves(priorRecord['tools'], toolMoves)
-        if (skillMoves.size > 0) next['skills'] = replayMoves(priorRecord['skills'], skillMoves)
-        // Rewriting an unchanged config would still make dsh reload the plugin.
-        if (policyTierSignature(prior) === policyTierSignature(next)) return false
-        return setEntryConfig(doc, POLICY_ENTRY_ID, next)
-      })
+      const written = await writeTierState(stateFile, { tool: toolMoves, skill: skillMoves })
       // A no-op means another writer already landed these moves. Retire only
       // the snapshot just handled: a click made during the disk write stays
       // queued for the next serialized write.
       for (const [name, tier] of toolMoves) if (movedTiers.tool.get(name) === tier) movedTiers.tool.delete(name)
       for (const [name, tier] of skillMoves) if (movedTiers.skill.get(name) === tier) movedTiers.skill.delete(name)
-      if (written) ctx.logger.info(`capability-policy: persisted tier rules to ${patchFile}`)
+      if (written) ctx.logger.info(`capability-policy: persisted tier rules to ${stateFile}`)
     } catch (error) {
-      ctx.logger.warn(`capability-policy: cannot persist tier rules to ${patchFile}: ${String(error)}`)
+      ctx.logger.warn(`capability-policy: cannot persist tier rules to ${stateFile}: ${String(error)}`)
     }
   }
 
@@ -625,7 +557,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
 
   const schedulePersistTiers = (): void => {
-    if (patchFile.length === 0) return
+    if (stateFile.length === 0) return
     if (persistTimer !== undefined) clearTimeout(persistTimer)
     persistTimer = setTimeout(() => {
       persistTimer = undefined
@@ -633,20 +565,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     }, persistDebounceMs)
   }
 
-  // A pending write must not be dropped when the plugin is torn down (a hot
-  // reload tears it down): flush it, so the file matches the state that was
-  // live. The flush finds the config unchanged and writes nothing, so it cannot
-  // start a reload loop. Returning an async disposer lets Cordis await the
-  // write before letting the new instance (or shutdown) proceed, so a HMR
-  // cannot race ahead of a pending persist.
+  // Flush a pending write on teardown, including when an unrelated patch edit
+  // reloads the plugin. Cordis awaits the disposer before mounting its successor.
   ctx.effect(() => async () => {
     if (persistTimer !== undefined) {
       clearTimeout(persistTimer)
       persistTimer = undefined
       await persistTiers()
-    } else {
-      await persistInFlight
-    }
+    } else await persistInFlight
+    if (movedTiers.tool.size > 0 || movedTiers.skill.size > 0) await persistTiers()
   }, 'capability-menu-policy: flush tier persistence')
 
   /**
@@ -694,7 +621,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     toolCompiled = compiled.tools
     skillCompiled = compiled.skills
   }
-  applyConfig(normalized, [...(normalized.metaTools ?? DEFAULT_META_TOOLS)])
+  const effective: Config = {
+    ...normalized,
+    tools: savedTiers.tool.size > 0 ? replayMoves(normalized.tools, savedTiers.tool) : normalized.tools,
+    skills: savedTiers.skill.size > 0 ? replayMoves(normalized.skills, savedTiers.skill) : normalized.skills,
+  }
+  applyConfig(effective, [...(normalized.metaTools ?? DEFAULT_META_TOOLS)])
 
   const service: CapabilityPolicyService = {
     classifyTool(name: string): CapabilityClass {

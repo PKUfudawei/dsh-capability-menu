@@ -7,7 +7,7 @@ import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { serverNameOf } from '../src/registry.ts'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
-import yaml from 'js-yaml'
+import { readTierState } from '../src/policy-state.ts'
 
 async function setup(config: policy.Config = {}, registryConfig: registry.Config = {}): Promise<Context> {
   const ctx = new Context()
@@ -17,7 +17,9 @@ async function setup(config: policy.Config = {}, registryConfig: registry.Config
   // Disable on-demand catalog emission by default so tests never write the
   // real ~/.dsh; callers override via registryConfig when they test it.
   await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
-  await ctx.plugin(policy, config)
+  await ctx.plugin(policy, config.patchFile === undefined && config.stateFile === undefined
+    ? { ...config, stateFile: '' }
+    : config)
   return ctx
 }
 
@@ -334,6 +336,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
     await ctx.plugin(policy, {
+      stateFile: '',
       tools: { resident: ['mcp__gongfeng__*'], 'on-demand': ['mcp__*'], disabled: ['mcp__km__search'] },
     })
 
@@ -376,7 +379,7 @@ describe('capability-policy management surface (能力菜单)', () => {
       // The policy awaits a cold-start rebuild before it can classify anything.
       refresh: async () => {},
     } as unknown as registry.CapabilityService)
-    await ctx.plugin(policy, {})
+    await ctx.plugin(policy, { stateFile: '' })
 
     const row = ctx.capabilityPolicy.classifyAll().find(c => c.id === 'preset-skill')
     expect(row?.preset).toBe('cordis')
@@ -392,7 +395,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, {})
+    await ctx.plugin(policy, { stateFile: '' })
 
     registerTool(ctx, 'grep')
     registerTool(ctx, 'mcp__gongfeng__create_issue')
@@ -432,7 +435,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, {})
+    await ctx.plugin(policy, { stateFile: '' })
 
     // The registry search default is maxResults=20; classifyAll must enumerate
     // every indexed capability regardless (iWiki alone already exceeds it).
@@ -464,43 +467,17 @@ describe('legacy rule-key aliases', () => {
   })
 })
 
-/**
- * Tier writes used to be silent no-ops the moment a `capability-menu-policy`
- * override already existed in the patch file: the no-op check compared the
- * whole policy config against itself, never looking at the `tools` /
- * `skills` sub-objects where the tier arrays actually live. The first GUI
- * click after a fresh install still wrote (the override does not exist yet
- * and the code takes the insert branch), which is why this only manifested
- * after restart — exactly the symptom the user reported. These two tests
- * pin the contract from both sides: a change must land, an identical write
- * must not.
- */
+/** UI tier moves persist outside the watched patch and survive plugin reloads. */
 describe('capability-policy persistence (tier writes)', () => {
-  type Row = {
-    id?: string
-    name?: string
-    insert?: unknown[]
-    config?: { tools?: Record<string, string[]>; skills?: Record<string, string[]> }
-  }
-
-  async function loadPatchRows(file: string): Promise<Row[]> {
-    const fs = await import('node:fs/promises')
-    return yaml.load(await fs.readFile(file, 'utf8')) as Row[]
-  }
-
   it('does not persist a rejected move alongside a valid pending move', async () => {
     const fs = await import('node:fs/promises')
     const { join } = await import('node:path')
     const { tmpdir } = await import('node:os')
     const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-rejected-'))
     const patchFile = join(home, 'cordis.patch.yml')
-    await fs.writeFile(patchFile, [
-      '- insert: []',
-      '- id: capability-menu-policy',
-      "  name: '@daweifu/capability-menu/policy'",
-      '  config: {}',
-      '',
-    ].join('\n'), 'utf8')
+    const stateFile = join(home, 'capability-menu-policy.json')
+    const patch = '- insert: []\n'
+    await fs.writeFile(patchFile, patch, 'utf8')
 
     const ctx = await setup({ patchFile, persistDebounceMs: 50 })
     await ctx.capabilityPolicy.updateConfig({ skills: { 'on-demand': ['accepted-skill'] } })
@@ -508,86 +485,58 @@ describe('capability-policy persistence (tier writes)', () => {
       .rejects.toThrow(/meta tool "meta_search" cannot be disabled/)
 
     await expect.poll(async () => {
-      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-      return row?.config
-    }, { timeout: 5_000 }).toMatchObject({
-      skills: { 'on-demand': ['accepted-skill'] },
-    })
-    const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-    expect(row?.config?.tools?.disabled).toBeUndefined()
+      return (await readTierState(stateFile)).skill.get('accepted-skill')
+    }, { timeout: 5_000 }).toBe('on-demand')
+    expect((await readTierState(stateFile)).tool.has('meta_search')).toBe(false)
+    expect(await fs.readFile(patchFile, 'utf8')).toBe(patch)
   })
 
-  it('rewrites the patch when an existing override is updated with different tier rules', async () => {
+  it('persists subsequent moves without touching the patch and restores them on remount', async () => {
     const fs = await import('node:fs/promises')
     const { join } = await import('node:path')
     const home = await fs.mkdtemp('/tmp/dsh-policy-persist-')
     const patchFile = join(home, 'cordis.patch.yml')
-    await fs.writeFile(patchFile, '- insert: []\n', 'utf8')
+    const stateFile = join(home, 'capability-menu-policy.json')
+    const patch = '- insert: []\n'
+    await fs.writeFile(patchFile, patch, 'utf8')
 
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { patchFile, persistDebounceMs: 50 })
+    await ctx.plugin(policy, {
+      patchFile,
+      persistDebounceMs: 50,
+      tools: { resident: ['mcp__km__search'] },
+    })
 
     registerTool(ctx, 'mcp__km__search', 'Search the knowledge base')
     await ctx.capability.refresh()
 
-    // First click: no override exists, so the insert branch writes the row.
-    // Poll for the write instead of sleeping a fixed amount: the debounce plus
-    // the atomic file swap are asynchronous, so a fixed wait is a race under
-    // parallel test load (this file flaked for exactly that reason).
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
     await expect.poll(async () => {
-      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-      return { name: row?.name, onDemand: row?.config?.tools?.['on-demand'] }
-    }, { timeout: 5_000 }).toEqual({
-      name: '@daweifu/capability-menu/policy',
-      onDemand: ['mcp__km__search'],
-    })
+      return (await readTierState(stateFile)).tool.get('mcp__km__search')
+    }, { timeout: 5_000 }).toBe('on-demand')
 
-    // Second click with DIFFERENT rules (move from on-demand to disabled):
-    // the override now exists, so this exercises the setEntryConfig branch.
-    // Pre-fix, `tierSignature(prior) === tierSignature(next)` was always true
-    // (both sides produced `\u0001\u0001` because the function reads the top
-    // level of the config instead of the `tools` / `skills` sub-objects),
-    // and the rewrite never happened — leaving the GUI's disabled toggle
-    // stuck.
     await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
     await expect.poll(async () => {
-      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-      return { disabled: row?.config?.tools?.disabled, onDemand: row?.config?.tools?.['on-demand'] }
-    }, { timeout: 5_000 }).toEqual({
-      disabled: ['mcp__km__search'],
-      // The move is replayed onto the file's own lists, so every tier is now an
-      // explicit list: the on-demand rule is gone (empty, which the signature
-      // treats exactly like an absent key).
-      onDemand: [],
-    })
+      return (await readTierState(stateFile)).tool.get('mcp__km__search')
+    }, { timeout: 5_000 }).toBe('disabled')
+    expect(await fs.readFile(patchFile, 'utf8')).toBe(patch)
+    const restored = await setup({ patchFile, tools: { resident: ['mcp__km__search'] } })
+    expect(restored.capabilityPolicy.classifyTool('mcp__km__search')).toBe('disabled')
   })
 
-  it('replays tier moves onto the file instead of writing the whole set back', async () => {
+  it('merges its moves with other state-file edits instead of overwriting them', async () => {
     const fs = await import('node:fs/promises')
     const { join } = await import('node:path')
     const { tmpdir } = await import('node:os')
     const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-replay-'))
     const patchFile = join(home, 'cordis.patch.yml')
-    // The row already carries a rule this instance never loaded (`sneaky`):
-    // another writer added it after the config below was resolved. Writing the
-    // in-memory set out wholesale drops it — which is how flipping one
-    // capability used to rewrite its neighbours.
-    await fs.writeFile(patchFile, [
-      '- insert: []',
-      '- id: capability-menu-policy',
-      "  name: '@daweifu/capability-menu/policy'",
-      '  config:',
-      '    skills:',
-      '      resident: [stale]',
-      "      'on-demand': [sneaky, moved]",
-      '      disabled: []',
-      '',
-    ].join('\n'), 'utf8')
+    const stateFile = join(home, 'capability-menu-policy.json')
+    const patch = '- insert: []\n'
+    await fs.writeFile(patchFile, patch, 'utf8')
 
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -600,46 +549,31 @@ describe('capability-policy persistence (tier writes)', () => {
       skills: { resident: ['stale'], 'on-demand': ['moved'] },
     })
 
+    await fs.writeFile(stateFile, JSON.stringify({ version: 1, tools: {}, skills: { sneaky: 'on-demand' } }), 'utf8')
     await ctx.capabilityPolicy.updateConfig({ skills: { resident: ['stale', 'moved'] } })
     await expect.poll(async () => {
-      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-      return row?.config?.skills
-    }, { timeout: 5_000 }).toEqual({
-      resident: ['stale', 'moved'],
-      'on-demand': ['sneaky'],
-      disabled: [],
-    })
+      return (await readTierState(stateFile)).skill.get('moved')
+    }, { timeout: 5_000 }).toBe('resident')
+    expect((await readTierState(stateFile)).skill.get('sneaky')).toBe('on-demand')
+    expect(await fs.readFile(patchFile, 'utf8')).toBe(patch)
   })
 
-  it('flushes only its own pending move when the file changed after load', async () => {
+  it('flushes a pending move on teardown without replacing another state-file edit', async () => {
     const fs = await import('node:fs/promises')
     const { join } = await import('node:path')
     const { tmpdir } = await import('node:os')
     const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-flush-'))
     const patchFile = join(home, 'cordis.patch.yml')
-    const rowText = (skills: string): string => [
-      '- insert: []',
-      '- id: capability-menu-policy',
-      "  name: '@daweifu/capability-menu/policy'",
-      '  config:',
-      '    skills:',
-      skills,
-      '',
-    ].join('\n')
-    await fs.writeFile(patchFile, rowText([
-      '      resident: [stale]',
-      "      'on-demand': [moved]",
-      '      disabled: []',
-    ].join('\n')), 'utf8')
+    const stateFile = join(home, 'capability-menu-policy.json')
+    const patch = '- insert: []\n'
+    await fs.writeFile(patchFile, patch, 'utf8')
 
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { catalogFile: '' })
-    // A debounce long enough that the write is still pending when the plugin is
-    // torn down, which is the flush path (the one that used to put a stale set
-    // back over whatever another writer had landed meanwhile).
+    // Keep the write pending until teardown.
     const fiber = await ctx.plugin(policy, {
       patchFile,
       persistDebounceMs: 60_000,
@@ -647,21 +581,14 @@ describe('capability-policy persistence (tier writes)', () => {
     })
 
     await ctx.capabilityPolicy.updateConfig({ skills: { resident: ['stale', 'moved'] } })
-    // Second writer lands while this instance's write is still debounced.
-    await fs.writeFile(patchFile, rowText([
-      '      resident: [stale]',
-      "      'on-demand': [sneaky, moved]",
-      '      disabled: []',
-    ].join('\n')), 'utf8')
+    await fs.writeFile(stateFile, JSON.stringify({ version: 1, tools: {}, skills: { sneaky: 'on-demand' } }), 'utf8')
 
     await fiber.dispose()
 
-    const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
-    expect(row?.config?.skills).toEqual({
-      resident: ['stale', 'moved'],
-      'on-demand': ['sneaky'],
-      disabled: [],
-    })
+    const saved = await readTierState(stateFile)
+    expect(saved.skill.get('moved')).toBe('resident')
+    expect(saved.skill.get('sneaky')).toBe('on-demand')
+    expect(await fs.readFile(patchFile, 'utf8')).toBe(patch)
   })
 })
 

@@ -47,7 +47,7 @@ describe('client capability snapshots', () => {
     await expect(readSnapshot(remote)).resolves.toMatchObject({ rows: [nativeTool] })
   })
 
-  it('rides through the reload a tier write causes', async () => {
+  it('rides through a reload caused by an MCP patch edit', async () => {
     let attempts = 0
     const remote = {
       classifyAll: vi.fn(async () => {
