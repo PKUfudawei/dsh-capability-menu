@@ -113,10 +113,11 @@ const EMPTY_SNAPSHOT_RETRY_DELAYS = [250, 500, 1_000, 1_500] as const
  */
 const TRANSIENT_CALL_RETRY_DELAYS = [500, 1_000, 2_000, 3_000, 3_000] as const
 
-/** Host failures that clear by themselves once the reload lands. */
+/** Host failures that can clear once the reload lands. A 404 is permanent. */
 function isTransientHostFailure(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error)
-  return /gateway\/service-unavailable|gateway\/context-(unavailable|failed)|transport failure/.test(text)
+  return /gateway\/(?:service-unavailable|context-(?:unavailable|failed))\b/.test(text)
+    || /transport failure[^\n]*HTTP (?:502|503|504)\b/.test(text)
 }
 
 /**

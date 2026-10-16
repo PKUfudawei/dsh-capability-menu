@@ -489,6 +489,35 @@ describe('capability-policy persistence (tier writes)', () => {
     return yaml.load(await fs.readFile(file, 'utf8')) as Row[]
   }
 
+  it('does not persist a rejected move alongside a valid pending move', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-rejected-'))
+    const patchFile = join(home, 'cordis.patch.yml')
+    await fs.writeFile(patchFile, [
+      '- insert: []',
+      '- id: capability-menu-policy',
+      "  name: '@daweifu/capability-menu/policy'",
+      '  config: {}',
+      '',
+    ].join('\n'), 'utf8')
+
+    const ctx = await setup({ patchFile, persistDebounceMs: 50 })
+    await ctx.capabilityPolicy.updateConfig({ skills: { 'on-demand': ['accepted-skill'] } })
+    await expect(ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['meta_search'] } }))
+      .rejects.toThrow(/meta tool "meta_search" cannot be disabled/)
+
+    await expect.poll(async () => {
+      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+      return row?.config
+    }, { timeout: 5_000 }).toMatchObject({
+      skills: { 'on-demand': ['accepted-skill'] },
+    })
+    const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+    expect(row?.config?.tools?.disabled).toBeUndefined()
+  })
+
   it('rewrites the patch when an existing override is updated with different tier rules', async () => {
     const fs = await import('node:fs/promises')
     const { join } = await import('node:path')
@@ -634,5 +663,43 @@ describe('capability-policy persistence (tier writes)', () => {
       'on-demand': ['sneaky'],
       disabled: [],
     })
+  })
+})
+
+describe('capability-policy startup', () => {
+  it('settles despite a pending catalog refresh and emits the available index', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-startup-'))
+    const catalogFile = join(home, 'catalog.yml')
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { catalogFile })
+    registerTool(ctx, 'mcp__km__search')
+    await ctx.capability.refresh()
+    const refresh = vi.spyOn(ctx.capability, 'refresh').mockImplementation(() => new Promise<void>(() => {}))
+    const rewrite = vi.spyOn(ctx.capability, 'rewriteCatalog')
+
+    vi.useFakeTimers()
+    try {
+      const mounted = ctx.plugin(policy, {
+        patchFile: '',
+        tools: { 'on-demand': ['mcp__km__search'] },
+      })
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(5_000)
+      await mounted
+      await vi.advanceTimersByTimeAsync(1)
+      expect(rewrite).toHaveBeenCalledOnce()
+      expect(ctx.get('capabilityPolicy')).toBeDefined()
+      await vi.waitFor(async () => {
+        expect(await fs.readFile(catalogFile, 'utf8')).toContain('mcp__km__search')
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

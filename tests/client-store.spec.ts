@@ -79,5 +79,22 @@ describe('client capability snapshots', () => {
 
     await expect(withTransientRetry(rejectedWrite, [0, 0])).rejects.toThrow(/bad-request/)
     expect(rejectedWrite).toHaveBeenCalledTimes(1)
+
+    const missingEndpoint = vi.fn(async () => {
+      throw new Error('transport failure for /api/capabilityPolicy/getConfig: HTTP 404')
+    })
+    await expect(withTransientRetry(missingEndpoint, [0, 0])).rejects.toThrow(/HTTP 404/)
+    expect(missingEndpoint).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a gateway error returned in a RemoteResult', async () => {
+    const remote = {
+      classifyAll: vi.fn()
+        .mockResolvedValueOnce({ ok: false, error: { code: 'gateway/service-unavailable', message: 'reloading' } })
+        .mockResolvedValueOnce({ ok: true, value: [nativeTool] }),
+    } as unknown as CapabilityPolicyRemote
+
+    await expect(loadSnapshot(remote, [])).resolves.toMatchObject({ rows: [nativeTool] })
+    expect(remote.classifyAll).toHaveBeenCalledTimes(2)
   })
 })
