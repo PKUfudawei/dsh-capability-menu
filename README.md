@@ -1,7 +1,7 @@
 <h1 align="center">dsh-capability-menu</h1>
 
 <p align="center">
-  <strong>统一管理 DeepSeek Harness 中 Tools 与 Skills 的暴露策略和调用方式，按需发现与调用，减少上下文占用</strong>
+  <strong>统一管理 DeepSeek Harness 工具与技能，高效检索、按需调用，节省上下文</strong>
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
-  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://img.shields.io/github/stars/PKUfudawei/dsh-capability-menu.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
+  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://badgen.net/github/stars/PKUfudawei/dsh-capability-menu?icon=github&color=dbab09" alt="GitHub stars"/></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://img.shields.io/badge/featured%20in-awesome--dsh--plugin-8250DF?style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="featured in awesome-dsh-plugin"/></a>
 </p>
 
@@ -60,9 +60,10 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 ### 能力菜单
 
 <p align="center">
-  <img src="assets/screenshot-tools.png" alt="Tools 页" width="48%"/>
-  <img src="assets/screenshot-skills.png" alt="Skills 页" width="48%"/>
+  <img src="assets/screenshot-tools_chinese.png" alt="能力菜单的 Tools 页面：按服务器管理工具的暴露档位与检索描述" width="48%"/>
+  <img src="assets/screenshot-skills_chinese.png" alt="能力菜单的 Skills 页面：按来源管理技能的暴露档位与检索描述" width="48%"/>
 </p>
+
 安装后，在「设置」导航中选择「能力菜单」，即可管理 Tools 和 Skills。
 
 | 操作 | 用法 |
@@ -87,21 +88,11 @@ GitHub Skill 支持默认分支根目录链接（需含 `SKILL.md`）、指定�
 
 ### 从 npm 安装（推荐）
 
-单包同时提供服务端插件与前端「能力菜单」页面，安装后会作为「设置」中的独立栏目显示：
+在 Web Profile 安装：
 
 ```sh
-# 安装
 dsh plugin --profile web add @daweifu/capability-menu
-
-# 升级到 npm 的 latest 标签指向的版本（要显式带版本号，避免沿用已安装版本）
-dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu dist-tags.latest)"
-
-# 若要安装 next 等预发布标签，请把 latest 换成对应标签名，例如：
-# dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capability-menu dist-tags.next)"
 ```
-
-升级命令安装 npm `latest` 标签指向的版本；安装预发布版本请使用对应标签或指定版本号。
-「能力菜单」页会自动查询 npm `latest`；发现比当前版本号更高的版本时，版本号后显示「有新版本」。点击后可确认将 npm 仓库包精确更新到新版；若当前 profile 链接本地源码，弹窗会提供手动更新步骤，或明确选择切换并安装 npm 版（不会删除源码目录）。即使用 pnpm 安装的 npm 仓库包也走同一流程。安装后重启 DSH 生效。
 
 ### 从源码安装
 
@@ -135,7 +126,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | --- | --- | --- | --- | --- |
 | **常驻** | tool | 工具定义始终随请求提供 | 无需查找 | 直接调用；运行时经过完整 `ctx.tools` 管线 |
 | | skill | 名称和简介显示在 `<available_skills>` 中 | 无需查找 | `skill` 工具按需加载正文 |
-| **按需** | tool | 不随请求提供工具定义 | 用 `meta_search` 搜索候选项，或搜索能力目录 YAML（`catalogFile`） | 用 `meta_invoke` 调用；也可先按精确 id 查看详情和参数，再直接调用 |
+| **按需** | tool | 不随请求提供工具定义 | 用 `meta_search` 搜索候选项，或搜索能力目录 YAML（`catalogFile`） | 按精确 ID 查看参数后，用 `meta_invoke` 调用 |
 | | skill | 不显示在 `<available_skills>` 中 | 用 `meta_search` 搜索，或搜索能力目录 YAML（`catalogFile`） | 用 `meta_invoke` 加载 `SKILL.md` |
 | **禁用** | tool | 不随请求提供工具定义 | 搜索结果和能力目录中均不可见 | 调用会被拒绝 |
 | | skill | 不显示在 `<available_skills>` 中 | 搜索结果和能力目录中均不可见 | 加载会被拒绝 |
@@ -147,45 +138,29 @@ dsh plugin --profile web remove @daweifu/capability-menu
 
 ## 配置
 
-手写规则放在本插件 `capability-menu-policy` entry 的 `config` 下：
+手写规则位于 `capability-menu-policy` entry 的 `config` 下。以下是配置片段；完整安装补丁见 [cordis.patch.yml](./cordis.patch.yml)。
 
-- 默认文件是 `~/.dsh/cordis.patch.yml`；设置了 `$DSH_HOME` 时使用 `$DSH_HOME/cordis.patch.yml`。
-- 可手写 YAML，也可在「能力菜单」里点选。点选立即更新内存，停手约 1.5 秒后写入独立的 `capability-menu-policy.json`，不会因档位写入而触发插件重载。已有 patch 规则仍会加载；同名能力的界面改动覆盖其中的精确规则，禁用通配规则仍按优先级生效。
-- Profile 可在自己的 `cordis.patch.yml` 中按 entry ID 覆盖规则。示例中的 `- insert:`、`id`、`name` 属于 Cordis 补丁结构，不是策略字段。
-- 状态文件默认与 `patchFile` 同目录，因此默认的界面改动由各 Profile 共用；若要分别管理，可在各 Profile 的策略配置中指定不同的 `stateFile`。
-- 升级前已写入 patch 的档位规则会继续作为基础规则生效。若要清除界面覆盖并重新采用手写规则，先停止 dsh，再删除状态文件。
+- 默认 patch 是 `${DSH_HOME:-~/.dsh}/cordis.patch.yml`；Profile 也可在自己的 patch 中覆盖该 entry。
+- 菜单中的档位调整立即生效，停手约 1.5 秒后写入独立的 `stateFile`，不会因档位写入而重载插件。手写规则仍是基础；界面选择覆盖同一能力的精确规则，禁用通配规则仍优先。
+- `stateFile` 默认与 `patchFile` 同目录，各 Profile 共用；需要隔离时，分别指定 `stateFile`。要清除界面选择，停止 DSH 后删除该状态文件；原有 patch 规则仍会生效。
 
 ```yaml
 config:
   tools:
-    resident: # 常驻
-      - execute_cmd
-      - get_session_context
-      - search_kb
-      - 'mcp__gongfeng__*'    # 通配：该 server 下全部常驻
     on-demand: # 按需
-      - 'mcp__*'              # 通配兜底
-      - 'server:km:*'         # 按 server 前缀批量按需
+      - 'mcp__example__*'    # 某个 MCP 服务器下的工具
     disabled: # 禁用
-      - 'mcp__secret__*'      # 禁用优先级最高，压过常驻
+      - 'mcp__secret__*'
   skills:
-    resident: # 常驻
-      - debugging
-      - coding
     on-demand: # 按需
-      - legacy_skill          # 显式按需（未列出即默认常驻）
-    disabled: # 禁用
-      - forbidden_skill
-  metaTools:
-    - meta_search             # 恒常驻，不可被禁用
-    - meta_invoke
+      - legacy_skill         # 未列出的能力默认常驻
 ```
 
 ### 全部配置项
 
 | 配置项 | 归属 entry | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | patch 中的基础分类规则；界面档位改动保存在独立状态文件 |
+| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见随包补丁 | patch 中的基础分类规则；界面档位改动保存在独立状态文件 |
 | `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
 | `searchMetadataFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-menu-search-metadata.json` | 检索描述与前端上限设置的状态文件；置空后无法保存修改 |
 | `summaryMaxChars` | `capability-menu-registry` | `320` | 检索描述、`meta_search` 列表摘要及目录描述的初始字符上限；最小为 20；前端保存的值优先 |
@@ -213,17 +188,16 @@ config:
 
 ### 按需能力检索目录（`catalogFile`）
 
-插件会把按需 Tool 和 Skill 写入 `catalogFile` 指定的 YAML 文件，供模型检索。默认路径为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`，设为空字符串可关闭；无按需能力时文件内容为 `capabilities: []`。目录会在 Tool、Skill、档位或检索信息变化后自动更新。
+插件将按需 Tool 和 Skill 写入 YAML 检索目录；常驻与禁用能力不写入。
 
-按需能力行会显示「检索描述」入口。编辑框预填当前目录使用的描述：来源描述会按 `summaryMaxChars`（默认 320 字符）压缩后显示，截断时尽量停在词或标点边界。修改保存在 `searchMetadataFile`，用于 `meta_search` 的列表和关键词匹配，也同步写入按需能力检索目录；能力的原始定义和精确详情不会改变。点击「还原」只恢复输入框中的来源描述，仍需点击「保存」才生效。目录 YAML 是生成文件，直接修改会被后续更新覆盖。旧状态文件中的 `summary` 会作为检索描述读取；旧自定义标签停止参与搜索，首次重写状态文件前会备份为 `.legacy.bak`。
+- **目录文件：** 默认为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`；无按需能力时内容是 `capabilities: []`。设置 `catalogFile: ''` 可关闭生成。目录随能力、档位和检索描述变化自动更新，请勿直接编辑生成文件。
+- **检索描述：** 按需能力旁可打开编辑框。它预填最多 `summaryMaxChars` 个字符的来源描述（默认 320，截断时优先保留完整词句）；修改后用于 `meta_search` 列表与关键词匹配，并同步到目录，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
+- **描述上限：** 在「策略与目录 → 按需能力检索目录」修改，最小 20 字符。设置保存在 `searchMetadataFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
+- **检索与调用：** 使用 `meta_search` 查找，再用 `meta_invoke` 调用或加载；模型能读取目录路径时，也可用 `grep` / `read` 检索。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
 
-可在「策略与目录 → 按需能力检索目录」顶部修改全局「检索描述上限」（最小 20 字符）。保存后立即重建目录，不会修改 patch 或重载插件；设置写入 `searchMetadataFile` 的 `_settings.summaryMaxChars`，下次启动仍生效，并优先于 patch 中的 `summaryMaxChars`。若已有自定义检索描述超过拟设上限，保存会提示先缩短该描述，不会丢弃它。
-
-Skill 需要先注册到 `ctx.skills` 才会出现在目录中。模型可以用 `grep` / `read` 搜索目录，或调用 `meta_search` 查找条目，再通过 `meta_invoke` 使用对应能力。列表默认最多返回 20 项（单页上限 50）；使用 `offset: 50` 读取下一页。`total` 是权限与禁用规则过滤后的匹配总数，`returned` 是当前页数量。Skill 的详情返回描述和使用提示，正文由 `meta_invoke` 加载；要重新读入会话中途更新的正文时传 `force: true`。
+生成文件示例：
 
 ```yaml
-# ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
-# Resident 已常驻、Disabled 不可发现，均不写入；列表以 `-` 每项一行的 block 序列写出）
 capabilities:
   - id: mcp__km__search
     kind: tool
@@ -234,8 +208,6 @@ capabilities:
     description: 处理旧工程的低频技能
     whenToUse: 处理旧工程时使用
 ```
-
-默认目录跟随 `DSH_HOME`，并由插件创建父目录。能力菜单会显示目录路径；多个 DSH 实例默认共用该文件，需要隔离时可为每个实例设置不同路径。
 
 ## License
 
