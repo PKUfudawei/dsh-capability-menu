@@ -821,6 +821,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       {state.status === 'ready' && <ReadyBody
         remote={remote}
         snapshot={state.snapshot}
+        diagnostics={diagnostics}
         openServers={openServers}
         busy={busy}
         activeTab={activeTab}
@@ -839,6 +840,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
 function ReadyBody(props: {
   remote: CapabilityPolicyRemote
   snapshot: CapabilitySnapshot
+  diagnostics: import('./store.ts').CapabilityDiagnostics | null
   openServers: ReadonlySet<string>
   busy: boolean
   activeTab: 'tools' | 'skills'
@@ -853,7 +855,7 @@ function ReadyBody(props: {
   /** Surface a one-line message in the section header. */
   onNotice: (message: string | null) => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
+  const { remote, snapshot, diagnostics, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
   /** Name filter, shared by both tabs: it narrows whichever list is shown. */
   const [filter, setFilter] = useState('')
   // Distinguishes "nothing to show" from "the filter matched nothing".
