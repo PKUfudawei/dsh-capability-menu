@@ -138,6 +138,13 @@ export const Config: z<Config> = z.object({
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
 
 /**
+ * Upper bound on the catalog refresh `apply` awaits before it finishes mounting
+ * (see the end of `apply`). Generous: a healthy refresh resolves in
+ * milliseconds, and the failure this guards against never resolves at all.
+ */
+const CATALOG_REFRESH_TIMEOUT_MS = 5_000
+
+/**
  * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
  * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
  * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
@@ -909,7 +916,22 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // refresh(), so without this the YAML would not exist until the first
   // tools/skills change event. Awaiting here closes the cold-start window
   // where the first assemble could point at a file that does not exist yet.
-  await ctx.capability.refresh()
+  //
+  // Bounded: a refresh that cannot finish must not keep this fiber in
+  // `loading`. The service above is already provided, but a plugin that has not
+  // settled leaves every `inject: ['capabilityPolicy']` dependent waiting — the
+  // management gateway is one, and its absence is what takes the whole surface
+  // down. A refresh walks every agent-preset scope, and one of those can stay
+  // pending on a host that mounts its UI before this plugin does. The catalog
+  // is a cache: the registry re-emits it on the next tools/skills change.
+  await Promise.race([
+    ctx.capability.refresh(),
+    new Promise<void>(resolve => {
+      setTimeout(resolve, CATALOG_REFRESH_TIMEOUT_MS).unref()
+    }),
+  ]).catch((error: unknown) => {
+    ctx.logger.warn(`capability-policy: on-demand catalog refresh failed: ${String(error)}`)
+  })
 }
 
 /**
