@@ -1,6 +1,4 @@
 /**
- * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
- *
  * Client (browser) registration of the 能力菜单 settings tab. Follows the real
  * dsh client pattern (`dsh-client-ui-settings-plugin-inventory`): inject the
  * remote face, mount the generated `capabilityPolicy` Typert contribution, and

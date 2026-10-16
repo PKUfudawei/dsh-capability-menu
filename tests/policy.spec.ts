@@ -35,7 +35,6 @@ function registerTool(ctx: Context, name: string, description = 'A tool'): void 
 
 describe('wildcard / rule matching', () => {
   it('classifies exact resident, wildcard on-demand, server prefix, and default resident', () => {
-    const ctx = null as unknown as Context
     // Pure matcher tests do not need a live context.
     const toolRules = policy.compileSet({
       resident: ['execute_cmd', 'mcp__gongfeng__*'],
