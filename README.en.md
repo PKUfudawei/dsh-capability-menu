@@ -143,11 +143,13 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 
 ## Configuration
 
-Rules live under `config` in this plugin's `capability-menu-policy` entry:
+Hand-written rules live under `config` in this plugin's `capability-menu-policy` entry:
 
 - The default file is `~/.dsh/cordis.patch.yml`; when `$DSH_HOME` is set, the file is `$DSH_HOME/cordis.patch.yml`.
-- Edit the YAML directly or use Capability Management. UI clicks update memory immediately and write back about 1.5 seconds after input stops, batching writes to avoid repeated hot reloads and catalog rebuilds.
+- Edit the YAML directly or use Capability Management. UI clicks update memory immediately and write to a separate `capability-menu-policy.json` about 1.5 seconds after input stops, without triggering a plugin reload. Existing patch rules still load; UI moves override exact rules for the same capability, while Disabled wildcards retain their priority.
 - A profile can override the rules in its own `cordis.patch.yml`, targeting the entry ID. In examples, `- insert:`, `id`, and `name` are Cordis patch structure, not policy fields.
+- The state file defaults to the directory containing `patchFile`, so UI moves are shared across profiles by default. Set a different `stateFile` in each profile's policy config to isolate them.
+- Tier rules written to the patch by earlier versions remain active as base rules. To discard UI overrides and use the hand-written rules again, stop dsh and delete the state file.
 
 ```yaml
 config:
@@ -179,14 +181,15 @@ config:
 
 | Option | Entry | Default | Description |
 | --- | --- | --- | --- |
-| `tools` / `skills` / `metaTools` | `capability-menu-policy` | see above | Tier rules; UI changes are written back to this entry's `config` after the debounce |
+| `tools` / `skills` / `metaTools` | `capability-menu-policy` | see above | Base tier rules in the patch; UI moves are saved separately |
 | `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | Debounce window (ms) for change-event rebuilds; `0` disables debouncing |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
+| `stateFile` | `capability-menu-policy` | `capability-menu-policy.json` beside `patchFile` | UI tier state; set to an empty string to disable persistence |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
-| `persistDebounceMs` | `capability-menu-policy` | `1500` | Debounce window (ms) before a clicked tier change is written back to the patch file |
+| `persistDebounceMs` | `capability-menu-policy` | `1500` | Debounce window (ms) before a clicked tier change is written to the state file |
 
-These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`; they do not require separate config files. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
+These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`. The plugin creates `stateFile` automatically. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
 
 **Rule priority** (evaluated in order: Disabled always wins; between Resident and On-demand, exact rules beat wildcards):
 

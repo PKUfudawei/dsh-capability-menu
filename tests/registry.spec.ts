@@ -8,6 +8,7 @@ import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
+import { readTierState } from '../src/policy-state.ts'
 import yaml from 'js-yaml'
 
 const testSignal = new AbortController().signal
@@ -438,7 +439,7 @@ describe('meta-registry', () => {
     const { join } = await import('node:path')
     const catalogFile = join(home, 'capability-catalog.yaml')
     const ctx = await setup(home, { refreshDebounceMs: 5, catalogFile })
-    await ctx.plugin(policy, { tools: { resident: ['mcp__gongfeng__create_issue'] } })
+    await ctx.plugin(policy, { stateFile: '', tools: { resident: ['mcp__gongfeng__create_issue'] } })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
 
@@ -484,7 +485,7 @@ describe('meta-registry', () => {
     const ctx = await setup(home, { catalogFile, refreshDebounceMs: 5 })
     // The catalog is only emitted while a policy is mounted (it supplies the
     // classification that decides what counts as On-demand).
-    await ctx.plugin(policy, { tools: { 'on-demand': ['mcp__gongfeng__create_issue'] } })
+    await ctx.plugin(policy, { stateFile: '', tools: { 'on-demand': ['mcp__gongfeng__create_issue'] } })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
 
     await ctx.capability.refresh()
@@ -501,7 +502,7 @@ describe('meta-registry', () => {
     const { readFile } = await import('node:fs/promises')
     const catalogFile = join(home, 'nested', 'capability-catalog.yaml')
     const ctx = await setup(home, { catalogFile })
-    await ctx.plugin(policy)
+    await ctx.plugin(policy, { stateFile: '' })
     await ctx.capability.refresh()
     expect(await readFile(catalogFile, 'utf8')).toContain('# No on-demand capabilities')
     expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'empty', count: 0, path: catalogFile })
@@ -639,6 +640,7 @@ describe('meta-registry', () => {
     })
     await ctx.plugin(registry, { catalogFile })
     await ctx.plugin(policy, {
+      stateFile: '',
       tools: {
         resident: ['mcp__gongfeng__create_issue'],
         'on-demand': ['mcp__km__search'],
@@ -679,11 +681,12 @@ describe('meta-registry', () => {
     expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
   })
 
-  it('persists tier changes into the profile patch, coalesced and once', async () => {
+  it('persists tier changes outside the watched patch and skips unchanged writes', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { readFile, writeFile } = await import('node:fs/promises')
     const { join } = await import('node:path')
     const patchFile = join(home, 'cordis.patch.yml')
+    const stateFile = join(home, 'capability-menu-policy.json')
     await writeFile(patchFile, '- insert: []\n', 'utf8')
     const ctx = await setup(home)
     // Long enough that the "not written yet" check below cannot race the timer,
@@ -693,32 +696,17 @@ describe('meta-registry', () => {
     await ctx.capability.refresh()
 
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
-    // The click lands in memory only; the write waits out the debounce, because
-    // every patch write makes dsh hot-reload this plugin.
-    expect(await readFile(patchFile, 'utf8')).not.toContain('capability-menu-policy')
-    await wait(250)
+    // The click lands in memory immediately; only the separate state file is written.
+    expect((await readTierState(stateFile)).tool.size).toBe(0)
+    await expect.poll(async () => (await readTierState(stateFile)).tool.get('mcp__km__search'),
+      { timeout: 5_000 }).toBe('on-demand')
+    expect(await readFile(patchFile, 'utf8')).toBe('- insert: []\n')
 
-    type Row = { id?: string; name?: string; insert?: unknown[]; config?: { tools?: Record<string, string[]> } }
-    const readDoc = async (): Promise<Row[]> => yaml.load(await readFile(patchFile, 'utf8')) as Row[]
-
-    // The row has to be an override patch, never an `insert` row. Its id already
-    // exists in the composed tree — the package's own bundle patch inserts
-    // `capability-menu-policy` — and this file is applied after that layer, so a
-    // second insert makes dsh refuse to boot with
-    // `duplicate loader entry id: capability-menu-policy`.
-    const doc = await readDoc()
-    const row = doc.find(entry => entry.id === 'capability-menu-policy')
-    expect(row?.name).toBe('@daweifu/capability-menu/policy')
-    expect(row?.config?.tools?.['on-demand']).toEqual(['mcp__km__search'])
-    const inserted = doc.flatMap(entry => Array.isArray(entry.insert) ? entry.insert : [])
-    expect(inserted.some(entry => (entry as { id?: string }).id === 'capability-menu-policy')).toBe(false)
-
-    // Re-sending the same rules must not rewrite the file: an unchanged write
-    // would still make dsh reload the plugin for nothing.
-    const before = await readFile(patchFile, 'utf8')
+    // Re-sending the same rules must leave the state file unchanged.
+    const before = await readFile(stateFile, 'utf8')
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
     await wait(250)
-    expect(await readFile(patchFile, 'utf8')).toBe(before)
+    expect(await readFile(stateFile, 'utf8')).toBe(before)
   })
 
   it('keeps a skill that disables model invocation out of the index', async () => {
@@ -726,7 +714,7 @@ describe('meta-registry', () => {
     await writeSkill(`${home}/.agents/skills`, 'user-only-skill', 'User-invoked only', 'Body.', 'disable-model-invocation: true\n')
     await writeSkill(`${home}/.agents/skills`, 'normal-skill', 'Model-invocable', 'Body.')
     const ctx = await setup(home)
-    await ctx.plugin(policy)
+    await ctx.plugin(policy, { stateFile: '' })
     await ctx.capability.refresh()
 
     // `disable-model-invocation: true` is dsh's own gate: the skill never
