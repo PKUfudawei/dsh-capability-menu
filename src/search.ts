@@ -28,7 +28,11 @@ export const Config: z<Config> = z.object({
 /** Canonical list-mode result. */
 export interface MetaSearchListResult {
   readonly mode: 'list'
+  /** All matches after scope and Disabled filtering, before pagination. */
   readonly total: number
+  readonly returned: number
+  readonly offset: number
+  readonly has_more: boolean
   readonly results: CapabilitySummary[]
   readonly hint: string
 }
@@ -45,7 +49,7 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult
 /**
  * Register the `meta_search` tool.
  *
- * - Mode A (list, default): search by keyword/tag/server and return candidate ids + short summaries.
+ * - Mode A (list, default): search by keyword/tag/server and return a paginated candidate list.
  * - Mode B (detail): pass a candidate's exact id (optionally `detail: true`) to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
@@ -60,7 +64,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const tool = defineTool({
     name: 'meta_search',
-    description: 'Search capabilities (tools and skills) by keyword/tag/source to find candidate ids, or inspect one candidate by exact id. List mode (default) returns an id and short summary for each match to help choose a capability. Detail mode returns the full description and, for tools, the parameter schema; for skills, it returns usage guidance. Use meta_invoke with a returned id to run/load the capability.',
+    description: 'Search capabilities available to this session by keyword/tag/source, with offset pagination, or inspect one candidate by exact id. List mode returns total, returned, offset and has_more. Detail mode returns the full description and tool schema; use meta_invoke to load Skill instructions.',
     parameters: {
       query: { type: 'string', description: 'Natural-language or keyword query; mutually exclusive with id.' },
       id: { type: 'string', description: 'Exact capability id (from a previous search results[].id); mutually exclusive with query, takes precedence.' },
@@ -69,6 +73,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       server: { type: 'string', description: 'Filter by server name — an MCP server (gongfeng/iwiki/km/zhiyan_qci) or the reserved built-in pseudo-server grouping harness-native tools.' },
       tag: { type: 'string', description: 'Filter by tag.' },
       max_results: { type: 'integer', description: 'Maximum results in list mode (default 20, max 50).' },
+      offset: { type: 'integer', description: 'Zero-based result offset for pagination (default 0).' },
     },
     output: {
       schema: {
@@ -79,6 +84,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             properties: {
               mode: { type: 'string', required: true, const: 'list' },
               total: { type: 'integer', required: true },
+              returned: { type: 'integer', required: true },
+              offset: { type: 'integer', required: true },
+              has_more: { type: 'boolean', required: true },
               results: { type: 'array', required: true, items: { type: 'json' } },
               hint: { type: 'string', required: true },
             },
@@ -103,6 +111,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       server?: string
       tag?: string
       max_results?: number
+      offset?: number
     }, exec: ToolRunContext) {
       const query = args.query?.trim() ?? ''
       const id = args.id?.trim() ?? ''
@@ -111,6 +120,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       const server = args.server?.trim() || undefined
       const tag = args.tag?.trim() || undefined
       const requestedMax = args.max_results
+      const offset = args.offset ?? 0
+      if (!Number.isInteger(offset) || offset < 0) throw new Error('meta_search: offset must be a non-negative integer')
+      if (requestedMax !== undefined && (!Number.isInteger(requestedMax) || requestedMax < 1)) {
+        throw new Error('meta_search: max_results must be a positive integer')
+      }
 
       if (query.length > 0 && id.length > 0) {
         throw new Error('meta_search: query and id are mutually exclusive; pass exactly one')
@@ -125,6 +139,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         signal: exec.signal,
         scope,
       }
+      const allowedIds = new Set<string>()
+      for (const schema of ctx.tools.schemas(scope)) allowedIds.add(schema.name)
+      for (const skill of await ctx.skills.list({ scope })) allowedIds.add(skill.name)
       // Disabled capabilities are not discoverable: the registry keeps them
       // indexed for the management surface, but meta_search never surfaces
       // them to the model.
@@ -139,6 +156,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (resolved === undefined) {
           throw new Error(`meta_search: capability "${id}" is unknown, unavailable, or ambiguous — pass kind: "tool" | "skill" when both exist`)
         }
+        if (!allowedIds.has(id)) throw new Error(`meta_search: capability "${id}" is not available in the current session scope`)
         if (isDisabled(id, resolved.kind)) {
           throw new Error(`meta_search: capability "${id}" is disabled and cannot be inspected`)
         }
@@ -155,7 +173,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // top-N returning nothing). Over-fetch — the registry imposes no upper
       // bound and already ranks the whole catalog — then slice.
       const limit = Math.min(requestedMax ?? maxResults, 50)
-      const results = ctx.capability.search({
+      const matches = ctx.capability.search({
         query,
         kind,
         server,
@@ -163,12 +181,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         maxResults: Number.MAX_SAFE_INTEGER,
         scope,
       })
-        .filter(result => !isDisabled(result.id, result.kind))
-        .slice(0, limit)
+        .filter(result => allowedIds.has(result.id) && !isDisabled(result.id, result.kind))
+      const results = matches.slice(offset, offset + limit)
       const catalogPath = ctx.capability.catalogPath?.()
       return {
         mode: 'list' as const,
-        total: results.length,
+        total: matches.length,
+        returned: results.length,
+        offset,
+        has_more: offset + results.length < matches.length,
         results: results as unknown as JsonValue[],
         hint: catalogPath !== undefined
           ? `On-demand capabilities catalog: ${catalogPath} (YAML, grep/read searchable). Call meta_search with an exact id for full schema, or meta_invoke to run/load it.`

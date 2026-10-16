@@ -100,9 +100,50 @@ describe('capability-menu-search', () => {
 
     const { value, isError } = await runTool(ctx, 'meta_search', { query: 'issue' })
     expect(isError).toBe(false)
-    const result = value as { mode: string; total: number; results: Array<{ id: string }> }
+    const result = value as { mode: string; total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
     expect(result.mode).toBe('list')
     expect(result.results.some(item => item.id === issue)).toBe(true)
+    expect(result.total).toBeGreaterThanOrEqual(result.returned)
+    expect(result.offset).toBe(0)
+  })
+
+  it('reports the full filtered total and reaches results after the first page', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    const ctx = await setup(home)
+    const ids = Array.from({ length: 57 }, (_, index) => registerMcpTool(ctx, 'paging', `item_${String(index).padStart(2, '0')}`, 'pagination sample capability'))
+    await ctx.capability.refresh()
+
+    const first = await runTool(ctx, 'meta_search', { query: 'pagination sample', kind: 'tool', max_results: 50 })
+    expect(first.isError).toBe(false)
+    const page1 = first.value as { total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
+    expect(page1.total).toBe(57)
+    expect(page1.returned).toBe(50)
+    expect(page1.offset).toBe(0)
+    expect(page1.has_more).toBe(true)
+
+    const second = await runTool(ctx, 'meta_search', { query: 'pagination sample', kind: 'tool', max_results: 50, offset: 50 })
+    expect(second.isError).toBe(false)
+    const page2 = second.value as { total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
+    expect(page2.total).toBe(57)
+    expect(page2.returned).toBe(7)
+    expect(page2.offset).toBe(50)
+    expect(page2.has_more).toBe(false)
+    expect(new Set([...page1.results, ...page2.results].map(row => row.id))).toEqual(new Set(ids))
+  })
+
+  it('does not search or inspect capabilities outside the caller scope', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    await writeSkill(`${home}/.agents/skills`, 'out-of-scope-skill', 'Hidden skill description', 'Hidden body.')
+    const ctx = await setup(home)
+    await ctx.capability.refresh()
+    ctx.skills.list = async () => []
+    expect(await ctx.skills.list({})).toEqual([])
+
+    const list = await runTool(ctx, 'meta_search', { query: 'Hidden skill', kind: 'skill' })
+    expect(list.isError).toBe(false)
+    expect((list.value as { total: number; results: Array<{ id: string }> }).total).toBe(0)
+    const detail = await runTool(ctx, 'meta_search', { id: 'out-of-scope-skill', kind: 'skill' })
+    expect(detail.isError).toBe(true)
   })
 
   it('returns full detail for an exact id', async () => {

@@ -54,8 +54,8 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 | 工具 | 作用 | 对应 entry |
 | --- | --- | --- |
-| `meta_search` | 搜索 Tool / Skill 候选项；列表摘要用于筛选，详情返回指定能力的完整说明及工具参数 schema / Skill 使用提示 | `@daweifu/capability-menu/search` |
-| `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载 | `@daweifu/capability-menu/invoke` |
+| `meta_search` | 在当前会话可见能力中搜索；列表支持 offset 分页并返回总数、已返回数和是否还有下一页；详情返回说明及工具参数 schema | `@daweifu/capability-menu/search` |
+| `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载；`force: true` 可重载已更新的 Skill | `@daweifu/capability-menu/invoke` |
 
 ### 能力菜单
 
@@ -180,7 +180,7 @@ config:
 | 配置项 | 归属 entry | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | 三档分类规则；能力菜单的改动会（防抖后）自动写回本 entry 的 `config` |
-| `catalogFile` | `capability-menu-registry` | `~/.dsh/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
+| `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 注册 MCP 服务器写入的 patch 文件 |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | 注册 Skill 目录的技能根 |
@@ -204,9 +204,9 @@ config:
 
 ### 按需能力目录（`catalogFile`）
 
-插件会把按需 Tool 和 Skill 写入 `catalogFile` 指定的 YAML 文件，供模型检索。默认路径为 `~/.dsh/capability-catalog.yaml`，设为空字符串可关闭；没有按需能力时，模型不会收到目录提示。目录会在 Tool、Skill 或档位变化后自动更新。
+插件会把按需 Tool 和 Skill 写入 `catalogFile` 指定的 YAML 文件，供模型检索。默认路径为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`，设为空字符串可关闭；无按需能力时文件会保留 `capabilities: []` 并注明原因。目录会在 Tool、Skill 或档位变化后自动更新。
 
-Skill 需要先注册到 `ctx.skills` 才会出现在目录中。模型可以用 `grep` / `read` 搜索目录，或调用 `meta_search` 查找条目，再通过 `meta_invoke` 使用对应能力。每个条目包含 `id` 和 `kind`，Skill 的 id 使用其名称。
+Skill 需要先注册到 `ctx.skills` 才会出现在目录中。模型可以用 `grep` / `read` 搜索目录，或调用 `meta_search` 查找条目，再通过 `meta_invoke` 使用对应能力。列表默认最多返回 20 项（单页上限 50）；使用 `offset: 50` 读取下一页。`total` 是权限与禁用规则过滤后的匹配总数，`returned` 是当前页数量。Skill 的详情返回描述和使用提示，正文由 `meta_invoke` 加载；要重新读入会话中途更新的正文时传 `force: true`。
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml（自动生成；仅含 On-demand 能力，
@@ -224,7 +224,7 @@ capabilities:
     whenToUse: 处理旧工程时使用
 ```
 
-如果模型侧的 `bash` / `read` 沙箱无法访问默认目录，请把 `catalogFile` 改到沙箱可见的位置。多个 DSH 实例默认共用该文件；需要隔离时，为每个实例设置不同路径。
+默认目录跟随 `DSH_HOME`，并由插件创建父目录。能力菜单会显示目录状态与路径；模型侧的 `bash` / `read` 沙箱权限取决于运行环境，如不可访问需将 `catalogFile` 配到沙箱可见位置。多个 DSH 实例默认共用该文件；需要隔离时，为每个实例设置不同路径。
 
 ## License
 

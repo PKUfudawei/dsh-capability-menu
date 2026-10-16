@@ -54,8 +54,8 @@ The model gets two meta tools:
 
 | tool | role | corresponding entry |
 | --- | --- | --- |
-| `meta_search` | search Tool / Skill candidates; list summaries help choose one, while detail returns its full description and the tool schema or Skill usage guidance | `@daweifu/capability-menu/search` |
-| `meta_invoke` | unified execution surface: really executes Tools (full `ctx.tools` pipeline) + loads Skills | `@daweifu/capability-menu/invoke` |
+| `meta_search` | Search capabilities visible to the current session; list mode supports offset pagination and reports total, returned, and has-more values; detail returns descriptions and tool schemas | `@daweifu/capability-menu/search` |
+| `meta_invoke` | Unified execution surface for Tools and Skills; pass `force: true` to reload updated Skill instructions | `@daweifu/capability-menu/invoke` |
 
 ### Capability Management
 
@@ -180,7 +180,7 @@ config:
 | Option | Entry | Default | Description |
 | --- | --- | --- | --- |
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | see above | Tier rules; UI changes are written back to this entry's `config` after the debounce |
-| `catalogFile` | `capability-menu-registry` | `~/.dsh/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
+| `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | Debounce window (ms) for change-event rebuilds; `0` disables debouncing |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
@@ -204,9 +204,9 @@ If a higher-priority rule overrides a selected tier, the UI reports that the cla
 
 ### On-demand capability catalog (`catalogFile`)
 
-The plugin writes On-demand Tools and Skills to the YAML file specified by `catalogFile` so the model can search them. The default is `~/.dsh/capability-catalog.yaml`; set it to an empty string to disable the catalog. The catalog is updated when Tools, Skills, or tiers change. When there are no On-demand capabilities, the model receives no catalog hint.
+The plugin writes On-demand Tools and Skills to the YAML file specified by `catalogFile` so the model can search them. The default is `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`; set it to an empty string to disable the catalog. The catalog is updated when Tools, Skills, or tiers change. When empty, it contains `capabilities: []` with an explanatory comment.
 
-A Skill must be registered in `ctx.skills` to appear in the catalog. The model can search it with `grep` / `read` or call `meta_search`, then use the capability with `meta_invoke`. Each entry has an `id` and `kind`; a Skill's id is its name.
+A Skill must be registered in `ctx.skills` to appear in the catalog. The model can search it with `grep` / `read` or call `meta_search`, then use the capability with `meta_invoke`. List mode returns up to 20 items by default (50 maximum per page); use `offset: 50` for the next page. `total` counts matches after scope and Disabled filtering; `returned` counts the current page. Skill details contain metadata and usage guidance; `meta_invoke` loads the body. Pass `force: true` to reload instructions changed during the session.
 
 ```yaml
 # ~/.dsh/capability-catalog.yaml (auto-generated; contains only On-demand
@@ -226,7 +226,7 @@ capabilities:
     whenToUse: Use when working on legacy projects
 ```
 
-If the model-side `bash` / `read` sandbox cannot access the default directory, set `catalogFile` to a path it can reach. Multiple DSH instances share the default file; use a different path for each instance when they need separate catalogs.
+The default follows `DSH_HOME`, and the plugin creates its parent directory. The management panel shows catalog state and path. Model-side `bash` / `read` access depends on the runtime sandbox; if the path is inaccessible, set `catalogFile` to one the sandbox can read. Multiple DSH instances share the default file; use a different path for each instance when they need separate catalogs.
 
 ## License
 

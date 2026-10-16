@@ -10,7 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
-import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts';
+import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics } from '../registry.ts';
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -28,7 +28,8 @@ export interface CatalogDocs {
         readonly content: string;
     };
     /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
-    readonly catalogMissing?: 'disabled' | 'read-failed';
+    readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed';
+    readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
 }
 /**
  * Host-side remote face for the 能力菜单 tab. Every method delegates to the
@@ -50,6 +51,8 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     updateConfig(partial: Partial<CapabilityPolicyConfig>): Promise<void>;
     /** Classify every capability currently indexed by `ctx.capability`. */
     classifyAll(): CapabilityClassification[];
+    /** Explain filtered, overridden, broken, empty, and unbrowseable inventory states. */
+    getDiagnostics(): CapabilityDiagnostics;
     /**
      * Rebuild the capability catalog now and resolve once it has converged.
      * The UI calls this after registering a new source (an MCP server or a

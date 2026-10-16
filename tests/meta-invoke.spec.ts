@@ -454,6 +454,13 @@ describe('capability-menu-invoke', () => {
     const secondDetail = (second.value as { detail: { content: string } }).detail
     expect(secondDetail.content).not.toContain('Full design instructions')
     expect(secondDetail.content).toContain('already loaded')
+
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(`${home}/.agents/skills/frontend-design/SKILL.md`, '---\nname: frontend-design\ndescription: Design guidance\n---\n\nUpdated design instructions.\n')
+    await ctx.capability.refresh()
+    const forced = await runTool(ctx, 'meta_invoke', { id: 'frontend-design', kind: 'skill', force: true }, agent)
+    expect(forced.isError).toBe(false)
+    expect((forced.value as { detail: { content: string } }).detail.content).toContain('Updated design instructions')
   })
 
   it('keeps loaded-skill dedup isolated per session in the same process', async () => {

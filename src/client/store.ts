@@ -20,6 +20,7 @@ export type {
   McpInput,
   McpUpdateInput,
   SkillLocation,
+  CapabilityDiagnostics,
 } from './remote.ts'
 import type {
   CapabilityRow,
@@ -30,11 +31,13 @@ import type {
   McpInput,
   McpUpdateInput,
   SkillLocation,
+  CapabilityDiagnostics,
 } from './remote.ts'
 
 /** Snapshot of the management surface. */
 export interface CapabilitySnapshot {
   readonly rows: readonly CapabilityRow[]
+  readonly diagnostics?: CapabilityDiagnostics
 }
 
 /** The Host `capabilityPolicy` remote face (generated contribution). */
@@ -42,6 +45,7 @@ export interface CapabilityPolicyRemote {
   getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
   updateConfig(partial: Record<string, unknown>): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   classifyAll(): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>
+  getDiagnostics?(): Promise<{ ok: true; value: CapabilityDiagnostics } | { ok: false; error: { code: string; message: string } }>
   refresh(): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   /** One number naming the host's current catalog state; see the registry's `version()`. */
   catalogVersion(): Promise<{ ok: true; value: number } | { ok: false; error: { code: string; message: string } }>
