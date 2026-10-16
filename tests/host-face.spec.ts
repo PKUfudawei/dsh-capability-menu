@@ -58,7 +58,7 @@ describe('capabilityPolicy host face', () => {
     const browser = [...clientWireTable().keys()].sort()
     expect(host).toEqual(browser)
     // Guard the guard: an empty table would make the comparison vacuous.
-    expect(host.length).toBe(19)
+    expect(host.length).toBe(20)
   })
 
   it('sends every field the browser sends, with the same optionality', () => {
