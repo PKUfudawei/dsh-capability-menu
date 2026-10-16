@@ -48,22 +48,6 @@ export interface CapabilitySetConfig {
     'on-demand'?: string[];
     /** Explicitly-Disabled rule list (exact name or glob); wins over everything. */
     disabled?: string[];
-    /**
-     * @deprecated pre-rename alias of `disabled`; accepted and mapped so legacy
-     * profiles written with the `blocked` key keep working without an on-disk
-     * rewrite.
-     */
-    blocked?: string[];
-    /**
-     * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
-     * profiles keep working without an on-disk rewrite.
-     */
-    exposed?: string[];
-    /**
-     * @deprecated pre-rename alias of `on-demand`; accepted and mapped so legacy
-     * profiles keep working without an on-disk rewrite.
-     */
-    progressive?: string[];
 }
 /** Resident / On-demand / Disabled projection policy configuration. */
 export interface Config {
@@ -93,14 +77,6 @@ export interface Config {
 /** Validate and default the policy configuration. */
 export declare const Config: z<Config>;
 export declare const DEFAULT_META_TOOLS: readonly ["meta_search", "meta_invoke"];
-/**
- * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
- * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
- * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
- * keys win when they carry rules; a legacy key fills in when the matching new
- * list is empty.
- */
-export declare function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined;
 /**
  * Convert a user-facing rule string into a normalized {@link PolicyRule}.
  * - `server:<name>` → server-targeted rule (`target: 'server'`).

@@ -17,12 +17,9 @@ export type { CapabilityDiagnostics } from '../registry.ts'
 export type { SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
 import type { SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
 
-/**
- * Bridge Typert's codec field rename across DSH 0.1 and 0.2. Older remotes
- * read `schema`; the 0.2 protocol lazily calls `create()`.
- */
+/** Create a strict codec for the DSH 0.2 protocol. */
 function strictCodec(typeSymbol: string, schema: { parse(value: unknown): unknown }) {
-  return { mode: 'strict' as const, typeSymbol, schema, create: () => schema }
+  return { mode: 'strict' as const, typeSymbol, create: () => schema }
 }
 
 /** Read-only row: one capability's Resident/On-demand/Disabled classification. */

@@ -234,8 +234,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         // outcome to the target capability.
         // Do NOT pass `agent` for MCP tools — `ctx.tools.execute` resolves through
         // the caller's `view.visible`, so passing an agent whose projection hid the
-        // Progressive tool would surface `UNKNOWN_TOOL`. Executing on the global view
-        // keeps Progressive tools runnable; the target tool's own guards still apply
+        // On-demand tool would surface `UNKNOWN_TOOL`. Executing on the global view
+        // keeps On-demand tools runnable; the target tool's own guards still apply
         // (no permission bypass — see README). A native tool reachable only through
         // the caller's view does pass that view, mirroring the direct-call surface.
         // `args.args` is normalized to an argument object first. The declared

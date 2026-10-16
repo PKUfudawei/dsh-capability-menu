@@ -10,8 +10,8 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
-import { copyFile, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { constants, readFileSync } from 'node:fs'
+import { mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts'
@@ -103,41 +103,32 @@ export interface CapabilityRecord {
   readonly summary: string
 }
 
-/** Agent-preset APIs across DSH releases. */
+/** Agent-preset scope API in DSH 0.2. */
 interface AgentPresetScopes {
   list(): Promise<Array<{ id: string; broken?: string }>>
-  /** DSH 0.1.x standing-scope API. */
-  standingKeyFor?(id?: string): Promise<ScopeKey>
-  /** DSH 0.2.x lease API; the scope must stay retained during enumeration. */
-  acquireScope?(id?: string): Promise<{ key: ScopeKey; [key: symbol]: unknown }>
+  /** The scope must stay retained during enumeration. */
+  acquireScope(id?: string): Promise<{ key: ScopeKey; [key: symbol]: unknown }>
 }
 
 const ASYNC_DISPOSE =
   (Symbol as unknown as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('nodejs.asyncDispose')
 
 /**
- * Read one preset's tool/skill view across both Agent preset APIs.
- * Newer DSH versions return a lease so hot-replaced preset generations cannot
- * be disposed while the registry is reading their scoped capabilities.
+ * Keep a preset lease until its scoped capabilities have been read, so a hot
+ * replacement cannot dispose the scope during enumeration.
  */
 async function withAgentPresetScope<T>(
   agentPresets: AgentPresetScopes,
   id: string,
   read: (scope: ScopeKey) => Promise<T> | T,
 ): Promise<T> {
-  if (agentPresets.acquireScope !== undefined) {
-    const lease = await agentPresets.acquireScope(id)
-    try {
-      return await read(lease.key)
-    } finally {
-      const dispose = lease[ASYNC_DISPOSE]
-      if (typeof dispose === 'function') await (dispose as () => Promise<void>).call(lease)
-    }
+  const lease = await agentPresets.acquireScope(id)
+  try {
+    return await read(lease.key)
+  } finally {
+    const dispose = lease[ASYNC_DISPOSE]
+    if (typeof dispose === 'function') await (dispose as () => Promise<void>).call(lease)
   }
-  if (agentPresets.standingKeyFor !== undefined) {
-    return await read(await agentPresets.standingKeyFor(id))
-  }
-  throw new Error('agentPresets exposes neither acquireScope() nor standingKeyFor()')
 }
 
 /** Lightweight list-mode projection of one capability (no full schema). */
@@ -489,7 +480,6 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const metadata = new Map<string, string>()
   const metadataKey = (kind: CapabilityKind, id: string): string => `${kind}:${id}`
-  let legacyMetadata = false
   let savedSummaryMaxChars: number | undefined
   if (searchMetadataFile.length > 0) {
     try {
@@ -506,8 +496,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       for (const [key, value] of Object.entries(saved)) {
         if (!/^(tool|skill):/.test(key) || value === null || typeof value !== 'object' || Array.isArray(value)) continue
         const entry = value as Record<string, unknown>
-        if ('summary' in entry || 'tags' in entry) legacyMetadata = true
-        const description = typeof entry.description === 'string' ? entry.description : entry.summary
+        const description = entry.description
         if (typeof description === 'string' && description.trim().length > 0) {
           metadata.set(key, description.trim())
         }
@@ -528,13 +517,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       ...entries,
     }, null, 2) + '\n'
     await mkdir(dirname(searchMetadataFile), { recursive: true })
-    if (legacyMetadata) {
-      try {
-        await copyFile(searchMetadataFile, `${searchMetadataFile}.legacy.bak`, constants.COPYFILE_EXCL)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      }
-    }
     const temp = `${searchMetadataFile}.${process.pid}.${Date.now()}.tmp`
     try {
       await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
@@ -546,7 +528,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     metadata.clear()
     for (const [key, value] of next) metadata.set(key, value)
     savedSummaryMaxChars = savedLimit
-    legacyMetadata = false
   }
   const overrideOf = (record: CapabilityRecord): string | undefined => {
     const value = metadata.get(metadataKey(record.kind, record.id))

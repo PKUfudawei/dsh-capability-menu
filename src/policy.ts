@@ -62,22 +62,6 @@ export interface CapabilitySetConfig {
   'on-demand'?: string[]
   /** Explicitly-Disabled rule list (exact name or glob); wins over everything. */
   disabled?: string[]
-  /**
-   * @deprecated pre-rename alias of `disabled`; accepted and mapped so legacy
-   * profiles written with the `blocked` key keep working without an on-disk
-   * rewrite.
-   */
-  blocked?: string[]
-  /**
-   * @deprecated pre-rename alias of `resident`; accepted and mapped so legacy
-   * profiles keep working without an on-disk rewrite.
-   */
-  exposed?: string[]
-  /**
-   * @deprecated pre-rename alias of `on-demand`; accepted and mapped so legacy
-   * profiles keep working without an on-disk rewrite.
-   */
-  progressive?: string[]
 }
 
 /** Resident / On-demand / Disabled projection policy configuration. */
@@ -112,19 +96,11 @@ export const Config: z<Config> = z.object({
     resident: z.array(z.string()).default([]),
     'on-demand': z.array(z.string()).default([]),
     disabled: z.array(z.string()).default([]),
-    // Deprecated pre-rename aliases: kept in the schema so a config cast keeps
-    // them available for `normalizeSetConfig` instead of stripping them.
-    blocked: z.array(z.string()),
-    exposed: z.array(z.string()),
-    progressive: z.array(z.string()),
   }),
   skills: z.object({
     resident: z.array(z.string()).default([]),
     'on-demand': z.array(z.string()).default([]),
     disabled: z.array(z.string()).default([]),
-    blocked: z.array(z.string()),
-    exposed: z.array(z.string()),
-    progressive: z.array(z.string()),
   }),
   metaTools: z.array(z.string()).default(['meta_search', 'meta_invoke']),
   // schemastery object properties are optional-by-default; no `.optional()` needed.
@@ -146,28 +122,6 @@ export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
  * milliseconds, and the failure this guards against never resolves at all.
  */
 const CATALOG_REFRESH_TIMEOUT_MS = 5_000
-
-/**
- * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
- * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
- * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
- * keys win when they carry rules; a legacy key fills in when the matching new
- * list is empty.
- */
-export function normalizeSetConfig(set: CapabilitySetConfig | undefined): CapabilitySetConfig | undefined {
-  if (set === undefined) return undefined
-  const next: CapabilitySetConfig = {}
-  const resident = set.resident !== undefined && set.resident.length > 0 ? set.resident : undefined
-  if (resident !== undefined) next.resident = resident
-  else if (set.exposed !== undefined && set.exposed.length > 0) next.resident = set.exposed
-  const onDemand = set['on-demand'] !== undefined && set['on-demand'].length > 0 ? set['on-demand'] : undefined
-  if (onDemand !== undefined) next['on-demand'] = onDemand
-  else if (set.progressive !== undefined && set.progressive.length > 0) next['on-demand'] = set.progressive
-  const disabled = set.disabled !== undefined && set.disabled.length > 0 ? set.disabled : undefined
-  if (disabled !== undefined) next.disabled = disabled
-  else if (set.blocked !== undefined && set.blocked.length > 0) next.disabled = set.blocked
-  return next
-}
 
 /**
  * Convert a user-facing rule string into a normalized {@link PolicyRule}.
@@ -427,22 +381,10 @@ export const name = 'capability-menu-policy'
 export const inject = ['capability', 'tools', 'skills']
 
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  // Accept legacy rule keys (`exposed`/`progressive`) with the same meaning as
-  // the current `resident`/`on-demand`, so pre-rename profiles keep working
-  // without a disk rewrite. The management UI always writes the new keys.
-  const normalized: Config = { ...config }
-  const legacyTools = config.tools?.exposed !== undefined || config.tools?.progressive !== undefined || config.tools?.blocked !== undefined
-  const legacySkills = config.skills?.exposed !== undefined || config.skills?.progressive !== undefined || config.skills?.blocked !== undefined
-  normalized.tools = normalizeSetConfig(config.tools)
-  normalized.skills = normalizeSetConfig(config.skills)
-  if (legacyTools || legacySkills) {
-    ctx.logger.warn('capability-policy: legacy rule keys `exposed`/`progressive`/`blocked` were auto-mapped to `resident`/`on-demand`/`disabled`; edit the profile patch to persist the new keys')
-  }
-
   // Mutable runtime state so the management surface (能力菜单) can live-update
   // the policy without a reload.
-  let current = normalized
-  let metaTools = [...(normalized.metaTools ?? DEFAULT_META_TOOLS)]
+  let current = config
+  let metaTools = [...(config.metaTools ?? DEFAULT_META_TOOLS)]
   let metaToolSet = new Set<string>(metaTools)
   let toolCompiled: CompiledCapabilityRules
   let skillCompiled: CompiledCapabilityRules
@@ -622,11 +564,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     skillCompiled = compiled.skills
   }
   const effective: Config = {
-    ...normalized,
-    tools: savedTiers.tool.size > 0 ? replayMoves(normalized.tools, savedTiers.tool) : normalized.tools,
-    skills: savedTiers.skill.size > 0 ? replayMoves(normalized.skills, savedTiers.skill) : normalized.skills,
+    ...config,
+    tools: savedTiers.tool.size > 0 ? replayMoves(config.tools, savedTiers.tool) : config.tools,
+    skills: savedTiers.skill.size > 0 ? replayMoves(config.skills, savedTiers.skill) : config.skills,
   }
-  applyConfig(effective, [...(normalized.metaTools ?? DEFAULT_META_TOOLS)])
+  applyConfig(effective, [...(config.metaTools ?? DEFAULT_META_TOOLS)])
 
   const service: CapabilityPolicyService = {
     classifyTool(name: string): CapabilityClass {

@@ -153,7 +153,7 @@ config:
       - 'mcp__secret__*'
   skills:
     on-demand: # 按需
-      - legacy_skill         # 未列出的能力默认常驻
+      - example_skill        # 未列出的能力默认常驻
 ```
 
 ### 全部配置项
@@ -179,7 +179,7 @@ config:
 | 1 | `disabled` 精确 | `disabled: [forbidden_skill]` | 最硬禁用，压过一切 |
 | 2 | `disabled` 通配 | `disabled: ['mcp__secret__*']` | 整组禁用 |
 | 3 | `resident` 精确 | `resident: [bash]` | 单个能力显式常驻 |
-| 4 | `on-demand` 精确 | `on-demand: [legacy_skill]` | 单个能力显式按需（能力菜单点击写入的就是这类） |
+| 4 | `on-demand` 精确 | `on-demand: [example_skill]` | 单个能力显式按需（能力菜单点击写入的就是这类） |
 | 5 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` | 整组常驻 |
 | 6 | `on-demand` 通配 | `on-demand: ['mcp__*']` | 兜底批量按需 |
 | 默认 | 未命中任何规则 | — | 常驻 |
@@ -203,10 +203,10 @@ capabilities:
     kind: tool
     description: 搜索知识库
     server: km
-  - id: legacy_skill
+  - id: example_skill
     kind: skill
-    description: 处理旧工程的低频技能
-    whenToUse: 处理旧工程时使用
+    description: 处理日志的低频技能
+    whenToUse: 排查日志问题时使用
 ```
 
 ## License

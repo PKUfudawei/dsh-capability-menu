@@ -672,16 +672,10 @@ type SkillManifestCheck =
   | { readonly ok: false; readonly message: string }
 
 /**
- * Invocation keys the loader reads, and the legacy spellings it rejects. Both
- * are optional; a legacy key or a value that cannot be read as a boolean makes
- * `parseInvocationPolicy` throw, which drops the whole skill.
+ * Invocation keys the loader reads. Both are optional; a value that cannot be
+ * read as a boolean makes `parseInvocationPolicy` throw and drops the skill.
  */
 const INVOCATION_KEYS = ['disable-model-invocation', 'user-invocable'] as const
-const LEGACY_INVOCATION_KEYS: ReadonlyArray<readonly [string, string]> = [
-  ['disableModelInvocation', 'disable-model-invocation'],
-  ['modelInvocable', 'disable-model-invocation'],
-  ['userInvocable', 'user-invocable'],
-]
 
 /** Read `dir/SKILL.md`, or `undefined` when it is missing or unreadable. */
 async function readSkillManifest(dir: string): Promise<string | undefined> {
@@ -729,16 +723,10 @@ async function checkSkillManifest(dir: string): Promise<SkillManifestCheck> {
 /**
  * Validate the invocation fields. A skill without them is fine — the loader
  * defaults to model- and user-invocable — but one it cannot parse is dropped,
- * so a legacy spelling or a non-boolean value is rejected here with the
- * canonical replacement named. Returns the problem, or undefined when the
- * fields are all readable.
+ * so a non-boolean value is rejected here. Returns the problem, or undefined
+ * when the fields are all readable.
  */
 function checkInvocation(front: Record<string, unknown>, dir: string): string | undefined {
-  for (const [legacy, canonical] of LEGACY_INVOCATION_KEYS) {
-    if (Object.hasOwn(front, legacy)) {
-      return `SKILL.md 的 frontmatter 字段「${legacy}」已废弃，请改用「${canonical}」：${dir}`
-    }
-  }
   for (const key of INVOCATION_KEYS) {
     if (Object.hasOwn(front, key) && !isFrontmatterBoolean(front[key])) {
       return `SKILL.md 的 frontmatter 字段「${key}」必须是布尔值：${dir}`

@@ -222,12 +222,12 @@ describe('meta-registry', () => {
     expect(await ctx.capability.readSkillFile('browse-me', 'templates')).toBeUndefined()
   })
 
-  it('enumerates skills across agent-preset standing scopes when agentPresets exists', async () => {
+  it('enumerates skills across agent-preset scopes when agentPresets exists', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     await writeSkill(`${home}/.agents/skills`, 'global-skill', 'A global-layer skill', 'Global body.')
     const ctx = await setup(home)
 
-    // Fake agent-presets service: one preset with a standing scope that hosts
+    // Fake agent-presets service: one preset with a scope that hosts
     // its own scoped skill provider. The registry must enumerate that scope,
     // not just the global layer.
     const scopes = new Map<string, { provider: { name: string; source: string }[] }>()
@@ -235,10 +235,10 @@ describe('meta-registry', () => {
       async list(): Promise<Array<{ id: string; broken?: string }>> {
         return [{ id: 'coding-plus' }, { id: 'broken-preset', broken: 'unparsable' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
+      async acquireScope(id?: string) {
         const key = { agentPreset: id }
         scopes.set(String(id), { provider: [] })
-        return key
+        return { key }
       },
     }
     ctx.provide('agentPresets', agentPresets)
@@ -264,7 +264,7 @@ describe('meta-registry', () => {
     await writeSkill(presetSkills, 'shared-name', 'The preset copy', 'Preset body.')
 
     const ctx = await setup(home)
-    // A preset's standing mount is a scope of its own that hosts its own skill
+    // A preset mount is a scope of its own that hosts its own skill
     // provider; `customSkillDirs` is how dsh's shipped presets mount `skills/`.
     // Its skills are therefore labelled `custom` — the same label a user's own
     // customSkillDirs entry gets — which is why the preset id has to be
@@ -282,8 +282,8 @@ describe('meta-registry', () => {
       async list(): Promise<Array<{ id: string; broken?: string }>> {
         return [{ id: 'cordis' }]
       },
-      async standingKeyFor(): Promise<unknown> {
-        return key
+      async acquireScope() {
+        return { key }
       },
     })
     await ctx.capability.refresh()
@@ -353,13 +353,13 @@ describe('meta-registry', () => {
     expect(ctx.capability.diagnostics().undocumentedSkills).toContainEqual({ name: 'summary-fallback', summary: 'Useful fallback guidance' })
   })
 
-  it('enumerates agent-preset standing scopes for tools as well as skills', async () => {
+  it('enumerates agent-preset scopes for tools as well as skills', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
     registerNativeTool(ctx, 'bash', 'Run commands in a bash shell')
 
     // Both the tool pass (rebuildTools) and the skill pass (refreshSkills)
-    // request each preset's standing scope; count the requests to prove the
+    // request each preset's scope; count the requests to prove the
     // tool side consumes preset scopes, not only the global view. The preset
     // list starts empty so the registry's eager mount-time passes see nothing;
     // only the explicit refresh() below enumerates the preset.
@@ -369,10 +369,10 @@ describe('meta-registry', () => {
       async list(): Promise<Array<{ id: string; broken?: string }>> {
         return presets
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
+      async acquireScope(id?: string) {
         const name = String(id)
         requested.set(name, (requested.get(name) ?? 0) + 1)
-        return { agentPreset: id }
+        return { key: { agentPreset: id } }
       },
     }
     ctx.provide('agentPresets', agentPresets)
@@ -415,8 +415,8 @@ describe('meta-registry', () => {
           inFlight -= 1
         }
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
 
@@ -449,8 +449,8 @@ describe('meta-registry', () => {
         listCalls += 1
         return [{ id: 'coding-plus' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
     await ctx.capability.refresh()
@@ -517,8 +517,8 @@ describe('meta-registry', () => {
         listCalls += 1
         return [{ id: 'coding-plus' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
     // Settle the baseline first: the eager mount-time prime also enumerates.
@@ -552,8 +552,8 @@ describe('meta-registry', () => {
         }
         return [{ id: 'coding-plus' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
     await ctx.capability.refresh()
@@ -586,8 +586,8 @@ describe('meta-registry', () => {
         ctx.emit('tools/change')
         return [{ id: 'coding-plus' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
 
@@ -608,8 +608,8 @@ describe('meta-registry', () => {
         listCalls += 1
         return [{ id: 'coding-plus' }]
       },
-      async standingKeyFor(id?: string): Promise<unknown> {
-        return { agentPreset: id }
+      async acquireScope(id?: string) {
+        return { key: { agentPreset: id } }
       },
     })
     await ctx.capability.refresh()

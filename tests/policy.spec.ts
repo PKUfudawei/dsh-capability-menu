@@ -86,8 +86,8 @@ describe('wildcard / rule matching', () => {
   })
 
   it('gives exact rules priority over wildcard rules across resident/on-demand', () => {
-    // README's example `tools.resident: ['mcp__gongfeng__*']` must not silently
-    // override an exact per-tool on-demand rule written by the UI click.
+    // A resident wildcard must not override an exact per-tool on-demand
+    // choice saved by the UI.
     const rules = policy.compileSet({
       resident: ['mcp__gongfeng__*'],
       'on-demand': ['mcp__gongfeng__create_issue'],
@@ -179,20 +179,6 @@ describe('capability-menu-policy plugin', () => {
 
   it('fails loud when a meta tool is disabled', async () => {
     await expect(setup({ tools: { disabled: ['meta_search'] } })).rejects.toThrow(/meta tool "meta_search" cannot be disabled/)
-  })
-
-  it('auto-maps legacy rule keys (exposed/progressive) to resident/on-demand', async () => {
-    // Pre-rename profiles still declare tools.exposed / tools.progressive; the
-    // policy must keep working and classify with the current semantics.
-    const legacyConfig = {
-      tools: { exposed: ['mcp__gongfeng__*'], progressive: ['mcp__km__search'] },
-    } as never
-    const ctx = await setup(legacyConfig as policy.Config)
-    registerTool(ctx, 'mcp__gongfeng__create_issue')
-    registerTool(ctx, 'mcp__km__search')
-    expect(ctx.capabilityPolicy.isResidentTool('mcp__gongfeng__create_issue')).toBe(true)
-    expect(ctx.capabilityPolicy.isResidentTool('mcp__km__search')).toBe(false)
-    expect(ctx.capabilityPolicy.classifyCapability('mcp__km__search')).toBe('on-demand')
   })
 
   it('classifies skills via the service', async () => {
@@ -445,25 +431,6 @@ describe('capability-policy management surface (能力菜单)', () => {
     const classified = ctx.capabilityPolicy.classifyAll()
     expect(classified.length).toBe(25)
     expect(new Set(classified.map(c => c.id)).size).toBe(25)
-  })
-})
-
-describe('legacy rule-key aliases', () => {
-  it('maps the pre-rename `blocked` tier key onto `disabled`', () => {
-    const mapped = policy.normalizeSetConfig({
-      resident: ['bash'],
-      'on-demand': ['legacy_skill'],
-      blocked: ['mcp__secret__*'],
-    })
-    expect(mapped?.resident).toEqual(['bash'])
-    expect(mapped?.['on-demand']).toEqual(['legacy_skill'])
-    expect(mapped?.disabled).toEqual(['mcp__secret__*'])
-    expect(mapped?.blocked).toBeUndefined()
-  })
-
-  it('prefers the current `disabled` key over the legacy `blocked` key', () => {
-    const mapped = policy.normalizeSetConfig({ disabled: ['read'], blocked: ['write'] })
-    expect(mapped?.disabled).toEqual(['read'])
   })
 })
 

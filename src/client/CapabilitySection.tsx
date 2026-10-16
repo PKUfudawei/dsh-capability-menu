@@ -66,10 +66,9 @@ export interface CapabilitySectionInjected {
    * Subscribe to signals that the host catalog may have moved without this page
    * asking: a settings document edit (registering a source, editing a
    * composition file outside the browser) or a carrier reconnect. Returns a
-   * disposer. Optional so the section still mounts on a runtime that predates
-   * the forwarded-event API — it then falls back to the version poll alone.
+   * disposer.
    */
-  subscribeSignals?: (listener: () => void) => () => void
+  subscribeSignals: (listener: () => void) => () => void
 }
 
 export type CapabilitySectionProps = CapabilitySectionInjected
@@ -726,7 +725,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   }, [refreshCatalog])
 
   useEffect(() => {
-    const dispose = subscribeSignals?.(onExternalSignal)
+    const dispose = subscribeSignals(onExternalSignal)
     return dispose
   }, [subscribeSignals, onExternalSignal])
 

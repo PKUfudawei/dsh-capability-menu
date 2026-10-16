@@ -344,21 +344,6 @@ describe('locations · skill directories', () => {
     await expect(registry.addSkill(bad)).rejects.toThrow(/不是合法技能名/)
   })
 
-  it('rejects a legacy invocation key and names its replacement', async () => {
-    const { registry, skillsDir } = await fixture()
-    const legacy = join(skillsDir, '..', 'legacy-invocation')
-    await mkdir(legacy, { recursive: true })
-    await writeFile(
-      join(legacy, 'SKILL.md'),
-      '---\nname: legacy-invocation\ndescription: d\ndisableModelInvocation: true\n---\nBody.\n',
-    )
-
-    // The loader throws on the legacy spelling, which drops the skill; the
-    // rejection must point at the canonical field so the fix is obvious.
-    await expect(registry.addSkill(legacy)).rejects.toThrow(/disableModelInvocation/)
-    await expect(registry.addSkill(legacy)).rejects.toThrow(/disable-model-invocation/)
-  })
-
   it('rejects an invocation value the loader cannot read as a boolean', async () => {
     const { registry, skillsDir } = await fixture()
     const bad = join(skillsDir, '..', 'bad-invocation')

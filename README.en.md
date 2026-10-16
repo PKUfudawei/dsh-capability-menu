@@ -153,7 +153,7 @@ config:
       - 'mcp__secret__*'
   skills:
     on-demand: # On-demand
-      - legacy_skill         # unlisted capabilities default to Resident
+      - example_skill        # unlisted capabilities default to Resident
 ```
 
 ### All configuration options
@@ -179,7 +179,7 @@ These settings belong to their respective plugin entries and usually live in the
 | 1 | `disabled` exact | `disabled: [forbidden_skill]` | hardest deny, overrides everything |
 | 2 | `disabled` wildcard | `disabled: ['mcp__secret__*']` | block a whole group |
 | 3 | `resident` exact | `resident: [bash]` | keep one capability resident |
-| 4 | `on-demand` exact | `on-demand: [legacy_skill]` | one capability on-demand (what a Capability Menu click writes) |
+| 4 | `on-demand` exact | `on-demand: [example_skill]` | one capability on-demand (what a Capability Menu click writes) |
 | 5 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` | keep a whole group resident |
 | 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
 | default | no rule matched | — | resident |
@@ -203,10 +203,10 @@ capabilities:
     kind: tool
     description: Search the knowledge base
     server: km
-  - id: legacy_skill
+  - id: example_skill
     kind: skill
-    description: A low-frequency skill for working on legacy code
-    whenToUse: Use when working on legacy projects
+    description: A low-frequency skill for analyzing logs
+    whenToUse: Use when investigating log issues
 ```
 
 ## License
