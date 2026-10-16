@@ -409,7 +409,7 @@ describe('capability-policy management surface (能力菜单)', () => {
 
     // Compilation happens before the commit, so the rejected config is not
     // observable anywhere: neither in getConfig nor in classification.
-    expect(service.getConfig().tools?.disabled).toBeUndefined()
+    expect(service.getConfig().tools?.disabled).toEqual([])
     expect(service.getConfig().tools?.resident).toEqual(['bash'])
     expect(service.isDisabledTool('meta_search')).toBe(false)
     expect(service.classifyTool('meta_search')).toBe('resident')
