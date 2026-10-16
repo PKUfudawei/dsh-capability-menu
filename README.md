@@ -80,7 +80,7 @@ GitHub Skill 支持默认分支根目录链接（需含 `SKILL.md`）、指定�
 
 ## 安装与卸载
 
-前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)；支持 DeepSeek Harness `0.1.5-rc.2`、`0.2.0-rc.1` 和 `0.2.0-rc.2`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
+前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
 ### 从 npm 安装（推荐）
 
