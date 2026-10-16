@@ -10,6 +10,7 @@
 // wire schemas are declared, so re-exporting keeps the UI types and the
 // validated wire types from drifting apart.
 export type {
+  SelfUpdateStatus,
   CapabilityRow,
   CatalogDocs,
   SkillFileEntry,
@@ -44,6 +45,9 @@ export interface CapabilitySnapshot {
 
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 export interface CapabilityPolicyRemote {
+  checkSelfUpdate(): Promise<{ ok: true; value: import('./remote.ts').SelfUpdateStatus } | { ok: false; error: { code: string; message: string } }>
+  installSelfUpdate(version: string): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
+  switchSelfToNpm(version: string): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
   updateConfig(partial: Record<string, unknown>): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   classifyAll(): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>

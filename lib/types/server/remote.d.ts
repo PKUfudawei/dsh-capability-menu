@@ -12,6 +12,7 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
 import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts';
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts';
+import { type SelfUpdateStatus } from './self-update.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         capabilityPolicy: CapabilityPolicyService;
@@ -47,6 +48,9 @@ export interface CatalogDocs {
 export declare class CapabilityPolicyGateway extends TypertRemoteService {
     static inject: string[];
     constructor(ctx: Context);
+    checkSelfUpdate(): Promise<SelfUpdateStatus>;
+    installSelfUpdate(version: string): Promise<void>;
+    switchSelfToNpm(version: string): Promise<void>;
     /** Current (resolved) policy config. */
     getConfig(): CapabilityPolicyConfig;
     /** Replace a subset of the policy config (recompile rules + rewrite catalog). */

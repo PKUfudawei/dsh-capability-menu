@@ -20,6 +20,7 @@ import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiag
 import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
 import { ADOPTABLE_SKILL_SOURCES, PROJECT_SKILL_SOURCES } from '../constants.ts'
+import { checkSelfUpdate, installSelfUpdate, switchSelfToNpm, type SelfUpdateStatus } from './self-update.ts'
 import { basename, dirname, resolve } from 'node:path'
 
 // The `ctx.capabilityPolicy` augmentation lives in `@daweifu/capability-menu`
@@ -61,6 +62,21 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
 
   constructor(ctx: Context) {
     super(ctx, 'capabilityPolicyGateway', { namespace: 'capabilityPolicy' })
+  }
+
+  @Remote('checkSelfUpdate')
+  async checkSelfUpdate(): Promise<SelfUpdateStatus> {
+    return checkSelfUpdate()
+  }
+
+  @Remote('installSelfUpdate')
+  async installSelfUpdate(version: string): Promise<void> {
+    await installSelfUpdate(version)
+  }
+
+  @Remote('switchSelfToNpm')
+  async switchSelfToNpm(version: string): Promise<void> {
+    await switchSelfToNpm(version)
   }
 
   /** Current (resolved) policy config. */

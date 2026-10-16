@@ -59,6 +59,24 @@ export interface CatalogDocs {
   readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'
 }
 
+export interface SelfUpdateStatus {
+  readonly current: string
+  readonly latest: string
+  readonly updateAvailable: boolean
+  readonly updatable: boolean
+  readonly reason?: 'local' | 'non-registry' | 'profile-unavailable'
+  readonly sourcePath?: string
+}
+
+const selfUpdateStatus$schema = z.object({
+  current: z.string(),
+  latest: z.string(),
+  updateAvailable: z.boolean(),
+  updatable: z.boolean(),
+  reason: z.union([z.literal('local'), z.literal('non-registry'), z.literal('profile-unavailable')]).optional(),
+  sourcePath: z.string().optional(),
+})
+
 const capabilityDiagnostics$schema = z.object({
   unavailableSkills: z.array(z.object({ name: z.string(), source: z.string(), preset: z.string().optional() })),
   shadowedSkills: z.array(z.object({ name: z.string(), selectedFrom: z.string(), shadowedFrom: z.string() })),
@@ -271,6 +289,9 @@ const searchMetadataUpdate$schema = z.object({
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
+    checkSelfUpdate: () => Promise<RemoteResult<SelfUpdateStatus>>
+    installSelfUpdate: (version: string) => Promise<RemoteResult<void>>
+    switchSelfToNpm: (version: string) => Promise<RemoteResult<void>>
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>
@@ -296,6 +317,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
   }
   interface TypertRemoteMap {
+    'capabilityPolicy/checkSelfUpdate': () => Promise<RemoteResult<SelfUpdateStatus>>
+    'capabilityPolicy/installSelfUpdate': (version: string) => Promise<RemoteResult<void>>
+    'capabilityPolicy/switchSelfToNpm': (version: string) => Promise<RemoteResult<void>>
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>
@@ -328,6 +352,26 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 export const TYPERT_REMOTE: TypertRemoteContribution = {
   package: '@daweifu/capability-menu',
   descriptors: [
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/checkSelfUpdate',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'checkSelfUpdate',
+      invocation: { kind: 'direct' }, parameters: [],
+      result: strictCodec('SelfUpdateStatus', selfUpdateStatus$schema),
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/installSelfUpdate',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'installSelfUpdate',
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'version', wire: 'version', source: 'json', codec: strictCodec('string', z.string()) }],
+      result: strictCodec('void', z.undefined()),
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/switchSelfToNpm',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'switchSelfToNpm',
+      invocation: { kind: 'direct' },
+      parameters: [{ name: 'version', wire: 'version', source: 'json', codec: strictCodec('string', z.string()) }],
+      result: strictCodec('void', z.undefined()),
+    },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/getConfig',
       service: 'capabilityPolicy',

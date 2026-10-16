@@ -207,6 +207,24 @@ export type CapabilityKey =
   | 'summaryLimitSaved'
   | 'projectRootLabel'
   | 'skillBrowseUnavailable'
+  | 'updateAvailable'
+  | 'newVersion'
+  | 'updateDialogTitle'
+  | 'updateVersionComparison'
+  | 'updateNpmNote'
+  | 'updateLocalNote'
+  | 'updateSourceSteps'
+  | 'updateSourceStepsHide'
+  | 'updateSourceStepsIntro'
+  | 'updateSourceStepsRestart'
+  | 'installUpdate'
+  | 'switchAndInstall'
+  | 'updatingPlugin'
+  | 'pluginUpdated'
+  | 'pluginSwitched'
+  | 'pluginNonRegistrySource'
+  | 'pluginProfileUnavailable'
+  | 'pluginUpdateFailed'
 
 type ViewState =
   | { status: 'loading' }
@@ -236,7 +254,7 @@ const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
 .mc-heading-row{display:flex;align-items:center;gap:12px;min-width:0;flex-wrap:wrap}
-.mc-heading-meta{display:flex;align-items:baseline;gap:8px;min-width:0}
+.mc-heading-meta{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .mc-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-left:auto;min-width:0}
 .mc-feedback-link{flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;white-space:nowrap;text-decoration:none}
 .mc-feedback-link:hover,.mc-feedback-link:focus-visible{color:#527a9c;text-decoration:underline;text-underline-offset:3px}
@@ -246,6 +264,13 @@ body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 .mc-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px}
 @media(max-width:640px){.mc-heading-actions{width:100%;justify-content:flex-start;margin-left:0}}
 .mc-version{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px;white-space:nowrap}
+.mc-update-check{flex:none;white-space:nowrap}
+.mc-update-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;color:var(--dsw-alias-label-secondary);font-size:12px}
+.mc-update-dialog{width:min(500px,calc(100vw - 48px))}
+.mc-update-actions{flex-wrap:wrap}
+.mc-update-actions .mc-update-cancel{margin-right:auto}
+.mc-update-steps{display:flex;flex-direction:column;gap:8px}
+.mc-update-steps pre{margin:0;padding:10px 12px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;white-space:pre-wrap;word-break:break-all}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
@@ -877,6 +902,57 @@ function ReadyBody(props: {
   onNotice: (message: string | null) => void
 }): JSX.Element {
   const { remote, snapshot, diagnostics, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
+  const [updateStatus, setUpdateStatus] = useState<import('./store.ts').SelfUpdateStatus | null>(null)
+  const [updatePhase, setUpdatePhase] = useState<'idle' | 'installing' | 'done' | 'error'>('idle')
+  const [updateError, setUpdateError] = useState('')
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [sourceStepsOpen, setSourceStepsOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    const check = async (): Promise<void> => {
+      try {
+        const status = unwrap(await remote.checkSelfUpdate(), 'capabilityPolicy.checkSelfUpdate')
+        if (!cancelled) setUpdateStatus(status)
+      } catch (error) {
+        if (!cancelled) console.warn('[capability-menu] update check failed:', error)
+      }
+    }
+    const checkWhenVisible = (): void => {
+      if (document.visibilityState === 'visible') void check()
+    }
+    void check()
+    document.addEventListener('visibilitychange', checkWhenVisible)
+    const interval = window.setInterval(checkWhenVisible, 15 * 60_000)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', checkWhenVisible)
+      window.clearInterval(interval)
+    }
+  }, [remote])
+  const installUpdate = useCallback(async (source: 'registry' | 'local') => {
+    if (updateStatus === null || !updateStatus.updateAvailable) return
+    if (source === 'registry' ? !updateStatus.updatable : updateStatus.reason !== 'local') return
+    setUpdatePhase('installing')
+    setUpdateError('')
+    try {
+      if (source === 'local') {
+        unwrap(await remote.switchSelfToNpm(updateStatus.latest), 'capabilityPolicy.switchSelfToNpm')
+      } else {
+        unwrap(await remote.installSelfUpdate(updateStatus.latest), 'capabilityPolicy.installSelfUpdate')
+      }
+      setUpdatePhase('done')
+      setUpdateDialogOpen(false)
+    } catch (error) {
+      setUpdateError(String(error))
+      setUpdatePhase('error')
+    }
+  }, [remote, updateStatus])
+  const closeUpdateDialog = (): void => {
+    if (updatePhase === 'installing') return
+    setUpdateDialogOpen(false)
+    setSourceStepsOpen(false)
+    if (updatePhase === 'error') setUpdatePhase('idle')
+  }
   /** Name filter, shared by both tabs: it narrows whichever list is shown. */
   const [filter, setFilter] = useState('')
   // Distinguishes "nothing to show" from "the filter matched nothing".
@@ -1102,6 +1178,11 @@ function ReadyBody(props: {
         <div className="mc-heading-meta">
           <h2 className="mc-heading">{t('title')}</h2>
           <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
+          {updateStatus?.updateAvailable && (updateStatus.updatable || updateStatus.reason === 'local') && updatePhase !== 'done' && (
+            <ClientUiPrimitives.Button type="button" variant="primary" size="sm" className="mc-update-check" title={t('updateAvailable', { version: updateStatus.latest })} disabled={updatePhase === 'installing'} onClick={() => setUpdateDialogOpen(true)}>
+              {t('newVersion')}
+            </ClientUiPrimitives.Button>
+          )}
         </div>
         <div className="mc-heading-actions">
           <button type="button" className="mc-catalog-btn" onClick={() => setRegisterOpen(true)}>
@@ -1121,6 +1202,16 @@ function ReadyBody(props: {
           </a>
         </div>
       </div>
+      {(updatePhase === 'done' || (updateStatus?.updateAvailable && !updateStatus.updatable && updateStatus.reason !== 'local')) && (
+        <div className="mc-update-status" role="status">
+          <span>{updatePhase === 'done'
+            ? t(updateStatus?.reason === 'local' ? 'pluginSwitched' : 'pluginUpdated')
+            : t('updateAvailable', { version: updateStatus?.latest ?? '' })}</span>
+          {updatePhase !== 'done' && updateStatus?.updateAvailable && !updateStatus.updatable && (
+            <span>{t(updateStatus.reason === 'non-registry' ? 'pluginNonRegistrySource' : 'pluginProfileUnavailable')}</span>
+          )}
+        </div>
+      )}
       <p className="mc-desc">{t('desc')}</p>
       {diagnostics !== null && (skillDiagnosticCount > 0 || catalogProblem) && (
         <details className="mc-diagnostics">
@@ -1436,6 +1527,42 @@ function ReadyBody(props: {
                 }, null, 2)}</pre>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {updateDialogOpen && updateStatus?.updateAvailable && (
+        <div className="mc-preview-mask" onClick={closeUpdateDialog}>
+          <div className="mc-preview mc-update-dialog" role="dialog" aria-modal="true" aria-labelledby="mc-update-title" onClick={e => e.stopPropagation()}>
+            <div className="mc-preview-head">
+              <span id="mc-update-title" className="mc-preview-title">{t('updateDialogTitle')}</span>
+              <button type="button" className="mc-preview-close" disabled={updatePhase === 'installing'} onClick={closeUpdateDialog}>{t('previewClose')}</button>
+            </div>
+            <div className="mc-confirm-body">
+              <p>{t('updateVersionComparison', { current: updateStatus.current, latest: updateStatus.latest })}</p>
+              <p>{t(updateStatus.reason === 'local' ? 'updateLocalNote' : 'updateNpmNote')}</p>
+              {updateStatus.reason === 'local' && sourceStepsOpen && (
+                <div className="mc-update-steps">
+                  <p>{t('updateSourceStepsIntro')}</p>
+                  {updateStatus.sourcePath && <p className="mc-confirm-path">{updateStatus.sourcePath}</p>}
+                  <pre>{'git pull\npnpm install\npnpm run build'}</pre>
+                  <p>{t('updateSourceStepsRestart')}</p>
+                </div>
+              )}
+              {updatePhase === 'installing' && <p role="status">{t('updatingPlugin')}</p>}
+              {updatePhase === 'error' && <p className="mc-error" role="alert">{t('pluginUpdateFailed')} {updateError}</p>}
+              <div className="mc-confirm-actions mc-update-actions">
+                <ClientUiPrimitives.Button type="button" variant="outline" size="sm" className="mc-update-cancel" disabled={updatePhase === 'installing'} onClick={closeUpdateDialog}>{t('cancel')}</ClientUiPrimitives.Button>
+                {updateStatus.reason === 'local' && (
+                  <ClientUiPrimitives.Button type="button" variant="outline" size="sm" disabled={updatePhase === 'installing'} onClick={() => setSourceStepsOpen(value => !value)}>
+                    {t(sourceStepsOpen ? 'updateSourceStepsHide' : 'updateSourceSteps')}
+                  </ClientUiPrimitives.Button>
+                )}
+                <ClientUiPrimitives.Button type="button" variant="primary" size="sm" disabled={updatePhase === 'installing'} onClick={() => void installUpdate(updateStatus.reason === 'local' ? 'local' : 'registry')}>
+                  {t(updateStatus.reason === 'local' ? 'switchAndInstall' : 'installUpdate')}
+                </ClientUiPrimitives.Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -101,6 +101,7 @@ dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capab
 ```
 
 升级命令安装 npm `latest` 标签指向的版本；安装预发布版本请使用对应标签或指定版本号。
+「能力菜单」页会自动查询 npm `latest`；发现比当前版本号更高的版本时，版本号后显示「有新版本」。点击后可确认将 npm 仓库包精确更新到新版；若当前 profile 链接本地源码，弹窗会提供手动更新步骤，或明确选择切换并安装 npm 版（不会删除源码目录）。即使用 pnpm 安装的 npm 仓库包也走同一流程。安装后重启 DSH 生效。
 
 ### 从源码安装
 

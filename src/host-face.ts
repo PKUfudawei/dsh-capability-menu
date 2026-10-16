@@ -137,6 +137,9 @@ function jsonParameter(wire: string, optional: boolean): HostFaceParameter {
  * `src/client/remote.ts`.
  */
 const METHODS: ReadonlyArray<readonly [string, readonly string[], readonly string[]]> = [
+  ['checkSelfUpdate', [], []],
+  ['installSelfUpdate', ['version'], []],
+  ['switchSelfToNpm', ['version'], []],
   ['getConfig', [], []],
   ['updateConfig', ['partial'], []],
   ['classifyAll', [], []],

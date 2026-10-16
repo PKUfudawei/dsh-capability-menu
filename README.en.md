@@ -101,6 +101,7 @@ dsh plugin --profile web add "@daweifu/capability-menu@$(npm view @daweifu/capab
 ```
 
 The upgrade command installs the version pointed to by npm's `latest` tag; use the matching tag or an explicit version for prereleases.
+The Capability Menu page checks npm `latest` automatically and shows **New version** beside its version when a higher release is available. Click to confirm an exact update for npm registry installs, including those managed by pnpm. For a local source link, the dialog offers manual source update steps or an explicit switch to the npm release without deleting the source directory. Restart DSH after installing.
 
 ### Install from source
 
