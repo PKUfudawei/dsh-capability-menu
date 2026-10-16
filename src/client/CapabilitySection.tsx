@@ -186,6 +186,17 @@ export type CapabilityKey =
   | 'catalogPolicyNote'
   | 'catalogDisabled'
   | 'catalogUnreadable'
+  | 'diagnosticTitle'
+  | 'diagnosticClean'
+  | 'diagnosticUnavailable'
+  | 'diagnosticShadowed'
+  | 'diagnosticBroken'
+  | 'diagnosticUnbrowseable'
+  | 'diagnosticUndocumented'
+  | 'catalogState'
+  | 'catalogSandboxHint'
+  | 'projectRootLabel'
+  | 'skillBrowseUnavailable'
 
 type ViewState =
   | { status: 'loading' }
@@ -521,6 +532,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   })
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<import('./store.ts').CapabilityDiagnostics | null>(null)
   const [retryMcp, setRetryMcp] = useState<string | null>(null)
   const queuedMcpRefresh = useRef<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
@@ -547,6 +559,17 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     void reload()
   }, [reload])
 
+  useEffect(() => {
+    if (remote.getDiagnostics === undefined) return
+    let cancelled = false
+    void remote.getDiagnostics().then(result => {
+      if (!cancelled && result.ok) setDiagnostics(result.value)
+    }).catch(error => {
+      console.warn('[capability-menu] diagnostics unavailable:', error)
+    })
+    return () => { cancelled = true }
+  }, [remote])
+
   const [refreshing, setRefreshing] = useState(false)
 
   /**
@@ -561,6 +584,10 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     try {
       if (remote !== undefined) unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
       await reload()
+      if (remote.getDiagnostics !== undefined) {
+        const result = unwrap(await remote.getDiagnostics(), 'capabilityPolicy.getDiagnostics')
+        setDiagnostics(result)
+      }
       setNotice(null)
     } catch (e) {
       console.error('[capability-menu] refresh failed:', e)
@@ -794,6 +821,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       {state.status === 'ready' && <ReadyBody
         remote={remote}
         snapshot={state.snapshot}
+        diagnostics={diagnostics}
         openServers={openServers}
         busy={busy}
         activeTab={activeTab}
@@ -812,6 +840,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
 function ReadyBody(props: {
   remote: CapabilityPolicyRemote
   snapshot: CapabilitySnapshot
+  diagnostics: import('./store.ts').CapabilityDiagnostics | null
   openServers: ReadonlySet<string>
   busy: boolean
   activeTab: 'tools' | 'skills'
@@ -826,7 +855,7 @@ function ReadyBody(props: {
   /** Surface a one-line message in the section header. */
   onNotice: (message: string | null) => void
 }): JSX.Element {
-  const { remote, snapshot, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
+  const { remote, snapshot, diagnostics, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
   /** Name filter, shared by both tabs: it narrows whichever list is shown. */
   const [filter, setFilter] = useState('')
   // Distinguishes "nothing to show" from "the filter matched nothing".
@@ -1009,6 +1038,22 @@ function ReadyBody(props: {
           {t('viewCatalog')}
         </button>
       </div>
+      {diagnostics !== null && (
+        <details className="mc-diagnostics">
+          <summary>
+            {(diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length) > 0
+              ? t('diagnosticTitle', { count: diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length })
+              : t('diagnosticClean')}
+            {' · '}{t('catalogState', { state: diagnostics.catalog.state, count: diagnostics.catalog.count, path: diagnostics.catalog.path ?? '' })}
+          </summary>
+          {diagnostics.unavailableSkills.map((item, index) => <div key={`unavailable-${item.name}-${item.preset ?? ''}-${index}`}>{t('diagnosticUnavailable', { name: item.name, source: item.source, preset: item.preset ?? '' })}</div>)}
+          {diagnostics.shadowedSkills.map((item, index) => <div key={`shadowed-${item.name}-${item.shadowedFrom}-${index}`}>{t('diagnosticShadowed', { name: item.name, winner: item.selectedFrom, hidden: item.shadowedFrom })}</div>)}
+          {diagnostics.brokenPresets.map(item => <div key={`broken-${item.id}`}>{t('diagnosticBroken', { id: item.id, reason: item.reason })}</div>)}
+          {diagnostics.unbrowseableSkills.map(item => <div key={`browse-${item.name}`}>{t('diagnosticUnbrowseable', { name: item.name, reason: item.reason })}</div>)}
+          {diagnostics.undocumentedSkills.map(item => <div key={`undocumented-${item.name}`}>{t('diagnosticUndocumented', { name: item.name, summary: item.summary })}</div>)}
+          {diagnostics.catalog.error !== undefined && <div>{diagnostics.catalog.error}</div>}
+        </details>
+      )}
 
       <div className="mc-tabs">
         <div className="mc-tab-group" role="tablist" aria-label={t('title')}>
@@ -1377,6 +1422,7 @@ function ReadyBody(props: {
                     {catalogDocs.docs.catalog !== undefined
                       ? <p className="mc-catalog-path">{catalogDocs.docs.catalog.path}</p>
                       : <p className="mc-catalog-path">{t('catalogOnDemand')}</p>}
+                    <p className="mc-catalog-path">{t('catalogSandboxHint')}</p>
                     <pre className="mc-preview-body">
                       {catalogDocs.docs.catalog?.content
                         ?? (catalogDocs.docs.catalogMissing === 'disabled'
@@ -1402,6 +1448,11 @@ interface SkillTreeState {
   dirs: Record<string, SkillFileEntry[]>
 }
 
+function projectRootForSkill(path: string): string {
+  const marker = path.match(/^(.*)\/(?:\.dsh|\.agents)\/skills(?:\/.*)?$/)
+  return marker?.[1] ?? path
+}
+
 function SkillList(props: {
   skills: CapabilityRow[]
   remote: CapabilityPolicyRemote
@@ -1418,6 +1469,7 @@ function SkillList(props: {
   const [confirmAdopt, setConfirmAdopt] = useState<string | null>(null)
   const [openSkill, setOpenSkill] = useState<string | null>(null)
   const [tree, setTree] = useState<SkillTreeState>({ open: {}, dirs: {} })
+  const [browseErrors, setBrowseErrors] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<{ id: string; relPath: string; content?: string; error?: string } | null>(null)
 
   const toggleSkill = useCallback(async (id: string) => {
@@ -1429,14 +1481,15 @@ function SkillList(props: {
     const key = `${id}:`
     if (tree.dirs[key] === undefined) {
       try {
-        const entries = unwrap(await remote.listSkillDir(id, ''), 'capabilityPolicy.listSkillDir') ?? []
-        setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
+        const entries = unwrap(await remote.listSkillDir(id, ''), 'capabilityPolicy.listSkillDir')
+        if (entries === undefined) setBrowseErrors(prev => ({ ...prev, [key]: t('skillBrowseUnavailable') }))
+        else setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
       } catch (error) {
         console.error('[capability-menu] listSkillDir failed:', error)
-        setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
+        setBrowseErrors(prev => ({ ...prev, [key]: String(error) }))
       }
     }
-  }, [openSkill, remote, tree.dirs])
+  }, [openSkill, remote, t, tree.dirs])
 
   const toggleDir = useCallback(async (id: string, relPath: string) => {
     const openKey = `${id}:${relPath}`
@@ -1446,15 +1499,16 @@ function SkillList(props: {
       const key = `${id}:${relPath}`
       if (tree.dirs[key] === undefined) {
         try {
-          const entries = unwrap(await remote.listSkillDir(id, relPath), 'capabilityPolicy.listSkillDir') ?? []
-          setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
+          const entries = unwrap(await remote.listSkillDir(id, relPath), 'capabilityPolicy.listSkillDir')
+          if (entries === undefined) setBrowseErrors(prev => ({ ...prev, [key]: t('skillBrowseUnavailable') }))
+          else setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: entries } }))
         } catch (error) {
           console.error(`[capability-menu] listSkillDir ${key} failed:`, error)
-          setTree(prev => ({ ...prev, dirs: { ...prev.dirs, [key]: [] } }))
+          setBrowseErrors(prev => ({ ...prev, [key]: String(error) }))
         }
       }
     }
-  }, [remote, tree.dirs, tree.open])
+  }, [remote, t, tree.dirs, tree.open])
 
   const openPreview = useCallback(async (id: string, relPath: string) => {
     setPreview({ id, relPath })
@@ -1555,6 +1609,9 @@ function SkillList(props: {
             >
               <IconTriangleRightFill size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
               <span className="mc-skill-name">{skill.name}</span>
+              {PROJECT_SKILL_SOURCES.has(skill.source ?? '') && skill.path !== undefined && (
+                <span className="mc-source" title={skill.path}>{t('projectRootLabel', { path: projectRootForSkill(skill.path) })}</span>
+              )}
               <span className="mc-skill-meta">
                 {skill.mandatory && <span className="mc-tag">{t('mandatory')}</span>}
                 <button
@@ -1625,6 +1682,7 @@ function SkillList(props: {
             {open && (
               <div className="mc-skill-body">
                 <div className="mc-tree">
+                  {browseErrors[`${skill.id}:`] !== undefined && <div className="mc-preview-hint">{browseErrors[`${skill.id}:`]}</div>}
                   {renderEntries(tree.dirs[`${skill.id}:`], skill.id, '') ?? (
                     <div className="mc-tree-row">…</div>
                   )}

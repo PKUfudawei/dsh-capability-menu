@@ -101,6 +101,7 @@ export interface CapabilitySummary {
     readonly source?: string;
     /** Agent preset id, present only for skills collected from a preset scope. */
     readonly preset?: string;
+    readonly path?: string;
     readonly tags: readonly string[];
     readonly success_rate?: number;
     readonly uses: number;
@@ -126,6 +127,8 @@ export interface MetaSearchOptions {
     readonly tag?: string | undefined;
     /** Maximum number of results to return. */
     readonly maxResults?: number;
+    /** Zero-based result offset. */
+    readonly offset?: number;
     /**
      * Viewing scope. Retained for caller ergonomics and optional authorization
      * checks, but the policy does NOT use it to filter visibility — On-demand
@@ -149,6 +152,36 @@ export interface MetaLookupContext {
 export interface SkillDirEntry {
     readonly name: string;
     readonly type: 'file' | 'directory';
+}
+export interface CapabilityDiagnostics {
+    readonly unavailableSkills: readonly {
+        readonly name: string;
+        readonly source: string;
+        readonly preset?: string;
+    }[];
+    readonly shadowedSkills: readonly {
+        readonly name: string;
+        readonly selectedFrom: string;
+        readonly shadowedFrom: string;
+    }[];
+    readonly brokenPresets: readonly {
+        readonly id: string;
+        readonly reason: string;
+    }[];
+    readonly unbrowseableSkills: readonly {
+        readonly name: string;
+        readonly reason: string;
+    }[];
+    readonly undocumentedSkills: readonly {
+        readonly name: string;
+        readonly summary: string;
+    }[];
+    readonly catalog: {
+        readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
+        readonly path?: string;
+        readonly error?: string;
+        readonly count: number;
+    };
 }
 /** The `ctx.capability` service surface. */
 export interface CapabilityService {
@@ -187,6 +220,7 @@ export interface CapabilityService {
         readonly skillDir: string;
         readonly source?: string;
     }>;
+    diagnostics(): CapabilityDiagnostics;
     /** Return the current number of indexed capabilities. */
     size(): number;
     /**

@@ -10,7 +10,7 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
-import { readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts'
@@ -150,6 +150,7 @@ export interface CapabilitySummary {
   readonly source?: string
   /** Agent preset id, present only for skills collected from a preset scope. */
   readonly preset?: string
+  readonly path?: string
   readonly tags: readonly string[]
   readonly success_rate?: number
   readonly uses: number
@@ -177,6 +178,8 @@ export interface MetaSearchOptions {
   readonly tag?: string | undefined
   /** Maximum number of results to return. */
   readonly maxResults?: number
+  /** Zero-based result offset. */
+  readonly offset?: number
   /**
    * Viewing scope. Retained for caller ergonomics and optional authorization
    * checks, but the policy does NOT use it to filter visibility — On-demand
@@ -202,6 +205,15 @@ export interface MetaLookupContext {
 export interface SkillDirEntry {
   readonly name: string
   readonly type: 'file' | 'directory'
+}
+
+export interface CapabilityDiagnostics {
+  readonly unavailableSkills: readonly { readonly name: string; readonly source: string; readonly preset?: string }[]
+  readonly shadowedSkills: readonly { readonly name: string; readonly selectedFrom: string; readonly shadowedFrom: string }[]
+  readonly brokenPresets: readonly { readonly id: string; readonly reason: string }[]
+  readonly unbrowseableSkills: readonly { readonly name: string; readonly reason: string }[]
+  readonly undocumentedSkills: readonly { readonly name: string; readonly summary: string }[]
+  readonly catalog: { readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'; readonly path?: string; readonly error?: string; readonly count: number }
 }
 
 /** The `ctx.capability` service surface. */
@@ -237,6 +249,7 @@ export interface CapabilityService {
    * `{ name, skillDir }` where `skillDir` is `<entryDir>/<name>`.
    */
   skillDirs(): ReadonlyArray<{ readonly name: string; readonly skillDir: string; readonly source?: string }>
+  diagnostics(): CapabilityDiagnostics
   /** Return the current number of indexed capabilities. */
   size(): number
   /**
@@ -376,6 +389,13 @@ function toSummary(description: string, maxChars: number): string {
   return `${collapsed.slice(0, maxChars - 1)}…`
 }
 
+function toSkillSummary(description: string, whenToUse: string | undefined, name: string, maxChars: number): string {
+  const meaningful = (value: string): boolean => value.replace(/[|\s\-—–_·•]+/g, '').trim().length > 0
+  if (meaningful(description)) return toSummary(description, maxChars)
+  if (whenToUse !== undefined && meaningful(whenToUse)) return toSummary(whenToUse, maxChars)
+  return `Skill: ${name.replace(/[-_]+/g, ' ')}`
+}
+
 /** BM25-ish keyword score over one record (pure JS, zero dependencies). */
 function keywordScore(record: CapabilityRecord, tokens: readonly string[]): number {
   const haystack = [
@@ -409,7 +429,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   const detailIncludesBody = config.detailIncludesBody ?? false
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
-  const catalogFile = (config.catalogFile ?? join(homedir(), '.dsh', 'capability-catalog.yaml')).trim()
+  const dshHome = process.env['DSH_HOME']?.trim()
+  const catalogFile = (config.catalogFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-catalog.yaml')).trim()
   const refreshDebounceMs = config.refreshDebounceMs ?? 200
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
@@ -423,6 +444,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   let skillScopes = new Map<string, ScopeKey | undefined>()
   /** On-demand count of the latest catalog emission (0 until first write). */
   let onDemandCount = 0
+  let catalogError: string | undefined
+  let unavailableSkills: CapabilityDiagnostics['unavailableSkills'] = []
+  let shadowedSkills: CapabilityDiagnostics['shadowedSkills'] = []
+  let brokenPresets: CapabilityDiagnostics['brokenPresets'] = []
+  let undocumentedSkills: CapabilityDiagnostics['undocumentedSkills'] = []
   /** Last emitted catalog text, so an unchanged rebuild skips the write. */
   let lastCatalogContent: string | undefined
 
@@ -570,13 +596,32 @@ export function apply(ctx: Context, config: Config = {}): void {
     const epoch = ++skillIndexEpoch
     const nextSkills = new Map<string, CapabilityRecord>()
     const nextSkillScopes = new Map<string, ScopeKey | undefined>()
+    const nextUnavailable = new Map<string, { name: string; source: string; preset?: string }>()
+    const nextShadowed = new Map<string, { name: string; selectedFrom: string; shadowedFrom: string }>()
+    const nextBroken = new Map<string, { id: string; reason: string }>()
+    const nextUndocumented = new Map<string, { name: string; summary: string }>()
 
     const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined, preset?: string): void => {
-      if (!isModelInvocable(skill)) return
       const id = skill.name
+      const descriptionIsPlaceholder = skill.description.replace(/[|\s\-—–_·•]+/g, '').trim().length === 0
+      if (descriptionIsPlaceholder) nextUndocumented.set(`${preset ?? 'global'}\0${id}`, { name: id, summary: toSkillSummary(skill.description, skill.whenToUse, id, summaryMaxChars) })
+      if (!isModelInvocable(skill)) {
+        nextUnavailable.set(`${preset ?? 'global'}\0${id}`, { name: id, source: skill.provider, ...(preset !== undefined ? { preset } : {}) })
+        return
+      }
       // First wins (global layer, then presets in order): see the same-name
       // rule in this function's doc comment.
-      if (nextSkills.has(id)) return
+      if (nextSkills.has(id)) {
+        const winner = nextSkills.get(id)!
+        const candidatePath = skill.resourceBase?.kind === 'directory' ? skill.resourceBase.path : undefined
+        if (winner.origin.provider === skill.provider && winner.origin.path === candidatePath) return
+        nextShadowed.set(`${preset ?? 'global'}\0${id}`, {
+          name: id,
+          selectedFrom: winner.origin.preset ?? 'global',
+          shadowedFrom: preset ?? 'global',
+        })
+        return
+      }
       const existing = skillRecords.get(id)
       const stats = existing?.stats ?? { uses: 0, successes: 0, failures: 0, totalMs: 0 }
       nextSkills.set(id, {
@@ -598,7 +643,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         invocation: { modelInvocable: skill.invocation.modelInvocable, userInvocable: skill.invocation.userInvocable },
         tags: [skill.provider, 'skill'],
         stats,
-        summary: toSummary(skill.description, summaryMaxChars),
+        summary: toSkillSummary(skill.description, skill.whenToUse, id, summaryMaxChars),
       })
       nextSkillScopes.set(id, scope)
     }
@@ -629,11 +674,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         ctx.logger.warn(`meta-registry: agent-presets enumeration failed: ${String(error)}`)
       }
       for (const preset of presets) {
-        if (preset.broken !== undefined) continue
+        if (preset.broken !== undefined) {
+          nextBroken.set(preset.id, { id: preset.id, reason: preset.broken })
+          continue
+        }
         try {
           await withAgentPresetScope(agentPresets, preset.id, scope =>
             collectScoped(`preset "${preset.id}"`, scope, preset.id))
         } catch (error) {
+          nextBroken.set(preset.id, { id: preset.id, reason: String(error) })
           ctx.logger.warn(`meta-registry: preset "${preset.id}" skill scope unavailable: ${String(error)}`)
         }
       }
@@ -642,6 +691,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (epoch !== skillIndexEpoch) return
     skillRecords = nextSkills
     skillScopes = nextSkillScopes
+    unavailableSkills = [...nextUnavailable.values()]
+    shadowedSkills = [...nextShadowed.values()]
+    brokenPresets = [...nextBroken.values()]
+    undocumentedSkills = [...nextUndocumented.values()]
   }
 
   /**
@@ -652,6 +705,7 @@ export function apply(ctx: Context, config: Config = {}): void {
    * the file path is disabled.
    */
   const writeCatalog = async (): Promise<void> => {
+    catalogError = undefined
     onDemandCount = 0
     if (catalogFile.length === 0) return
     const policy = ctx.get('capabilityPolicy')
@@ -670,14 +724,18 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
       }))
     onDemandCount = onDemand.length
-    const content = yaml.dump({ capabilities: onDemand })
+    const content = onDemand.length === 0
+      ? '# No on-demand capabilities are currently classified.\ncapabilities: []\n'
+      : yaml.dump({ capabilities: onDemand })
     // A rebuild that changed nothing must not touch the disk: at debounce rate
     // this was rewriting the file several times a second.
     if (content === lastCatalogContent) return
     try {
+      await mkdir(dirname(catalogFile), { recursive: true })
       await writeFile(catalogFile, content, 'utf8')
       lastCatalogContent = content
     } catch (error) {
+      catalogError = String(error)
       ctx.logger.warn(`capability-registry: on-demand catalog write failed (${catalogFile}): ${String(error)}`)
     }
   }
@@ -908,10 +966,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (rate !== undefined && weighting > 0) score += rate * weighting * 10
         if (record.stats.uses > 0 && weighting > 0) score += Math.min(record.stats.uses, 100) * weighting * 0.01
         return { record, score }
-      }).sort((a, b) => b.score - a.score)
+      }).sort((a, b) => b.score - a.score || a.record.id.localeCompare(b.record.id))
 
       const limit = Math.max(1, options.maxResults ?? maxResults)
-      return ranked.slice(0, limit).map(({ record }) => {
+      const offset = options.offset ?? 0
+      if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer')
+      return ranked.slice(offset, offset + limit).map(({ record }) => {
         const rate = successRate(record.stats)
         return {
           id: record.id,
@@ -921,6 +981,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
           ...record.origin.source !== undefined ? { source: record.origin.source } : {},
           ...record.origin.preset !== undefined ? { preset: record.origin.preset } : {},
+          ...record.origin.path !== undefined ? { path: record.origin.path } : {},
           tags: record.tags,
           ...rate !== undefined ? { success_rate: rate } : {},
           uses: record.stats.uses,
@@ -1028,6 +1089,32 @@ export function apply(ctx: Context, config: Config = {}): void {
         })
       }
       return out
+    },
+
+    diagnostics(): CapabilityDiagnostics {
+      const policy = ctx.get('capabilityPolicy')
+      const state = catalogFile.length === 0
+        ? 'disabled' as const
+        : policy === undefined
+          ? 'policy-unmounted' as const
+          : catalogError !== undefined
+            ? 'write-failed' as const
+            : onDemandCount === 0 ? 'empty' as const : 'ready' as const
+      return {
+        unavailableSkills,
+        shadowedSkills,
+        brokenPresets,
+        undocumentedSkills,
+        unbrowseableSkills: [...skillRecords.values()]
+          .filter(record => record.origin.path === undefined)
+          .map(record => ({ name: record.name, reason: '技能提供方没有可浏览的目录路径' })),
+        catalog: {
+          state,
+          ...(catalogFile.length > 0 ? { path: catalogFile } : {}),
+          ...(catalogError !== undefined ? { error: catalogError } : {}),
+          count: onDemandCount,
+        },
+      }
     },
 
     size(): number {

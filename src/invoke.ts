@@ -91,7 +91,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const tool = defineTool({
     name: 'meta_invoke',
-    description: 'Execute a capability by its exact id (from meta_search) and kind. For tools (kind "tool", e.g. mcp__gongfeng__create_issue or a native tool such as bash), forwards to the underlying tool call with args. For skills (kind "skill", e.g. frontend-design), loads the full skill instructions and returns them as <skill_content> — no args needed. Always pass the same kind the search result reported.',
+    description: 'Execute a capability by its exact id (from meta_search) and kind. For tools, forwards args to the underlying tool. For skills, loads the full instructions; pass force:true to reload changed instructions in the current session. Always pass the kind reported by meta_search.',
     parameters: {
       id: { type: 'string', required: true, description: 'Capability id from meta_search, e.g. mcp__gongfeng__create_issue or frontend-design.' },
       kind: { type: 'string', enum: ['tool', 'skill'], required: true, description: 'Capability kind reported by meta_search for this id.' },
@@ -103,6 +103,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           'Do NOT wrap these in another {id, kind, args} object, and do NOT stringify them — pass them as a structured object. ' +
           'Skills ignore this field.',
       },
+      force: { type: 'boolean', description: 'For Skills, reload current instructions even if already loaded in this session.' },
     },
     output: {
       schema: {
@@ -177,7 +178,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         return [{ type: 'text', text: JSON.stringify(value) }]
       },
     },
-    async execute(args: { id: string; kind: 'tool' | 'skill'; args?: unknown }, exec: ToolRunContext) {
+    async execute(args: { id: string; kind: 'tool' | 'skill'; args?: unknown; force?: boolean }, exec: ToolRunContext) {
       const id = args.id.trim()
       const kind = args.kind
       if (kind !== 'tool' && kind !== 'skill') {
@@ -291,7 +292,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
 
         // Already loaded this session → return a short reminder, no re-injection.
-        if (sessionSkills?.has(name) === true) {
+        if (sessionSkills?.has(name) === true && args.force !== true) {
           return {
             ok: true,
             kind: 'skill' as const,

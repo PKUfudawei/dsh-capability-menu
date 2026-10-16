@@ -246,6 +246,7 @@ describe('meta-registry', () => {
     // Global-layer skill indexed as before.
     const globalSkill = ctx.capability.search({ kind: 'skill' })
     expect(globalSkill.some(summary => summary.id === 'global-skill')).toBe(true)
+    expect(ctx.capability.diagnostics().brokenPresets).toContainEqual({ id: 'broken-preset', reason: 'unparsable' })
     // Broken presets are skipped; the mountable preset's scope was enumerated.
     expect(scopes.has('coding-plus')).toBe(true)
     expect(scopes.has('broken-preset')).toBe(false)
@@ -304,6 +305,51 @@ describe('meta-registry', () => {
     // not the indexed record (a skill id is a bare name, so only one may be).
     expect(summaries.get('shared-name')?.preset).toBeUndefined()
     expect(ctx.capability.get('shared-name', 'skill')?.origin.path).toBe(join(home, '.agents/skills/shared-name'))
+    expect(ctx.capability.diagnostics().shadowedSkills).toContainEqual({
+      name: 'shared-name', selectedFrom: 'global', shadowedFrom: 'cordis',
+    })
+  })
+
+  it('supports the DSH 0.2 lease-based preset scope API and always disposes leases', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const ctx = await setup(home)
+    const disposeSymbol = (Symbol as unknown as { asyncDispose?: symbol }).asyncDispose ?? Symbol.for('nodejs.asyncDispose')
+    let acquired = 0
+    let disposed = 0
+    ctx.provide('agentPresets', {
+      async list(): Promise<Array<{ id: string }>> { return [{ id: 'lease-preset' }] },
+      async acquireScope(id?: string) {
+        acquired += 1
+        return {
+          key: { agentPreset: id },
+          [disposeSymbol]: async () => { disposed += 1 },
+        }
+      },
+    })
+    await ctx.capability.refresh()
+    for (let attempt = 0; attempt < 20 && disposed !== acquired; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(acquired).toBeGreaterThanOrEqual(2)
+    expect(disposed).toBe(acquired)
+  })
+
+  it('paginates registry results and uses useful skill summary fallbacks', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const skillDir = join(home, '.agents/skills/summary-fallback')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), '---\nname: summary-fallback\ndescription: "|||||||"\nwhenToUse: Useful fallback guidance\n---\n\nBody.\n')
+    const ctx = await setup(home)
+    for (let index = 0; index < 3; index += 1) registerMcpTool(ctx, 'paging', `row_${index}`, 'Page result')
+    await ctx.capability.refresh()
+    const first = ctx.capability.search({ kind: 'tool', query: 'Page result', maxResults: 2 })
+    const second = ctx.capability.search({ kind: 'tool', query: 'Page result', maxResults: 2, offset: 2 })
+    expect(first).toHaveLength(2)
+    expect(second).toHaveLength(1)
+    expect(ctx.capability.search({ kind: 'skill' }).find(row => row.id === 'summary-fallback')?.summary).toContain('Useful fallback guidance')
+    expect(ctx.capability.diagnostics().undocumentedSkills).toContainEqual({ name: 'summary-fallback', summary: 'Useful fallback guidance' })
   })
 
   it('enumerates agent-preset standing scopes for tools as well as skills', async () => {
@@ -447,6 +493,18 @@ describe('meta-registry', () => {
     await ctx.capability.refresh()
     const second = (await stat(catalogFile)).mtimeNs
     expect(second).toBe(first)
+  })
+
+  it('writes and explains an empty on-demand catalog instead of leaving an ambiguous blank state', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
+    const { join } = await import('node:path')
+    const { readFile } = await import('node:fs/promises')
+    const catalogFile = join(home, 'nested', 'capability-catalog.yaml')
+    const ctx = await setup(home, { catalogFile })
+    await ctx.plugin(policy)
+    await ctx.capability.refresh()
+    expect(await readFile(catalogFile, 'utf8')).toContain('# No on-demand capabilities')
+    expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'empty', count: 0, path: catalogFile })
   })
 
   it('coalesces a burst of change events into a single rebuild', async () => {
@@ -677,6 +735,7 @@ describe('meta-registry', () => {
     // has no row to annotate — a change to the filter would silently start
     // advertising a skill the model cannot load.
     expect(ctx.capability.get('user-only-skill', 'skill')).toBeUndefined()
+    expect(ctx.capability.diagnostics().unavailableSkills).toContainEqual({ name: 'user-only-skill', source: 'filesystem' })
     expect(ctx.capabilityPolicy.classifyAll().some(row => row.id === 'user-only-skill')).toBe(false)
     expect(ctx.capability.get('normal-skill', 'skill')?.invocation.modelInvocable).toBe(true)
 

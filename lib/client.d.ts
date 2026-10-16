@@ -4,6 +4,262 @@ var exports = module.exports;
 
 import { Context } from "@deepseek-ai/cordis";
 import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
+import "@deepseek-ai/schemastery";
+import { ScopeKey } from "@deepseek-ai/dsh-scope";
+import { JsonSchemaNode } from "@deepseek-ai/dsh-tools";
+//#region src/registry.d.ts
+/**
+ * Kinds of capability the catalog can hold.
+ * - `tool`:   action capability — executes a concrete action (an MCP tool or a
+ *   harness-native tool cataloged under the reserved `built-in` server).
+ * - `skill`:  action capability — loads the method/instructions for a task.
+ */
+type CapabilityKind = 'tool' | 'skill';
+/**
+ * Stable invocation actions a capability can declare. Each kind maps to one
+ * canonical action; a new kind only deserves a new value here when it
+ * introduces a new action (not a new flavor of an existing one).
+ * `execute` = run the concrete action (a tool — MCP or native — via `ctx.tools.execute`);
+ * `load`    = load the method/instructions (a skill).
+ */
+type CapabilityAction = 'execute' | 'load';
+/** Capability-stable origin metadata used by search filters and detail views. */
+interface CapabilityOrigin {
+  /** Human/namespace label: an MCP server name, the reserved `built-in` for native tools, or a skill provider. */
+  readonly provider: string;
+  /** Server namespace, present only for `kind: 'tool'` (`built-in` for native tools). */
+  readonly serverName?: string;
+  /** Local skill path, present only for `kind: 'skill'`. */
+  readonly path?: string;
+  /** Skill source root label (`project-dsh`/`user-agents`/…), present only for skills. */
+  readonly source?: string;
+  /**
+   * Agent preset whose standing scope this skill was collected from, present
+   * only for skills that live in a preset layer.
+   *
+   * A preset's own `skill-filesystem` mounts its `skills/` directory through
+   * `customSkillDirs`, so such a skill is labelled `source: 'custom'` — the
+   * same label a user-configured `customSkillDirs` entry gets. The source
+   * label therefore cannot tell the two apart; this field is what the
+   * management surface groups on ("预设技能" vs. a user's custom root).
+   */
+  readonly preset?: string;
+}
+/** Objective and subjective usage statistics, written back from `tools/result`. */
+interface CapabilityStats {
+  readonly uses: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly totalMs: number;
+  readonly lastUsedAt?: number;
+}
+/** One indexed capability. */
+interface CapabilityRecord {
+  /** Stable identifier: `mcp__<server>__<raw>`, a native tool name, or a bare skill name. */
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  /** The canonical invocation action(s) this capability exposes. */
+  readonly actions: readonly CapabilityAction[];
+  /** Model-facing name (the tool name or skill name without prefix). */
+  readonly name: string;
+  readonly description: string;
+  /** Skill-only extra routing guidance. */
+  readonly whenToUse?: string;
+  readonly origin: CapabilityOrigin;
+  /** Full parameter schema (MCP inputSchema / empty object for skills). */
+  readonly parameters: JsonSchemaNode;
+  readonly invocation: {
+    modelInvocable: boolean;
+    userInvocable: boolean;
+  };
+  readonly tags: readonly string[];
+  readonly stats: CapabilityStats;
+  /** Token-trimmed short description used by `meta_search` list mode. */
+  readonly summary: string;
+}
+/** Lightweight list-mode projection of one capability (no full schema). */
+interface CapabilitySummary {
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  readonly name: string;
+  readonly summary: string;
+  readonly server?: string;
+  /** Skill source root label, present only for `kind: 'skill'`. */
+  readonly source?: string;
+  /** Agent preset id, present only for skills collected from a preset scope. */
+  readonly preset?: string;
+  readonly path?: string;
+  readonly tags: readonly string[];
+  readonly success_rate?: number;
+  readonly uses: number;
+}
+/** Full detail projection, including the parameter schema. */
+interface CapabilityDetail {
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  readonly actions: readonly CapabilityAction[];
+  readonly name: string;
+  readonly description: string;
+  readonly whenToUse?: string;
+  readonly parameters: JsonSchemaNode;
+  readonly output?: JsonSchemaNode;
+  readonly origin: CapabilityOrigin;
+  readonly tags: readonly string[];
+  readonly stats: CapabilityStats;
+}
+/** Search filter options. */
+interface MetaSearchOptions {
+  readonly kind?: CapabilityKind | 'all';
+  readonly server?: string | undefined;
+  readonly tag?: string | undefined;
+  /** Maximum number of results to return. */
+  readonly maxResults?: number;
+  /** Zero-based result offset. */
+  readonly offset?: number;
+  /**
+   * Viewing scope. Retained for caller ergonomics and optional authorization
+   * checks, but the policy does NOT use it to filter visibility — On-demand
+   * capabilities must remain searchable regardless of the caller's projection.
+   */
+  readonly scope?: ScopeKey | undefined;
+  /** Query string for keyword matching; exact id/name match wins. */
+  readonly query?: string;
+  /** Exact capability id. */
+  readonly id?: string;
+  /** Whether to include the full body for skills in `getDetail` (default false). */
+  readonly detailIncludesBody?: boolean;
+}
+/** Runtime detail resolution context. */
+interface MetaLookupContext {
+  readonly cwd?: string | undefined;
+  readonly signal?: AbortSignal | undefined;
+  readonly scope?: ScopeKey | undefined;
+}
+/** One direct child in a skill directory listing. */
+interface SkillDirEntry {
+  readonly name: string;
+  readonly type: 'file' | 'directory';
+}
+interface CapabilityDiagnostics {
+  readonly unavailableSkills: readonly {
+    readonly name: string;
+    readonly source: string;
+    readonly preset?: string;
+  }[];
+  readonly shadowedSkills: readonly {
+    readonly name: string;
+    readonly selectedFrom: string;
+    readonly shadowedFrom: string;
+  }[];
+  readonly brokenPresets: readonly {
+    readonly id: string;
+    readonly reason: string;
+  }[];
+  readonly unbrowseableSkills: readonly {
+    readonly name: string;
+    readonly reason: string;
+  }[];
+  readonly undocumentedSkills: readonly {
+    readonly name: string;
+    readonly summary: string;
+  }[];
+  readonly catalog: {
+    readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
+    readonly path?: string;
+    readonly error?: string;
+    readonly count: number;
+  };
+}
+/** The `ctx.capability` service surface. */
+interface CapabilityService {
+  /** Enumerate the current catalog (optionally filtered). */
+  search(options?: MetaSearchOptions): CapabilitySummary[];
+  /**
+   * Resolve one record by id, or undefined. Pass `kind` when the caller knows
+   * it (tools and skills may share a bare name, e.g. a skill named `bash`);
+   * without `kind` a same-name tool/skill pair resolves to undefined.
+   */
+  get(id: string, kind?: CapabilityKind): CapabilityRecord | undefined;
+  /**
+   * Resolve one record's full detail (schema, output; skill body optional).
+   * `kind` has the same disambiguation semantics as {@link get}.
+   */
+  getDetail(id: string, kind?: CapabilityKind, context?: MetaLookupContext): Promise<CapabilityDetail | undefined>;
+  /**
+   * List a skill's directory children (one level deep). The directory is
+   * resolved from the skill's own provider path, never from caller input;
+   * `relPath` (optional, relative to the skill root) descends into a child
+   * directory.
+   */
+  listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined>;
+  /**
+   * Read a text file inside a skill's directory, addressed by a relative path
+   * that is resolved against and confined to the skill root. Binary files
+   * (content containing NUL) return undefined.
+   */
+  readSkillFile(id: string, relPath: string): Promise<string | undefined>;
+  /**
+   * Indexed skills whose provider exposes a filesystem directory, as
+   * `{ name, skillDir }` where `skillDir` is `<entryDir>/<name>`.
+   */
+  skillDirs(): ReadonlyArray<{
+    readonly name: string;
+    readonly skillDir: string;
+    readonly source?: string;
+  }>;
+  diagnostics(): CapabilityDiagnostics;
+  /** Return the current number of indexed capabilities. */
+  size(): number;
+  /**
+   * Absolute path of the on-demand capability catalog YAML, when emission is
+   * enabled. The model can browse this file with grep/read instead of only
+   * reaching the catalog through `meta_search`.
+   */
+  catalogPath(): string | undefined;
+  /**
+   * Number of On-demand capabilities in the latest catalog emission. Used by
+   * the policy's assemble hook to skip the catalog pointer when there is
+   * nothing On-demand to browse.
+   */
+  onDemandCount(): number;
+  /**
+   * Monotonic catalog version. It advances only when a rebuild finishes
+   * applying, so a caller that compares two samples learns "the catalog really
+   * moved" without re-reading the rows — which is what lets the management UI
+   * poll a single number instead of `classifyAll` on every tick.
+   *
+   * Not guaranteed to increase across a plugin restart (the counter is
+   * in-process), so compare with `!==`, never with `>`.
+   */
+  version(): number;
+  /**
+   * Rebuild the catalog from the current tool/skill registries; resolves when
+   * done. In production the registry rebuilds automatically on `tools/change`
+   * / `skills/change`; this public handle is for tests and external orchestrators
+   * that want to force a rebuild.
+   */
+  refresh(): Promise<void>;
+  /**
+   * Ask for a rebuild without waiting for it. The scheduler coalesces bursts,
+   * so a caller that changes something repeatedly (the management UI cycling
+   * a classification) triggers one rebuild, not one per call.
+   */
+  requestRefresh(): void;
+  /**
+   * Re-emit the materialized on-demand catalog from the index already in hand,
+   * without re-enumerating tools or skills. Moving a capability between tiers
+   * changes no inventory, so the only thing stale on disk is that file — and a
+   * full rebuild would re-scan the global skill layer plus every agent preset
+   * for no new information, which is what made a tier click stall.
+   */
+  rewriteCatalog(): Promise<void>;
+}
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    capability: CapabilityService;
+  }
+}
+//#endregion
 //#region src/client/remote.d.ts
 /** Read-only row: one capability's Resident/On-demand/Disabled classification. */
 interface CapabilityRow {
@@ -35,7 +291,8 @@ interface CatalogDocs {
     readonly content: string;
   };
   /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed';
+  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed';
+  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
 }
 /** One direct child in a skill directory listing. */
 interface SkillFileEntry {
@@ -50,6 +307,7 @@ interface ToolDetail {
   readonly name: string;
   readonly description: string;
   readonly whenToUse?: string;
+  readonly skillContent?: string;
   readonly parameters: Record<string, unknown>;
   readonly output?: Record<string, unknown>;
   readonly origin: {
@@ -117,6 +375,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>;
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>;
+    getDiagnostics: () => Promise<RemoteResult<CapabilityDiagnostics>>;
     refresh: () => Promise<RemoteResult<void>>;
     catalogVersion: () => Promise<RemoteResult<number>>;
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
@@ -138,6 +397,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>;
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>;
+    'capabilityPolicy/getDiagnostics': () => Promise<RemoteResult<CapabilityDiagnostics>>;
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>;
     'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>;
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
@@ -164,6 +424,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 /** Snapshot of the management surface. */
 interface CapabilitySnapshot {
   readonly rows: readonly CapabilityRow[];
+  readonly diagnostics?: CapabilityDiagnostics;
 }
 /** The Host `capabilityPolicy` remote face (generated contribution). */
 interface CapabilityPolicyRemote {
@@ -190,6 +451,16 @@ interface CapabilityPolicyRemote {
   classifyAll(): Promise<{
     ok: true;
     value: CapabilityRow[];
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
+  getDiagnostics?(): Promise<{
+    ok: true;
+    value: CapabilityDiagnostics;
   } | {
     ok: false;
     error: {
@@ -377,7 +648,7 @@ interface CapabilitySectionInjected {
   subscribeSignals?: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'packageName' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable';
+type CapabilityKey = 'nav' | 'title' | 'packageName' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable' | 'diagnosticTitle' | 'diagnosticClean' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'catalogState' | 'catalogSandboxHint' | 'projectRootLabel' | 'skillBrowseUnavailable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

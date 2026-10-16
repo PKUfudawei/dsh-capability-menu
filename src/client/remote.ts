@@ -14,6 +14,8 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
+import type { CapabilityDiagnostics } from '../registry.ts'
+export type { CapabilityDiagnostics } from '../registry.ts'
 
 /**
  * Bridge Typert's codec field rename across DSH 0.1 and 0.2. Older remotes
@@ -51,8 +53,23 @@ export interface CatalogDocs {
   /** 按需能力目录物化文件（path + content）。 */
   readonly catalog?: { readonly path: string; readonly content: string }
   /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed'
+  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed'
+  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'
 }
+
+const capabilityDiagnostics$schema = z.object({
+  unavailableSkills: z.array(z.object({ name: z.string(), source: z.string(), preset: z.string().optional() })),
+  shadowedSkills: z.array(z.object({ name: z.string(), selectedFrom: z.string(), shadowedFrom: z.string() })),
+  brokenPresets: z.array(z.object({ id: z.string(), reason: z.string() })),
+  unbrowseableSkills: z.array(z.object({ name: z.string(), reason: z.string() })),
+  undocumentedSkills: z.array(z.object({ name: z.string(), summary: z.string() })),
+  catalog: z.object({
+    state: z.union([z.literal('disabled'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('ready'), z.literal('write-failed')]),
+    path: z.string().optional(),
+    error: z.string().optional(),
+    count: z.number(),
+  }),
+})
 
 /** One direct child in a skill directory listing. */
 export interface SkillFileEntry {
@@ -68,6 +85,7 @@ export interface ToolDetail {
   readonly name: string
   readonly description: string
   readonly whenToUse?: string
+  readonly skillContent?: string
   readonly parameters: Record<string, unknown>
   readonly output?: Record<string, unknown>
   readonly origin: { readonly provider: string; readonly serverName?: string; readonly path?: string; readonly source?: string; readonly preset?: string }
@@ -185,6 +203,7 @@ const capabilityRow$schema = z.object({
   server: z.string().optional().readonly(),
   source: z.string().optional().readonly(),
   preset: z.string().optional().readonly(),
+  path: z.string().optional().readonly(),
   class: z.union([z.literal('resident'), z.literal('on-demand'), z.literal('disabled')]).readonly(),
   classLabel: z.string().optional().readonly(),
   mandatory: z.boolean().readonly(),
@@ -201,7 +220,8 @@ const catalogDocs$schema = z.object({
     path: z.string().readonly(),
     content: z.string().readonly(),
   }).optional().readonly(),
-  catalogMissing: z.union([z.literal('disabled'), z.literal('read-failed')]).optional().readonly(),
+  catalogMissing: z.union([z.literal('disabled'), z.literal('read-failed'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('write-failed')]).optional().readonly(),
+  catalogState: z.union([z.literal('disabled'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('ready'), z.literal('write-failed')]).optional().readonly(),
 })
 
 const toolDetail$schema = z.object({
@@ -211,6 +231,7 @@ const toolDetail$schema = z.object({
   name: z.string().readonly(),
   description: z.string().readonly(),
   whenToUse: z.string().optional().readonly(),
+  skillContent: z.string().optional().readonly(),
   parameters: z.record(z.string(), z.unknown()).readonly(),
   output: z.record(z.string(), z.unknown()).optional().readonly(),
   origin: z.object({
@@ -235,6 +256,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
     updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>
+    getDiagnostics: () => Promise<RemoteResult<CapabilityDiagnostics>>
     refresh: () => Promise<RemoteResult<void>>
     catalogVersion: () => Promise<RemoteResult<number>>
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
@@ -256,6 +278,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
     'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
     'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>
+    'capabilityPolicy/getDiagnostics': () => Promise<RemoteResult<CapabilityDiagnostics>>
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>
     'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
@@ -312,6 +335,16 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       parameters: [],
       result: strictCodec('@daweifu/capability-menu#CapabilityRow', z.array(capabilityRow$schema)),
       sourceLocation: { file: 'src/server/remote.ts', line: 73, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/getDiagnostics',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'getDiagnostics',
+      invocation: { kind: 'direct' },
+      parameters: [],
+      result: strictCodec('@daweifu/capability-menu#CapabilityDiagnostics', capabilityDiagnostics$schema),
+      sourceLocation: { file: 'src/server/remote.ts', line: 80, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/refresh',

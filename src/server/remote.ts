@@ -16,7 +16,7 @@ import type {
   CapabilityPolicyService,
   Config as CapabilityPolicyConfig,
 } from '../policy.ts'
-import type { CapabilityDetail, SkillDirEntry, CapabilityService } from '../registry.ts'
+import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics } from '../registry.ts'
 import { BUILT_IN_SERVER } from '../registry.ts'
 import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
@@ -40,7 +40,8 @@ export interface CatalogDocs {
   /** 按需能力目录物化文件（capability.catalogPath()）。 */
   readonly catalog?: { readonly path: string; readonly content: string }
   /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed'
+  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed'
+  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'
 }
 
 /**
@@ -77,6 +78,12 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('classifyAll')
   classifyAll(): CapabilityClassification[] {
     return [...this.ctx.capabilityPolicy.classifyAll()]
+  }
+
+  /** Explain filtered, overridden, broken, empty, and unbrowseable inventory states. */
+  @Remote('getDiagnostics')
+  getDiagnostics(): CapabilityDiagnostics {
+    return this.ctx.capability.diagnostics()
   }
 
   /**
@@ -178,14 +185,18 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     ].join('\n')
     const catalogPath = this.ctx.capability.catalogPath?.()
     if (catalogPath === undefined) {
-      return { policyYaml, catalogMissing: 'disabled' }
+      return { policyYaml, catalogMissing: 'disabled', catalogState: 'disabled' }
+    }
+    const catalogStatus = this.ctx.capability.diagnostics().catalog
+    if (catalogStatus.state === 'policy-unmounted' || catalogStatus.state === 'write-failed') {
+      return { policyYaml, catalogMissing: catalogStatus.state, catalogState: catalogStatus.state }
     }
     try {
       const content = await readFile(catalogPath, 'utf8')
-      return { policyYaml, catalog: { path: catalogPath, content } }
+      return { policyYaml, catalog: { path: catalogPath, content }, catalogState: catalogStatus.state }
     } catch (error) {
       this.ctx.logger.warn(`capability-menu-remote: on-demand catalog read failed (${catalogPath}): ${String(error)}`)
-      return { policyYaml, catalogMissing: 'read-failed' }
+      return { policyYaml, catalogMissing: 'read-failed', catalogState: catalogStatus.state }
     }
   }
 
