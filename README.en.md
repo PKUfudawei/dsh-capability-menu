@@ -80,7 +80,7 @@ GitHub Skill imports accept a default-branch root URL (the root must contain `SK
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Compatible with DeepSeek Harness `0.1.5-rc.2`, `0.2.0-rc.1`, and `0.2.0-rc.2`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
+Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
 ### Install from npm (recommended)
 
