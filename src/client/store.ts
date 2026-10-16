@@ -1,6 +1,4 @@
 /**
- * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
- *
  * Types + small helpers for the 能力菜单 (Capability Management) settings
  * section. The component reads/writes the Host `ctx.capabilityPolicy` through
  * the generated `remote.capabilityPolicy` face (see `./remote.ts`), mirroring
@@ -94,11 +92,10 @@ export function unwrapMessage<T>(
  * The last successful snapshot, at module scope.
  *
  * The section is remounted every time the settings tab is opened, and a cold
- * `classifyAll` can be slow once per page load (the plugin's mount awaits a full
- * catalog enumeration before the surface has data). Keeping the previous rows
- * lets a remount paint them immediately and revalidate behind the user instead
- * of showing a loading placeholder. This is a view cache only — every read is
- * still followed by an authoritative one.
+ * `classifyAll` can be slow while the host builds its catalog. Keeping the
+ * previous rows lets a remount paint them immediately and revalidate behind
+ * the user instead of showing a loading placeholder. This is a view cache
+ * only — every read is still followed by an authoritative one.
  */
 let lastSnapshot: CapabilitySnapshot | undefined
 
@@ -110,9 +107,7 @@ const EMPTY_SNAPSHOT_RETRY_DELAYS = [250, 500, 1_000, 1_500] as const
  *
  * Writing the profile patch makes dsh hot-reload this plugin, and for the few
  * seconds that takes the whole `capabilityPolicy/*` surface answers
- * `gateway/service-unavailable`. Leaving the settings section and coming back
- * used to be the only way out; riding through it here keeps that gap off the
- * operator's screen. The sum (9.5s) is deliberately longer than an observed
+ * `gateway/service-unavailable`. The sum (9.5s) is longer than an observed
  * reload (~8s).
  */
 const TRANSIENT_CALL_RETRY_DELAYS = [500, 1_000, 2_000, 3_000, 3_000] as const
@@ -125,7 +120,7 @@ function isTransientHostFailure(error: unknown): boolean {
 }
 
 /**
- * Run one host call, retrying only the failures a plugin reload causes.
+ * Run one host call, retrying failures that can clear after a plugin reload.
  *
  * Anything else — a rejected write, a malformed argument — surfaces on the first
  * attempt: retrying those would only delay the error the operator needs to see.

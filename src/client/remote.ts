@@ -1,6 +1,4 @@
 /**
- * ⚠️ VERIFIED AGAINST REAL rc.8 TYPERT PROTOCOL.
- *
  * Client-side Typert remote contribution for the `capabilityPolicy` Host
  * gateway (`src/server/remote.ts`). Mirrors the generated shape that
  * `@deepseek-ai/dsh-typert-generator` emits (see

@@ -1,6 +1,4 @@
 /**
- * ⚠️ VERIFIED AGAINST REAL rc.8 CLIENT API.
- *
  * React section for the 能力菜单 settings tab. Follows the real dsh client
  * pattern (see `dsh-client-ui-settings-plugins`): two tabs (工具 / Skills)
  * under one heading, each listing capabilities with a clickable class chip.
@@ -14,7 +12,7 @@
  *                       clickable to cycle Resident → On-demand → Disabled.
  *                       Harness-native tools (no real MCP server) share the
  *                       reserved `built-in` group, shown as 「系统内置」.
- *   - Skills tab      → sub-tabs 全局技能 / 项目技能 (always visible), each
+ *   - Skills tab      → sub-tabs 全局技能 / 项目技能 / 预设技能, each
  *                       with flat skill rows carrying the same clickable class
  *                       chip plus a directory tree / file preview
  */
