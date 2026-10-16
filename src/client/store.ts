@@ -105,6 +105,46 @@ let lastSnapshot: CapabilitySnapshot | undefined
 /** Short grace period for host tools that register just after the section mounts. */
 const EMPTY_SNAPSHOT_RETRY_DELAYS = [250, 500, 1_000, 1_500] as const
 
+/**
+ * Grace period for the reload a tier write causes.
+ *
+ * Writing the profile patch makes dsh hot-reload this plugin, and for the few
+ * seconds that takes the whole `capabilityPolicy/*` surface answers
+ * `gateway/service-unavailable`. Leaving the settings section and coming back
+ * used to be the only way out; riding through it here keeps that gap off the
+ * operator's screen. The sum (9.5s) is deliberately longer than an observed
+ * reload (~8s).
+ */
+const TRANSIENT_CALL_RETRY_DELAYS = [500, 1_000, 2_000, 3_000, 3_000] as const
+
+/** Host failures that can clear once the reload lands. A 404 is permanent. */
+function isTransientHostFailure(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error)
+  return /gateway\/(?:service-unavailable|context-(?:unavailable|failed))\b/.test(text)
+    || /transport failure[^\n]*HTTP (?:502|503|504)\b/.test(text)
+}
+
+/**
+ * Run one host call, retrying only the failures a plugin reload causes.
+ *
+ * Anything else — a rejected write, a malformed argument — surfaces on the first
+ * attempt: retrying those would only delay the error the operator needs to see.
+ */
+export async function withTransientRetry<T>(
+  work: () => Promise<T>,
+  retryDelays: readonly number[] = TRANSIENT_CALL_RETRY_DELAYS,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await work()
+    } catch (error) {
+      const delayMs = retryDelays[attempt]
+      if (delayMs === undefined || !isTransientHostFailure(error)) throw error
+      await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+}
+
 /** The previously loaded snapshot, when this page session has one. */
 export function cachedSnapshot(): CapabilitySnapshot | undefined {
   return lastSnapshot
@@ -131,11 +171,11 @@ export async function loadSnapshot(
   remote: CapabilityPolicyRemote,
   retryDelays: readonly number[] = EMPTY_SNAPSHOT_RETRY_DELAYS,
 ): Promise<CapabilitySnapshot> {
-  let snapshot = await readSnapshot(remote)
+  let snapshot = await withTransientRetry(() => readSnapshot(remote))
   for (const delayMs of retryDelays) {
     if (snapshot.rows.length > 0) break
     await new Promise<void>(resolve => setTimeout(resolve, delayMs))
-    snapshot = await readSnapshot(remote)
+    snapshot = await withTransientRetry(() => readSnapshot(remote))
   }
   return rememberSnapshot(snapshot)
 }
@@ -150,11 +190,11 @@ export async function waitForMcpTools(
   const hasServerTools = (snapshot: CapabilitySnapshot): boolean =>
     snapshot.rows.some(row => row.kind === 'tool' && row.id.startsWith(prefix))
 
-  let snapshot = await readSnapshot(remote)
+  let snapshot = await withTransientRetry(() => readSnapshot(remote))
   if (hasServerTools(snapshot)) return snapshot
   for (const delayMs of retryDelays) {
     await new Promise<void>(resolve => setTimeout(resolve, delayMs))
-    snapshot = await readSnapshot(remote)
+    snapshot = await withTransientRetry(() => readSnapshot(remote))
     if (hasServerTools(snapshot)) return snapshot
   }
   return undefined

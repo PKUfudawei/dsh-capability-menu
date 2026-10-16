@@ -27,11 +27,24 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { CapabilityPolicyGateway } from './server/remote.ts'
+import { registerCapabilityPolicyHostFace } from './host-face.ts'
 
 /** Root plugin identity (matches the `capability-menu` patch entry id). */
 export const name = 'capability-menu'
 
-/** Root entry: mount the browser-facing capabilityPolicy gateway. */
+/**
+ * Root entry: mount the browser-facing capabilityPolicy gateway and claim its
+ * namespace in the Typert registry, so `@deepseek-ai/dsh-api-gateway` accepts
+ * `/api/capabilityPolicy/*` no matter how the boot order turns out (see
+ * `src/host-face.ts` for the mechanism and the 404 it prevents).
+ *
+ * The registry is reached through `ctx.inject` instead of a static `inject`: a
+ * host that has no `typert` service must still mount the gateway, exactly as it
+ * did before this hook existed.
+ */
 export function apply(ctx: Context): void {
   ctx.plugin(CapabilityPolicyGateway)
+  ctx.inject(['typert'], (registry) => {
+    registerCapabilityPolicyHostFace(registry)
+  })
 }

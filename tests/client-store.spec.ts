@@ -3,6 +3,7 @@ import {
   loadSnapshot,
   readSnapshot,
   waitForMcpTools,
+  withTransientRetry,
   type CapabilityPolicyRemote,
   type CapabilityRow,
 } from '../src/client/store.ts'
@@ -44,5 +45,56 @@ describe('client capability snapshots', () => {
 
     await expect(waitForMcpTools(remote, 'github', [0])).resolves.toBeUndefined()
     await expect(readSnapshot(remote)).resolves.toMatchObject({ rows: [nativeTool] })
+  })
+
+  it('rides through the reload a tier write causes', async () => {
+    let attempts = 0
+    const remote = {
+      classifyAll: vi.fn(async () => {
+        attempts += 1
+        if (attempts === 1) {
+          throw new Error('capabilityPolicy.classifyAll failed: gateway/service-unavailable: typert gateway: capabilityPolicy/classifyAll: active Service "capabilityPolicyGateway" is unavailable')
+        }
+        return { ok: true as const, value: [nativeTool] }
+      }),
+    } as unknown as CapabilityPolicyRemote
+
+    const snapshot = await loadSnapshot(remote, [])
+
+    expect(snapshot.rows).toEqual([nativeTool])
+    expect(remote.classifyAll).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries only the failures a reload explains', async () => {
+    const transient = vi.fn()
+      .mockRejectedValueOnce(new Error('capabilityPolicy.getConfig failed: gateway/service-unavailable: unavailable'))
+      .mockResolvedValueOnce('ok')
+
+    await expect(withTransientRetry(transient, [0, 0])).resolves.toBe('ok')
+    expect(transient).toHaveBeenCalledTimes(2)
+
+    const rejectedWrite = vi.fn(async () => {
+      throw new Error('capabilityPolicy.updateConfig failed: bad-request: tools.disabled is malformed')
+    })
+
+    await expect(withTransientRetry(rejectedWrite, [0, 0])).rejects.toThrow(/bad-request/)
+    expect(rejectedWrite).toHaveBeenCalledTimes(1)
+
+    const missingEndpoint = vi.fn(async () => {
+      throw new Error('transport failure for /api/capabilityPolicy/getConfig: HTTP 404')
+    })
+    await expect(withTransientRetry(missingEndpoint, [0, 0])).rejects.toThrow(/HTTP 404/)
+    expect(missingEndpoint).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a gateway error returned in a RemoteResult', async () => {
+    const remote = {
+      classifyAll: vi.fn()
+        .mockResolvedValueOnce({ ok: false, error: { code: 'gateway/service-unavailable', message: 'reloading' } })
+        .mockResolvedValueOnce({ ok: true, value: [nativeTool] }),
+    } as unknown as CapabilityPolicyRemote
+
+    await expect(loadSnapshot(remote, [])).resolves.toMatchObject({ rows: [nativeTool] })
+    expect(remote.classifyAll).toHaveBeenCalledTimes(2)
   })
 })

@@ -32,7 +32,7 @@ import type {
   SkillLocation,
   ToolDetail,
 } from './store.ts'
-import { cachedSnapshot, loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools } from './store.ts'
+import { cachedSnapshot, loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools, withTransientRetry } from './store.ts'
 
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
 const chevronIcons = ClientUiPrimitives as unknown as {
@@ -582,7 +582,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     setRefreshing(true)
     setRetryMcp(null)
     try {
-      if (remote !== undefined) unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
+      if (remote !== undefined) await withTransientRetry(async () => unwrap(await remote.refresh(), 'capabilityPolicy.refresh'))
       await reload()
       if (remote.getDiagnostics !== undefined) {
         const result = unwrap(await remote.getDiagnostics(), 'capabilityPolicy.getDiagnostics')
@@ -611,7 +611,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
     setRefreshing(true)
     setRetryMcp(null)
     try {
-      unwrap(await remote.refresh(), 'capabilityPolicy.refresh')
+      await withTransientRetry(async () => unwrap(await remote.refresh(), 'capabilityPolicy.refresh'))
       const delays = [250, 500, 750, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000]
       const snapshot = await waitForMcpTools(remote, serverName, delays)
       if (snapshot !== undefined) {
@@ -752,7 +752,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
         }
       : prev)
     try {
-      const config = unwrap(await remote.getConfig(), 'capabilityPolicy.getConfig')
+      const config = await withTransientRetry(async () => unwrap(await remote.getConfig(), 'capabilityPolicy.getConfig'))
       const key = kind === 'skill' ? 'skills' : 'tools'
       const set = config[key]
       const lists: Record<CapabilityClass, string[]> = {

@@ -138,6 +138,13 @@ export const Config: z<Config> = z.object({
 export const DEFAULT_META_TOOLS = ['meta_search', 'meta_invoke'] as const
 
 /**
+ * Upper bound on the catalog refresh `apply` awaits before it finishes mounting
+ * (see the end of `apply`). Generous: a healthy refresh resolves in
+ * milliseconds, and the failure this guards against never resolves at all.
+ */
+const CATALOG_REFRESH_TIMEOUT_MS = 5_000
+
+/**
  * Map a legacy rule set (old keys `exposed`/`progressive`/`blocked`) onto the
  * current key names (`resident`/`on-demand`/`disabled`), so already-deployed
  * `cordis.patch.yml` profiles keep working without an on-disk rewrite. New
@@ -464,6 +471,22 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const persistDebounceMs = config.persistDebounceMs ?? 1500
   let persistTimer: ReturnType<typeof setTimeout> | undefined
 
+  /**
+   * Tier moves this instance made, per capability kind: id → the class the
+   * operator put it in. Persisting replays exactly these onto the lists the
+   * *file* already has, so the file stays authoritative.
+   *
+   * Writing the whole in-memory rule set out instead loses entries this
+   * instance never saw: another profile (or a hand edit) can have added or
+   * moved rules since this instance loaded, and any later write — including the
+   * teardown flush — would then put the stale set back, so flipping one
+   * capability silently rewrote its neighbours.
+   */
+  const movedTiers: Record<CapabilityKind, Map<string, CapabilityClass>> = {
+    tool: new Map(),
+    skill: new Map(),
+  }
+
   /** Order-insensitive signature of one rule set (resident / on-demand / disabled). */
   const tierSetSignature = (rules: unknown): string => {
     if (rules === null || typeof rules !== 'object') return ''
@@ -471,6 +494,54 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return ['resident', 'on-demand', 'disabled']
       .map(tier => Array.isArray(record[tier]) ? [...(record[tier] as unknown[])].sort().join('\u0000') : '')
       .join('\u0001')
+  }
+
+  /** The three classes, in the order every patch file lists them. */
+  const TIER_KEYS = ['resident', 'on-demand', 'disabled'] as const
+
+  /** One set config's three lists as writable arrays (non-string entries dropped). */
+  const tierLists = (set: unknown): Record<CapabilityClass, string[]> => {
+    const record = set !== null && typeof set === 'object' && !Array.isArray(set)
+      ? set as Record<string, unknown>
+      : {}
+    const lists = { resident: [], 'on-demand': [], disabled: [] } as Record<CapabilityClass, string[]>
+    for (const tier of TIER_KEYS) {
+      const raw = record[tier]
+      lists[tier] = Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
+    }
+    return lists
+  }
+
+  /** `name → class` for one set config, so two views can be compared per id. */
+  const classByName = (set: unknown): Map<string, CapabilityClass> => {
+    const map = new Map<string, CapabilityClass>()
+    const lists = tierLists(set)
+    for (const tier of TIER_KEYS) {
+      for (const name of lists[tier]) map.set(name, tier)
+    }
+    return map
+  }
+
+  /** Record the ids whose class differs between two set configs. */
+  const recordMoves = (
+    previousSet: unknown,
+    nextSet: unknown,
+    moves: Map<string, CapabilityClass>,
+  ): void => {
+    const previous = classByName(previousSet)
+    for (const [name, tier] of classByName(nextSet)) {
+      if (previous.get(name) !== tier) moves.set(name, tier)
+    }
+  }
+
+  /** Apply `id → class` moves to one set's own lists, leaving other entries alone. */
+  const replayMoves = (set: unknown, moves: ReadonlyMap<string, CapabilityClass>): Record<CapabilityClass, string[]> => {
+    const lists = tierLists(set)
+    for (const [name, tier] of moves) {
+      for (const key of TIER_KEYS) lists[key] = lists[key].filter(entry => entry !== name)
+      lists[tier] = [...lists[tier], name]
+    }
+    return lists
   }
 
   /**
@@ -494,9 +565,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     ].join('\u0002')
   }
 
-  /** Write the current rule sets into the patch, when they differ from the file. */
-  const persistTiers = async (): Promise<void> => {
+  /** Serialize writes so a later click cannot race an earlier patch rewrite. */
+  let persistInFlight: Promise<void> = Promise.resolve()
+
+  /** Write validated moves into the patch, when they differ from the file. */
+  const writeTiers = async (): Promise<void> => {
     if (patchFile.length === 0) return
+    const toolMoves = new Map(movedTiers.tool)
+    const skillMoves = new Map(movedTiers.skill)
+    const configAtWrite = current
     try {
       const written = await mutatePatch(patchFile, doc => {
         const existing = findEntry(doc, POLICY_ENTRY_ID)
@@ -508,8 +585,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const next: Record<string, unknown> = typeof prior === 'object' && prior !== null
           ? { ...(prior as Record<string, unknown>) }
           : {}
-        next['tools'] = current.tools ?? {}
-        next['skills'] = current.skills ?? {}
         if (existing === undefined) {
           // An override row, never an insert: this file is normally not where the
           // policy row comes from — the package's own bundle patch inserts it,
@@ -517,17 +592,38 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           // second row with the same id would compose into a tree the loader
           // rejects (`duplicate loader entry id: capability-menu-policy`), so the
           // config has to be landed on the row that already exists.
+          next['tools'] = configAtWrite.tools ?? {}
+          next['skills'] = configAtWrite.skills ?? {}
           addEntryOverride(doc, { id: POLICY_ENTRY_ID, name: POLICY_ENTRY_NAME, config: next })
           return true
         }
+        // Nothing moved since the last write: not writing at all is what keeps a
+        // no-op flush — and a plain restart — from making dsh reload the plugin.
+        if (toolMoves.size === 0 && skillMoves.size === 0) return false
+        // Replay this instance's own moves onto the file's lists instead of
+        // writing the in-memory sets out wholesale (see `movedTiers`): entries
+        // another writer touched since this instance loaded stay as it left them.
+        const priorRecord = (prior ?? {}) as Record<string, unknown>
+        if (toolMoves.size > 0) next['tools'] = replayMoves(priorRecord['tools'], toolMoves)
+        if (skillMoves.size > 0) next['skills'] = replayMoves(priorRecord['skills'], skillMoves)
         // Rewriting an unchanged config would still make dsh reload the plugin.
         if (policyTierSignature(prior) === policyTierSignature(next)) return false
         return setEntryConfig(doc, POLICY_ENTRY_ID, next)
       })
+      // A no-op means another writer already landed these moves. Retire only
+      // the snapshot just handled: a click made during the disk write stays
+      // queued for the next serialized write.
+      for (const [name, tier] of toolMoves) if (movedTiers.tool.get(name) === tier) movedTiers.tool.delete(name)
+      for (const [name, tier] of skillMoves) if (movedTiers.skill.get(name) === tier) movedTiers.skill.delete(name)
       if (written) ctx.logger.info(`capability-policy: persisted tier rules to ${patchFile}`)
     } catch (error) {
       ctx.logger.warn(`capability-policy: cannot persist tier rules to ${patchFile}: ${String(error)}`)
     }
+  }
+
+  const persistTiers = (): Promise<void> => {
+    persistInFlight = persistInFlight.then(writeTiers)
+    return persistInFlight
   }
 
   const schedulePersistTiers = (): void => {
@@ -546,10 +642,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // write before letting the new instance (or shutdown) proceed, so a HMR
   // cannot race ahead of a pending persist.
   ctx.effect(() => async () => {
-    if (persistTimer === undefined) return
-    clearTimeout(persistTimer)
-    persistTimer = undefined
-    await persistTiers()
+    if (persistTimer !== undefined) {
+      clearTimeout(persistTimer)
+      persistTimer = undefined
+      await persistTiers()
+    } else {
+      await persistInFlight
+    }
   }, 'capability-menu-policy: flush tier persistence')
 
   /**
@@ -646,12 +745,19 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       // pay for a full re-enumeration.
       const updateStartedAt = Date.now()
       const before = onDemandSignature()
+      const previousTools = current.tools
+      const previousSkills = current.skills
+      const merged: Config = { ...current, ...partial }
       // Validate first, commit second (see `applyConfig`): a rejected update
       // leaves the live policy exactly as it was.
       applyConfig(
-        { ...current, ...partial },
+        merged,
         partial.metaTools !== undefined ? [...(partial.metaTools ?? DEFAULT_META_TOOLS)] : metaTools,
       )
+      // Only a validated update can enter the pending disk journal. Diffing
+      // against the previous in-memory view excludes unrelated stale entries.
+      recordMoves(previousTools, merged.tools, movedTiers.tool)
+      recordMoves(previousSkills, merged.skills, movedTiers.skill)
       // The On-demand set moved, so the grep-able YAML is stale (and a
       // capability reclassified to Disabled must disappear from it). Re-emit it
       // from the index we already have and await that: it is a filter plus a
@@ -824,7 +930,39 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // refresh(), so without this the YAML would not exist until the first
   // tools/skills change event. Awaiting here closes the cold-start window
   // where the first assemble could point at a file that does not exist yet.
-  await ctx.capability.refresh()
+  //
+  // A pending preset scope must not hold this fiber in `loading` forever. On
+  // timeout, emit the catalog from whatever the registry has indexed so far;
+  // the original refresh remains in flight and will replace it if it finishes.
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
+  let needsFallback = false
+  try {
+    const outcome = await Promise.race([
+      ctx.capability.refresh().then(() => 'complete' as const),
+      new Promise<'timeout'>(resolve => {
+        refreshTimer = setTimeout(() => resolve('timeout'), CATALOG_REFRESH_TIMEOUT_MS)
+        refreshTimer.unref()
+      }),
+    ])
+    if (outcome === 'timeout') {
+      needsFallback = true
+      ctx.logger.warn(`capability-policy: catalog refresh still pending after ${CATALOG_REFRESH_TIMEOUT_MS}ms; emitting current index`)
+    }
+  } catch (error) {
+    needsFallback = true
+    ctx.logger.warn(`capability-policy: on-demand catalog refresh failed: ${String(error)}`)
+  } finally {
+    if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+  }
+  if (needsFallback) {
+    // Run after this plugin settles so the registry can resolve the provided
+    // policy service when it writes the catalog.
+    setTimeout(() => {
+      void ctx.capability.rewriteCatalog().catch((error: unknown) => {
+        ctx.logger.warn(`capability-policy: fallback catalog write failed: ${String(error)}`)
+      })
+    }, 0).unref()
+  }
 }
 
 /**
