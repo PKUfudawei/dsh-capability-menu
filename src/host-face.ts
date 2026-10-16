@@ -140,6 +140,7 @@ const METHODS: ReadonlyArray<readonly [string, readonly string[], readonly strin
   ['getConfig', [], []],
   ['updateConfig', ['partial'], []],
   ['classifyAll', [], []],
+  ['getDiagnostics', [], []],
   ['refresh', [], []],
   ['getDetail', ['id'], []],
   ['listSkillDir', ['id'], ['relPath']],
