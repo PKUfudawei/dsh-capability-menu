@@ -16,8 +16,7 @@ import type {
   CapabilityPolicyService,
   Config as CapabilityPolicyConfig,
 } from '../policy.ts'
-import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics } from '../registry.ts'
-import { BUILT_IN_SERVER } from '../registry.ts'
+import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
 import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
 import { ADOPTABLE_SKILL_SOURCES, PROJECT_SKILL_SOURCES } from '../constants.ts'
@@ -33,10 +32,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+/** Effective exposure rules and the generated on-demand search catalog. */
 export interface CatalogDocs {
-  /** 当前生效的三档策略配置（getConfig() + metaTools()），YAML 文本。 */
+  /** Effective rules (`getConfig()` + `metaTools()`), rendered as YAML. */
   readonly policyYaml: string
+  readonly summaryMaxChars: number
+  readonly searchSettingsEnabled: boolean
   /** 按需能力目录物化文件（capability.catalogPath()）。 */
   readonly catalog?: { readonly path: string; readonly content: string }
   /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
@@ -103,6 +104,21 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capability.getDetail(id)
   }
 
+  @Remote('getSearchMetadata')
+  getSearchMetadata(id: string, kind: 'tool' | 'skill'): SearchMetadata | undefined {
+    return this.ctx.capability.getSearchMetadata(id, kind)
+  }
+
+  @Remote('updateSearchMetadata')
+  async updateSearchMetadata(input: SearchMetadataUpdate): Promise<void> {
+    await this.ctx.capability.updateSearchMetadata(input)
+  }
+
+  @Remote('updateSummaryMaxChars')
+  async updateSummaryMaxChars(value: number): Promise<void> {
+    await this.ctx.capability.updateSummaryMaxChars(value)
+  }
+
   /** List a skill's directory children (one level deep; optional subpath). */
   @Remote('listSkillDir')
   async listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined> {
@@ -115,88 +131,32 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capability.readSkillFile(id, relPath)
   }
 
-  /**
-   * 能力目录查看：返回「三档策略配置」语义化视图——默认全部常驻，
-   * tools.resident 按 server 各显示 '*'，例外（on-demand/disabled）按
-   * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
-   * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
-   * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
-   * 两者都是只读视图；改规则的入口是「能力菜单」的点选，改动会自动写回 cordis.patch.yml。
-   */
+  /** Return the effective rules and the generated on-demand search catalog. */
   @Remote('getCatalogDocs')
   async getCatalogDocs(): Promise<CatalogDocs> {
-    const effective = [...this.ctx.capabilityPolicy.classifyAll()]
-    const toolRows = effective.filter(row => row.kind === 'tool')
-    const skillRows = effective.filter(row => row.kind === 'skill')
-
-    const count = (rows: ReadonlyArray<{ readonly class: string }>, cls: string): number =>
-      rows.filter(row => row.class === cls).length
-
-    /** 例外档（on-demand/disabled）的生效工具，按 server 分组为 server → 短名列表。 */
-    const toolGroups = (cls: 'on-demand' | 'disabled'): Record<string, string[]> => {
-      const groups = new Map<string, string[]>()
-      for (const row of toolRows.filter(r => r.class === cls)) {
-        const server = row.server ?? BUILT_IN_SERVER
-        const prefix = row.server === undefined ? undefined : `mcp__${row.server}__`
-        const short = prefix !== undefined && row.name.startsWith(prefix) ? row.name.slice(prefix.length) : row.name
-        const list = groups.get(server)
-        if (list === undefined) groups.set(server, [short])
-        else list.push(short)
-      }
-      return Object.fromEntries([...groups.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([server, names]) => [server, names.sort((a, b) => a.localeCompare(b))]))
-    }
-    /** 例外档技能的生效短名（技能无 server 维度，平铺列表）。 */
-    const skillNames = (cls: 'on-demand' | 'disabled'): string[] =>
-      skillRows.filter(row => row.class === cls).map(row => row.name).sort((a, b) => a.localeCompare(b))
-
-    // tools.resident：每个含工具的 server 一个 '*'（该 server 其余工具默认常驻）。
-    const servers = [...new Set(toolRows.map(row => row.server ?? BUILT_IN_SERVER))]
-      .sort((a, b) => a.localeCompare(b))
-    const residentTools: Record<string, string> = {}
-    for (const server of servers) residentTools[server] = '*'
-
-    // 例外档仅当实际存在时才写入，避免空的 []/{}。
-    const tools: Record<string, unknown> = { resident: residentTools }
-    const onDemandTools = toolGroups('on-demand')
-    const disabledTools = toolGroups('disabled')
-    if (Object.keys(onDemandTools).length > 0) tools['on-demand'] = onDemandTools
-    if (Object.keys(disabledTools).length > 0) tools.disabled = disabledTools
-
-    const skills: Record<string, unknown> = { resident: '*' }
-    const onDemandSkills = skillNames('on-demand')
-    const disabledSkills = skillNames('disabled')
-    if (onDemandSkills.length > 0) skills['on-demand'] = onDemandSkills
-    if (disabledSkills.length > 0) skills.disabled = disabledSkills
-
-    const policyYaml = [
-      '# 能力菜单 · 当前生效策略（只读视图）',
-      '# 实时生成自内存中的规则；「能力菜单」里的点选会在停手后写回 cordis.patch.yml。',
-      '# 语义：未命中任何规则的能力默认常驻，下面只列例外——',
-      '#       tools 按 server → 工具名分级；skills 无 server 维度，直接平铺技能名。',
-      `# 生效：tools 常驻 ${count(toolRows, 'resident')} · 按需 ${count(toolRows, 'on-demand')} · 禁用 ${count(toolRows, 'disabled')}；` +
-        `skills 常驻 ${count(skillRows, 'resident')} · 按需 ${count(skillRows, 'on-demand')} · 禁用 ${count(skillRows, 'disabled')}`,
-      yaml.dump({
-        metaTools: [...this.ctx.capabilityPolicy.metaTools()],
-        tools,
-        skills,
-      }).trimEnd(),
-    ].join('\n')
+    const config = this.ctx.capabilityPolicy.getConfig()
+    const summaryMaxChars = this.ctx.capability.summaryMaxChars()
+    const searchSettingsEnabled = this.ctx.capability.searchSettingsEnabled()
+    const settings = { summaryMaxChars, searchSettingsEnabled }
+    const policyYaml = yaml.dump({
+      metaTools: [...this.ctx.capabilityPolicy.metaTools()],
+      tools: config.tools ?? {},
+      skills: config.skills ?? {},
+    })
     const catalogPath = this.ctx.capability.catalogPath?.()
     if (catalogPath === undefined) {
-      return { policyYaml, catalogMissing: 'disabled', catalogState: 'disabled' }
+      return { policyYaml, ...settings, catalogMissing: 'disabled', catalogState: 'disabled' }
     }
     const catalogStatus = this.ctx.capability.diagnostics().catalog
     if (catalogStatus.state === 'policy-unmounted' || catalogStatus.state === 'write-failed') {
-      return { policyYaml, catalogMissing: catalogStatus.state, catalogState: catalogStatus.state }
+      return { policyYaml, ...settings, catalogMissing: catalogStatus.state, catalogState: catalogStatus.state }
     }
     try {
       const content = await readFile(catalogPath, 'utf8')
-      return { policyYaml, catalog: { path: catalogPath, content }, catalogState: catalogStatus.state }
+      return { policyYaml, ...settings, catalog: { path: catalogPath, content }, catalogState: catalogStatus.state }
     } catch (error) {
       this.ctx.logger.warn(`capability-menu-remote: on-demand catalog read failed (${catalogPath}): ${String(error)}`)
-      return { policyYaml, catalogMissing: 'read-failed', catalogState: catalogStatus.state }
+      return { policyYaml, ...settings, catalogMissing: 'read-failed', catalogState: catalogStatus.state }
     }
   }
 

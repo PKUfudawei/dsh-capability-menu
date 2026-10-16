@@ -31,7 +31,7 @@
   - [Tools 和 Skills 三档暴露与执行对照](#tools-和-skills-三档暴露与执行对照)
 - [配置](#配置)
   - [全部配置项](#全部配置项)
-  - [按需能力目录（`catalogfile`）](#按需能力目录catalogfile)
+  - [按需能力检索目录（`catalogFile`）](#按需能力检索目录catalogfile)
 
 ---
 
@@ -72,7 +72,8 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | 查看能力详情 | 点击 Tool 查看定义；点击 Skill 展开文件列表并预览文件，内容按 Markdown 渲染 |
 | 注册能力 | 点击右上角「注册能力」，添加 MCP 服务器或 Skill 目录；Skill 支持本机目录或公开 GitHub 链接 |
 | 编辑或移除 | 在 Tools 的服务器分组或 Skills 的技能项中点击「编辑」 |
-| 查看策略和目录 | 点击页头右侧的「策略与目录」 |
+| 查看规则和检索目录 | 点击页头右侧的「能力暴露与检索」，查看生效规则及自动生成的按需能力检索目录；可在目录页调整检索描述上限 |
+| 编辑检索描述 | 将 Tool 或 Skill 设为「按需」后，点击旁边的「检索描述」，在来源描述的简短版本上修改 |
 
 注册 MCP 会写入 patch 配置；文件或父目录缺失时会自动创建。MCP 请求头等凭据保存在配置中，请妥善保管。注册 Skill 则会在所选技能根目录创建链接或导入目录。
 
@@ -183,13 +184,15 @@ config:
 | --- | --- | --- | --- |
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见上 | patch 中的基础分类规则；界面档位改动保存在独立状态文件 |
 | `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
+| `searchMetadataFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-menu-search-metadata.json` | 检索描述与前端上限设置的状态文件；置空后无法保存修改 |
+| `summaryMaxChars` | `capability-menu-registry` | `320` | 检索描述、`meta_search` 列表摘要及目录描述的初始字符上限；最小为 20；前端保存的值优先 |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 注册 MCP 服务器写入的 patch 文件 |
 | `stateFile` | `capability-menu-policy` | 与 `patchFile` 同目录的 `capability-menu-policy.json` | 界面档位改动的状态文件，置空禁用持久化 |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | 注册 Skill 目录的技能根 |
 | `persistDebounceMs` | `capability-menu-policy` | `1500` | 点选改动写入状态文件前的防抖窗口（ms）|
 
-这些配置项分别属于对应的插件 entry，通常都写在同一份 `cordis.patch.yml` 里。`stateFile` 由插件自动创建；`catalogFile` 是供模型检索的目录文件，`skillsDir` 是 Skill 存放目录。
+这些配置项分别属于对应的插件 entry，通常都写在同一份 `cordis.patch.yml` 里。`stateFile` 和 `searchMetadataFile` 由插件自动创建；`catalogFile` 是供模型检索的生成文件，`skillsDir` 是 Skill 存放目录。
 
 **规则优先级**（按序匹配：禁用始终优先；在常驻与按需之间，精确规则优先于通配）：
 
@@ -205,9 +208,13 @@ config:
 
 若更高优先级规则覆盖了所选档位，界面会提示「分类未生效」。
 
-### 按需能力目录（`catalogFile`）
+### 按需能力检索目录（`catalogFile`）
 
-插件会把按需 Tool 和 Skill 写入 `catalogFile` 指定的 YAML 文件，供模型检索。默认路径为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`，设为空字符串可关闭；无按需能力时文件会保留 `capabilities: []` 并注明原因。目录会在 Tool、Skill 或档位变化后自动更新。
+插件会把按需 Tool 和 Skill 写入 `catalogFile` 指定的 YAML 文件，供模型检索。默认路径为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`，设为空字符串可关闭；无按需能力时文件内容为 `capabilities: []`。目录会在 Tool、Skill、档位或检索信息变化后自动更新。
+
+按需能力行会显示「检索描述」入口。编辑框预填当前目录使用的描述：来源描述会按 `summaryMaxChars`（默认 320 字符）压缩后显示，截断时尽量停在词或标点边界。修改保存在 `searchMetadataFile`，用于 `meta_search` 的列表和关键词匹配，也同步写入按需能力检索目录；能力的原始定义和精确详情不会改变。点击「还原」只恢复输入框中的来源描述，仍需点击「保存」才生效。目录 YAML 是生成文件，直接修改会被后续更新覆盖。旧状态文件中的 `summary` 会作为检索描述读取；旧自定义标签停止参与搜索，首次重写状态文件前会备份为 `.legacy.bak`。
+
+可在「能力暴露与检索 → 按需能力检索目录」顶部修改全局「检索描述上限」（最小 20 字符）。保存后立即重建目录，不会修改 patch 或重载插件；设置写入 `searchMetadataFile` 的 `_settings.summaryMaxChars`，下次启动仍生效，并优先于 patch 中的 `summaryMaxChars`。若已有自定义检索描述超过拟设上限，保存会提示先缩短该描述，不会丢弃它。
 
 Skill 需要先注册到 `ctx.skills` 才会出现在目录中。模型可以用 `grep` / `read` 搜索目录，或调用 `meta_search` 查找条目，再通过 `meta_invoke` 使用对应能力。列表默认最多返回 20 项（单页上限 50）；使用 `offset: 50` 读取下一页。`total` 是权限与禁用规则过滤后的匹配总数，`returned` 是当前页数量。Skill 的详情返回描述和使用提示，正文由 `meta_invoke` 加载；要重新读入会话中途更新的正文时传 `force: true`。
 
@@ -217,17 +224,15 @@ Skill 需要先注册到 `ctx.skills` 才会出现在目录中。模型可以用
 capabilities:
   - id: mcp__km__search
     kind: tool
-    name: mcp__km__search
     description: 搜索知识库
     server: km
   - id: legacy_skill
     kind: skill
-    name: legacy_skill
     description: 处理旧工程的低频技能
     whenToUse: 处理旧工程时使用
 ```
 
-默认目录跟随 `DSH_HOME`，并由插件创建父目录。能力菜单会显示目录状态与路径；模型侧的 `bash` / `read` 沙箱权限取决于运行环境，如不可访问需将 `catalogFile` 配到沙箱可见位置。多个 DSH 实例默认共用该文件；需要隔离时，为每个实例设置不同路径。
+默认目录跟随 `DSH_HOME`，并由插件创建父目录。能力菜单会显示目录路径；多个 DSH 实例默认共用该文件，需要隔离时可为每个实例设置不同路径。
 
 ## License
 

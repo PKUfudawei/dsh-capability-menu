@@ -14,6 +14,8 @@ import type {
 } from '@deepseek-ai/dsh-typert-protocol'
 import type { CapabilityDiagnostics } from '../registry.ts'
 export type { CapabilityDiagnostics } from '../registry.ts'
+export type { SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
+import type { SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
 
 /**
  * Bridge Typert's codec field rename across DSH 0.1 and 0.2. Older remotes
@@ -44,10 +46,12 @@ export interface CapabilityRow {
   readonly mandatory: boolean
 }
 
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+/** Current exposure rules and the generated on-demand search catalog. */
 export interface CatalogDocs {
-  /** 当前生效的三档策略配置 YAML。 */
+  /** Effective rule configuration in YAML. */
   readonly policyYaml: string
+  readonly summaryMaxChars: number
+  readonly searchSettingsEnabled: boolean
   /** 按需能力目录物化文件（path + content）。 */
   readonly catalog?: { readonly path: string; readonly content: string }
   /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
@@ -214,6 +218,8 @@ const skillFileEntry$schema = z.object({
 
 const catalogDocs$schema = z.object({
   policyYaml: z.string().readonly(),
+  summaryMaxChars: z.number().readonly(),
+  searchSettingsEnabled: z.boolean().readonly(),
   catalog: z.object({
     path: z.string().readonly(),
     content: z.string().readonly(),
@@ -249,6 +255,20 @@ const toolDetail$schema = z.object({
   }).readonly(),
 })
 
+const searchMetadata$schema = z.object({
+  id: z.string(),
+  kind: z.union([z.literal('tool'), z.literal('skill')]),
+  defaultDescription: z.string(),
+  description: z.string().optional(),
+  maxChars: z.number(),
+})
+
+const searchMetadataUpdate$schema = z.object({
+  id: z.string(),
+  kind: z.union([z.literal('tool'), z.literal('skill')]),
+  description: z.string(),
+})
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
     getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
@@ -260,6 +280,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    getSearchMetadata: (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>
+    updateSearchMetadata: (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>
+    updateSummaryMaxChars: (value: number) => Promise<RemoteResult<void>>
     getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>
     listLocations: () => Promise<RemoteResult<McpLocation[]>>
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>
@@ -282,6 +305,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    'capabilityPolicy/getSearchMetadata': (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>
+    'capabilityPolicy/updateSearchMetadata': (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>
+    'capabilityPolicy/updateSummaryMaxChars': (value: number) => Promise<RemoteResult<void>>
     'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>
@@ -391,6 +417,43 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: strictCodec('@daweifu/capability-menu#ToolDetail', toolDetail$schema.optional()),
       sourceLocation: { file: 'src/server/remote.ts', line: 79, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/getSearchMetadata',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'getSearchMetadata',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'id', wire: 'id', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'kind', wire: 'kind', source: 'json', codec: strictCodec('CapabilityKind', z.union([z.literal('tool'), z.literal('skill')])) },
+      ],
+      result: strictCodec('SearchMetadata | undefined', searchMetadata$schema.optional()),
+      sourceLocation: { file: 'src/server/remote.ts', line: 104, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/updateSearchMetadata',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'updateSearchMetadata',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'input', wire: 'input', source: 'json', codec: strictCodec('SearchMetadataUpdate', searchMetadataUpdate$schema) },
+      ],
+      result: strictCodec('void', z.undefined()),
+      sourceLocation: { file: 'src/server/remote.ts', line: 109, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/updateSummaryMaxChars',
+      service: 'capabilityPolicy',
+      namespace: 'capabilityPolicy',
+      method: 'updateSummaryMaxChars',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'value', wire: 'value', source: 'json', codec: strictCodec('number', z.number()) },
+      ],
+      result: strictCodec('void', z.undefined()),
+      sourceLocation: { file: 'src/server/remote.ts', line: 115, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/getCatalogDocs',

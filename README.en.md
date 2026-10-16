@@ -31,7 +31,7 @@
   - [Tools and Skills three-tier exposure and execution](#tools-and-skills-three-tier-exposure-and-execution)
 - [Configuration](#configuration)
   - [All configuration options](#all-configuration-options)
-  - [On-demand capability catalog (`catalogFile`)](#on-demand-capability-catalog-catalogfile)
+  - [On-demand search catalog (`catalogFile`)](#on-demand-search-catalog-catalogfile)
 
 ---
 
@@ -72,7 +72,8 @@ After installation, open **Settings** and select **Capability Management** from 
 | View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
 | Register a capability | Click **Register capability** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
 | Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
-| View policies and catalog | Click **Policy &amp; catalog** on the right side of the page header. |
+| View rules and catalog | Click **Exposure &amp; search** on the right side of the page header. The catalog tab also sets the search description limit. |
+| Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
 
 Registering an MCP server writes its patch configuration; a missing file or parent directory is created automatically. MCP credentials such as request headers are stored in the config; keep it secure. Skill registration creates a link or imports a directory into the selected skill root.
 
@@ -183,13 +184,15 @@ config:
 | --- | --- | --- | --- |
 | `tools` / `skills` / `metaTools` | `capability-menu-policy` | see above | Base tier rules in the patch; UI moves are saved separately |
 | `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
+| `searchMetadataFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-menu-search-metadata.json` | Saved search descriptions and UI limit setting; empty prevents saving changes |
+| `summaryMaxChars` | `capability-menu-registry` | `320` | Initial character limit for search descriptions, `meta_search` list summaries, and catalog descriptions; minimum 20; a UI-saved value takes precedence |
 | `refreshDebounceMs` | `capability-menu-registry` | `200` | Debounce window (ms) for change-event rebuilds; `0` disables debouncing |
 | `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
 | `stateFile` | `capability-menu-policy` | `capability-menu-policy.json` beside `patchFile` | UI tier state; set to an empty string to disable persistence |
 | `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
 | `persistDebounceMs` | `capability-menu-policy` | `1500` | Debounce window (ms) before a clicked tier change is written to the state file |
 
-These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`. The plugin creates `stateFile` automatically. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
+These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`. The plugin creates `stateFile` and `searchMetadataFile` automatically. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
 
 **Rule priority** (evaluated in order: Disabled always wins; between Resident and On-demand, exact rules beat wildcards):
 
@@ -205,9 +208,13 @@ These settings belong to their respective plugin entries and usually live in the
 
 If a higher-priority rule overrides a selected tier, the UI reports that the classification did not apply.
 
-### On-demand capability catalog (`catalogFile`)
+### On-demand search catalog (`catalogFile`)
 
-The plugin writes On-demand Tools and Skills to the YAML file specified by `catalogFile` so the model can search them. The default is `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`; set it to an empty string to disable the catalog. The catalog is updated when Tools, Skills, or tiers change. When empty, it contains `capabilities: []` with an explanatory comment.
+The plugin writes On-demand Tools and Skills to the YAML file specified by `catalogFile` so the model can search them. The default is `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`; set it to an empty string to disable the catalog. The catalog is updated when Tools, Skills, tiers, or search information change. When empty, it contains only `capabilities: []`.
+
+On-demand capability rows show a **Search description** button. The editor starts with the description currently used by the catalog, shortened from the provider description to `summaryMaxChars` characters (320 by default). Truncation prefers a word or punctuation boundary. Changes are saved in `searchMetadataFile` and affect `meta_search` list results and keyword matching as well as the generated catalog. The provider definition and exact detail stay unchanged. **Restore** puts the provider text back into the editor; **Save** applies it. Direct edits to the generated YAML will be overwritten. Legacy `summary` values are read as search descriptions; custom tags stop affecting search. The old state file is backed up as `.legacy.bak` before its first rewrite.
+
+The global **Search description limit** is editable at the top of **Exposure & search → On-demand search catalog** (minimum 20 characters). Saving rebuilds the catalog immediately without editing the patch or reloading the plugin. The value is saved as `_settings.summaryMaxChars` in `searchMetadataFile` and takes precedence over the patch configuration on later starts. If an existing custom description exceeds a proposed lower limit, saving asks you to shorten that description first; it never discards it.
 
 A Skill must be registered in `ctx.skills` to appear in the catalog. The model can search it with `grep` / `read` or call `meta_search`, then use the capability with `meta_invoke`. List mode returns up to 20 items by default (50 maximum per page); use `offset: 50` for the next page. `total` counts matches after scope and Disabled filtering; `returned` counts the current page. Skill details contain metadata and usage guidance; `meta_invoke` loads the body. Pass `force: true` to reload instructions changed during the session.
 
@@ -219,17 +226,15 @@ A Skill must be registered in `ctx.skills` to appear in the catalog. The model c
 capabilities:
   - id: mcp__km__search
     kind: tool
-    name: mcp__km__search
     description: Search the knowledge base
     server: km
   - id: legacy_skill
     kind: skill
-    name: legacy_skill
     description: A low-frequency skill for working on legacy code
     whenToUse: Use when working on legacy projects
 ```
 
-The default follows `DSH_HOME`, and the plugin creates its parent directory. The management panel shows catalog state and path. Model-side `bash` / `read` access depends on the runtime sandbox; if the path is inaccessible, set `catalogFile` to one the sandbox can read. Multiple DSH instances share the default file; use a different path for each instance when they need separate catalogs.
+The default follows `DSH_HOME`, and the plugin creates its parent directory. The management panel shows the catalog path. Multiple DSH instances share the default file; use a different path for each instance when they need separate catalogs.
 
 ## License
 

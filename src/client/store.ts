@@ -19,6 +19,8 @@ export type {
   McpUpdateInput,
   SkillLocation,
   CapabilityDiagnostics,
+  SearchMetadata,
+  SearchMetadataUpdate,
 } from './remote.ts'
 import type {
   CapabilityRow,
@@ -30,6 +32,8 @@ import type {
   McpUpdateInput,
   SkillLocation,
   CapabilityDiagnostics,
+  SearchMetadata,
+  SearchMetadataUpdate,
 } from './remote.ts'
 
 /** Snapshot of the management surface. */
@@ -50,6 +54,9 @@ export interface CapabilityPolicyRemote {
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
   getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
+  getSearchMetadata(id: string, kind: 'tool' | 'skill'): Promise<{ ok: true; value: SearchMetadata | undefined } | { ok: false; error: { code: string; message: string } }>
+  updateSearchMetadata(input: SearchMetadataUpdate): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
+  updateSummaryMaxChars(value: number): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   getCatalogDocs(): Promise<{ ok: true; value: CatalogDocs } | { ok: false; error: { code: string; message: string } }>
   listLocations(): Promise<{ ok: true; value: McpLocation[] } | { ok: false; error: { code: string; message: string } }>
   addLocation(input: McpInput): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>

@@ -10,7 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
-import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics } from '../registry.ts';
+import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts';
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -18,10 +18,12 @@ declare module '@deepseek-ai/cordis' {
         capability: CapabilityService;
     }
 }
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+/** Effective exposure rules and the generated on-demand search catalog. */
 export interface CatalogDocs {
-    /** 当前生效的三档策略配置（getConfig() + metaTools()），YAML 文本。 */
+    /** Effective rules (`getConfig()` + `metaTools()`), rendered as YAML. */
     readonly policyYaml: string;
+    readonly summaryMaxChars: number;
+    readonly searchSettingsEnabled: boolean;
     /** 按需能力目录物化文件（capability.catalogPath()）。 */
     readonly catalog?: {
         readonly path: string;
@@ -62,18 +64,14 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     refresh(): Promise<void>;
     /** Resolve one capability's full detail (schema, description; skill body optional). */
     getDetail(id: string): Promise<CapabilityDetail | undefined>;
+    getSearchMetadata(id: string, kind: 'tool' | 'skill'): SearchMetadata | undefined;
+    updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
+    updateSummaryMaxChars(value: number): Promise<void>;
     /** List a skill's directory children (one level deep; optional subpath). */
     listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined>;
     /** Read a text file inside a skill's directory. */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
-    /**
-     * 能力目录查看：返回「三档策略配置」语义化视图——默认全部常驻，
-     * tools.resident 按 server 各显示 '*'，例外（on-demand/disabled）按
-     * server → 工具短名 分级列出；skills 无 server 维度，resident 恒为 '*'，
-     * 例外为短名平铺。空例外不渲染 key，避免 []/{} 歧义。
-     * 另返回按需能力目录物化文件（~/.dsh/capability-catalog.yaml）的路径和内容。
-     * 两者都是只读视图；改规则的入口是「能力菜单」的点选，改动会自动写回 cordis.patch.yml。
-     */
+    /** Return the effective rules and the generated on-demand search catalog. */
     getCatalogDocs(): Promise<CatalogDocs>;
     /** MCP servers declared in the patch file. */
     listLocations(): Promise<McpLocation[]>;

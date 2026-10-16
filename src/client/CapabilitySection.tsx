@@ -29,6 +29,7 @@ import type {
   SkillFileEntry,
   SkillLocation,
   ToolDetail,
+  SearchMetadata,
 } from './store.ts'
 import { cachedSnapshot, loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools, withTransientRetry } from './store.ts'
 
@@ -185,14 +186,26 @@ export type CapabilityKey =
   | 'catalogDisabled'
   | 'catalogUnreadable'
   | 'diagnosticTitle'
-  | 'diagnosticClean'
   | 'diagnosticUnavailable'
   | 'diagnosticShadowed'
   | 'diagnosticBroken'
   | 'diagnosticUnbrowseable'
   | 'diagnosticUndocumented'
-  | 'catalogState'
-  | 'catalogSandboxHint'
+  | 'catalogWriteFailed'
+  | 'catalogPolicyUnavailable'
+  | 'editSearchMetadata'
+  | 'searchMetadataButton'
+  | 'searchDescription'
+  | 'searchMetadataNote'
+  | 'searchMetadataSave'
+  | 'searchMetadataRestore'
+  | 'searchMetadataRestoreHint'
+  | 'searchMetadataSaved'
+  | 'summaryLimit'
+  | 'summaryLimitUnit'
+  | 'summaryLimitInvalid'
+  | 'summaryLimitDisabled'
+  | 'summaryLimitSaved'
   | 'projectRootLabel'
   | 'skillBrowseUnavailable'
 
@@ -243,6 +256,12 @@ body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 /* 忙碌态靠变淡表示，而不是换文案：换文案会改按钮宽度，把这行挤到第二行。 */
 .mc-catalog-btn:disabled{cursor:default;opacity:.6}
 .mc-catalog-tabs{padding:8px 16px 0}
+.mc-catalog-toolbar{display:flex;align-items:center;gap:12px;padding:8px 16px 0;min-width:0}
+.mc-catalog-toolbar .mc-catalog-path{flex:1 1 auto;min-width:0;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-summary-setting{display:flex;align-items:center;gap:8px;flex:none;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.mc-summary-setting input{box-sizing:border-box;width:76px;padding:4px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit}
+.mc-catalog-limit-error{padding:4px 16px 0;margin:0;font-size:12px}
+@media(max-width:600px){.mc-catalog-toolbar{flex-wrap:wrap}.mc-catalog-toolbar .mc-catalog-path{flex-basis:100%}.mc-summary-setting{flex-wrap:wrap;justify-content:flex-end;margin-left:auto}}
 .mc-catalog-path{padding:8px 16px 0;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
 /* 三态圆点：常驻=实心、按需=半实心、禁用=圆环+斜杠（禁行标志）。
@@ -346,6 +365,11 @@ body[data-ds-dark-theme] .mc-count--disabled{color:#b8abad}
 .mc-confirm-dialog{width:min(420px,calc(100vw - 48px))}
 .mc-confirm-body{display:flex;flex-direction:column;gap:12px;padding:14px 16px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}
 .mc-confirm-body p{margin:0}
+.mc-search-field{display:flex;flex-direction:column;gap:5px;color:var(--dsw-alias-label-primary)}
+.mc-search-field input,.mc-search-field textarea{box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px}
+.mc-search-field textarea{min-height:76px;resize:vertical}
+.mc-search-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.mc-search-restore{margin-right:auto}
 /* A directory has no spaces to break at, and the modal is where it can show in
    full: wrap it instead of truncating it the way a row's 来源 slot must. */
 .mc-confirm-path{font-family:var(--dsw-font-markdown-code-block-font-family);word-break:break-all}
@@ -899,7 +923,7 @@ function ReadyBody(props: {
     }
   }, [remote, t])
 
-  /** 能力目录弹层状态：查看三档策略配置 + 按需能力目录文件。 */
+  /** Current exposure rules and generated on-demand search catalog. */
   const [catalogDocs, setCatalogDocs] = useState<
     | { status: 'loading' }
     | { status: 'error'; message: string }
@@ -907,6 +931,40 @@ function ReadyBody(props: {
     | null
   >(null)
   const [catalogTab, setCatalogTab] = useState<'policy' | 'catalog'>('policy')
+  const [summaryLimitDraft, setSummaryLimitDraft] = useState('')
+  const [summaryLimitSaving, setSummaryLimitSaving] = useState(false)
+  const [summaryLimitError, setSummaryLimitError] = useState<string | undefined>(undefined)
+  const [searchEdit, setSearchEdit] = useState<{ status: 'loading' | 'ready' | 'error'; id: string; kind: 'tool' | 'skill'; metadata?: SearchMetadata; message?: string } | null>(null)
+  const [searchDescription, setSearchDescription] = useState('')
+  const [searchSaving, setSearchSaving] = useState(false)
+  const openSearchEdit = useCallback(async (id: string, kind: 'tool' | 'skill') => {
+    setSearchEdit({ status: 'loading', id, kind })
+    try {
+      const metadata = unwrap(await remote.getSearchMetadata(id, kind), 'capabilityPolicy.getSearchMetadata')
+      if (metadata === undefined) throw new Error(t('detailNotFound'))
+      setSearchDescription(metadata.description ?? metadata.defaultDescription)
+      setSearchEdit({ status: 'ready', id, kind, metadata })
+    } catch (error) {
+      setSearchEdit({ status: 'error', id, kind, message: String(error) })
+    }
+  }, [remote, t])
+  const saveSearchEdit = useCallback(async () => {
+    if (searchEdit === null || searchEdit.status !== 'ready') return
+    setSearchSaving(true)
+    try {
+      unwrap(await remote.updateSearchMetadata({
+        id: searchEdit.id,
+        kind: searchEdit.kind,
+        description: searchDescription,
+      }), 'capabilityPolicy.updateSearchMetadata')
+      setSearchEdit(null)
+      onNotice(t('searchMetadataSaved'))
+    } catch (error) {
+      setSearchEdit({ ...searchEdit, message: String(error) })
+    } finally {
+      setSearchSaving(false)
+    }
+  }, [searchEdit, searchDescription, remote, onNotice, t])
   /** 注册能力 modal; its default sub-tab follows `activeTab`. */
   const [registerOpen, setRegisterOpen] = useState(false)
   /** 编辑 target; at most one is set. */
@@ -1000,16 +1058,44 @@ function ReadyBody(props: {
     }
   }, [remote, t, onNotice])
 
-  /** Fetch and show the two read-only catalog documents. */
+  /** Fetch the exposure rules, catalog, and current search-description limit. */
   const openCatalogDocs = useCallback(async () => {
     setCatalogDocs({ status: 'loading' })
     try {
       const docs = unwrap(await remote.getCatalogDocs(), 'capabilityPolicy.getCatalogDocs')
+      setSummaryLimitDraft(String(docs.summaryMaxChars))
+      setSummaryLimitError(undefined)
       setCatalogDocs({ status: 'ready', docs })
     } catch (error) {
       setCatalogDocs({ status: 'error', message: String(error) })
     }
   }, [remote])
+
+  const saveSummaryLimit = useCallback(async () => {
+    if (catalogDocs?.status !== 'ready') return
+    const value = Number(summaryLimitDraft)
+    if (!/^\d+$/.test(summaryLimitDraft) || !Number.isSafeInteger(value) || value < 20) {
+      setSummaryLimitError(t('summaryLimitInvalid'))
+      return
+    }
+    setSummaryLimitSaving(true)
+    setSummaryLimitError(undefined)
+    try {
+      unwrap(await remote.updateSummaryMaxChars(value), 'capabilityPolicy.updateSummaryMaxChars')
+      const docs = unwrap(await remote.getCatalogDocs(), 'capabilityPolicy.getCatalogDocs')
+      setCatalogDocs({ status: 'ready', docs })
+      setSummaryLimitDraft(String(docs.summaryMaxChars))
+      onNotice(t('summaryLimitSaved'))
+    } catch (error) {
+      setSummaryLimitError(String(error))
+    } finally {
+      setSummaryLimitSaving(false)
+    }
+  }, [catalogDocs, summaryLimitDraft, remote, onNotice, t])
+
+  const skillDiagnosticCount = diagnostics === null ? 0
+    : diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length
+  const catalogProblem = diagnostics?.catalog.state === 'write-failed' || diagnostics?.catalog.state === 'policy-unmounted'
 
   return (
     <>
@@ -1036,19 +1122,18 @@ function ReadyBody(props: {
           {t('viewCatalog')}
         </button>
       </div>
-      {diagnostics !== null && (
+      {diagnostics !== null && (skillDiagnosticCount > 0 || catalogProblem) && (
         <details className="mc-diagnostics">
           <summary>
-            {(diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length) > 0
-              ? t('diagnosticTitle', { count: diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length })
-              : t('diagnosticClean')}
-            {' · '}{t('catalogState', { state: diagnostics.catalog.state, count: diagnostics.catalog.count, path: diagnostics.catalog.path ?? '' })}
+            {t('diagnosticTitle', { count: skillDiagnosticCount + (catalogProblem ? 1 : 0) })}
           </summary>
           {diagnostics.unavailableSkills.map((item, index) => <div key={`unavailable-${item.name}-${item.preset ?? ''}-${index}`}>{t('diagnosticUnavailable', { name: item.name, source: item.source, preset: item.preset ?? '' })}</div>)}
           {diagnostics.shadowedSkills.map((item, index) => <div key={`shadowed-${item.name}-${item.shadowedFrom}-${index}`}>{t('diagnosticShadowed', { name: item.name, winner: item.selectedFrom, hidden: item.shadowedFrom })}</div>)}
           {diagnostics.brokenPresets.map(item => <div key={`broken-${item.id}`}>{t('diagnosticBroken', { id: item.id, reason: item.reason })}</div>)}
           {diagnostics.unbrowseableSkills.map(item => <div key={`browse-${item.name}`}>{t('diagnosticUnbrowseable', { name: item.name, reason: item.reason })}</div>)}
           {diagnostics.undocumentedSkills.map(item => <div key={`undocumented-${item.name}`}>{t('diagnosticUndocumented', { name: item.name, summary: item.summary })}</div>)}
+          {diagnostics.catalog.state === 'write-failed' && <div>{t('catalogWriteFailed', { path: diagnostics.catalog.path ?? '' })}</div>}
+          {diagnostics.catalog.state === 'policy-unmounted' && <div>{t('catalogPolicyUnavailable')}</div>}
           {diagnostics.catalog.error !== undefined && <div>{diagnostics.catalog.error}</div>}
         </details>
       )}
@@ -1196,6 +1281,9 @@ function ReadyBody(props: {
                             <span className="mc-tool-name">{tool.name}</span>
                             <span className="mc-tool-meta">
                               {tool.mandatory && <span className="mc-tag">{t('mandatory')}</span>}
+                              {tool.class === 'on-demand' && (
+                                <button type="button" className="mc-count mc-count--action" title={t('editSearchMetadata')} onClick={(e: { stopPropagation(): void }) => { e.stopPropagation(); void openSearchEdit(tool.id, 'tool') }}>{t('searchMetadataButton')}</button>
+                              )}
                               <button
                                 type="button"
                                 className={`mc-dot-btn mc-count--${tool.class}`}
@@ -1277,6 +1365,7 @@ function ReadyBody(props: {
                     editableSkills={editableSkills}
                     onEditSkill={openSkillEdit}
                     onAdoptSkill={adoptSkill}
+                    onEditSearch={id => void openSearchEdit(id, 'skill')}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyGlobalSkills')}</p>
@@ -1292,6 +1381,7 @@ function ReadyBody(props: {
                     editableSkills={editableSkills}
                     onEditSkill={openSkillEdit}
                     onAdoptSkill={adoptSkill}
+                    onEditSearch={id => void openSearchEdit(id, 'skill')}
                   />
                 ) : (
                   <p className="mc-empty">{t('emptyProjectSkills')}</p>
@@ -1311,6 +1401,7 @@ function ReadyBody(props: {
                       editableSkills={editableSkills}
                       onEditSkill={openSkillEdit}
                       onAdoptSkill={adoptSkill}
+                      onEditSearch={id => void openSearchEdit(id, 'skill')}
                     />
                   </div>
                 )) : <p className="mc-empty">{t('emptyPresetSkills')}</p>
@@ -1345,6 +1436,35 @@ function ReadyBody(props: {
                     parameters: toolDetail.detail.parameters,
                   },
                 }, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {searchEdit !== null && (
+        <div className="mc-preview-mask" onClick={() => setSearchEdit(null)}>
+          <div className="mc-preview mc-confirm-dialog" onClick={e => e.stopPropagation()}>
+            <div className="mc-preview-head">
+              <span className="mc-preview-title">{t('editSearchMetadata')} · {searchEdit.id}</span>
+              <button type="button" className="mc-preview-close" onClick={() => setSearchEdit(null)}>{t('previewClose')}</button>
+            </div>
+            {searchEdit.status === 'loading' && <div className="mc-preview-hint">…</div>}
+            {searchEdit.status === 'error' && <div className="mc-preview-hint">{searchEdit.message}</div>}
+            {searchEdit.status === 'ready' && (
+              <div className="mc-confirm-body">
+                <p>{t('searchMetadataNote')}</p>
+                <label className="mc-search-field">{t('searchDescription')}
+                  <textarea value={searchDescription} maxLength={searchEdit.metadata?.maxChars} disabled={searchSaving} onChange={e => setSearchDescription(e.target.value)} />
+                </label>
+                <span className="mc-search-hint">{searchDescription.length}/{searchEdit.metadata?.maxChars}</span>
+                {searchEdit.message !== undefined && <p className="mc-error">{searchEdit.message}</p>}
+                <div className="mc-confirm-actions">
+                  {searchDescription !== searchEdit.metadata?.defaultDescription && (
+                    <button type="button" className="mc-preview-close mc-search-restore" disabled={searchSaving} title={t('searchMetadataRestoreHint')} onClick={() => setSearchDescription(searchEdit.metadata?.defaultDescription ?? '')}>{t('searchMetadataRestore')}</button>
+                  )}
+                  <button type="button" className="mc-preview-close" disabled={searchSaving} onClick={() => void saveSearchEdit()}>{t('searchMetadataSave')}</button>
+                </div>
               </div>
             )}
           </div>
@@ -1417,10 +1537,29 @@ function ReadyBody(props: {
                   </>
                 ) : (
                   <>
-                    {catalogDocs.docs.catalog !== undefined
-                      ? <p className="mc-catalog-path">{catalogDocs.docs.catalog.path}</p>
-                      : <p className="mc-catalog-path">{t('catalogOnDemand')}</p>}
-                    <p className="mc-catalog-path">{t('catalogSandboxHint')}</p>
+                    <div className="mc-catalog-toolbar">
+                      <p className="mc-catalog-path" title={catalogDocs.docs.catalog?.path}>
+                        {catalogDocs.docs.catalog?.path ?? t('catalogOnDemand')}
+                      </p>
+                      <div className="mc-summary-setting">
+                        <label htmlFor="mc-summary-limit">{t('summaryLimit')}</label>
+                        <input
+                          id="mc-summary-limit"
+                          type="number"
+                          min={20}
+                          step={1}
+                          value={summaryLimitDraft}
+                          disabled={!catalogDocs.docs.searchSettingsEnabled || summaryLimitSaving}
+                          onChange={e => { setSummaryLimitDraft(e.target.value); setSummaryLimitError(undefined) }}
+                        />
+                        <span>{t('summaryLimitUnit')}</span>
+                        {catalogDocs.docs.searchSettingsEnabled && summaryLimitDraft !== String(catalogDocs.docs.summaryMaxChars) && (
+                          <button type="button" className="mc-preview-close" disabled={summaryLimitSaving} onClick={() => void saveSummaryLimit()}>{t('searchMetadataSave')}</button>
+                        )}
+                        {!catalogDocs.docs.searchSettingsEnabled && <span>{t('summaryLimitDisabled')}</span>}
+                      </div>
+                    </div>
+                    {summaryLimitError !== undefined && <p className="mc-error mc-catalog-limit-error">{summaryLimitError}</p>}
                     <pre className="mc-preview-body">
                       {catalogDocs.docs.catalog?.content
                         ?? (catalogDocs.docs.catalogMissing === 'disabled'
@@ -1461,8 +1600,9 @@ function SkillList(props: {
   editableSkills: ReadonlySet<string>
   onEditSkill: (name: string, source?: string) => void
   onAdoptSkill: (name: string) => void
+  onEditSearch: (id: string) => void
 }): JSX.Element {
-  const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill, onAdoptSkill } = props
+  const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill, onAdoptSkill, onEditSearch } = props
   /** Skill id whose 纳入管理 is waiting for a confirmation click. */
   const [confirmAdopt, setConfirmAdopt] = useState<string | null>(null)
   const [openSkill, setOpenSkill] = useState<string | null>(null)
@@ -1612,6 +1752,9 @@ function SkillList(props: {
               )}
               <span className="mc-skill-meta">
                 {skill.mandatory && <span className="mc-tag">{t('mandatory')}</span>}
+                {skill.class === 'on-demand' && (
+                  <button type="button" className="mc-count mc-count--action" title={t('editSearchMetadata')} onClick={(e: { stopPropagation(): void }) => { e.stopPropagation(); onEditSearch(skill.id) }}>{t('searchMetadataButton')}</button>
+                )}
                 <button
                   type="button"
                   className={`mc-count mc-count--${skill.class}`}

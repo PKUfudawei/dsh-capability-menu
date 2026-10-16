@@ -10,7 +10,8 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { constants, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts'
@@ -216,6 +217,22 @@ export interface CapabilityDiagnostics {
   readonly catalog: { readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'; readonly path?: string; readonly error?: string; readonly count: number }
 }
 
+/** User-owned text used only for discovery; the provider's definition stays intact. */
+export interface SearchMetadata {
+  readonly id: string
+  readonly kind: CapabilityKind
+  readonly defaultDescription: string
+  readonly description?: string
+  readonly maxChars: number
+}
+
+export interface SearchMetadataUpdate {
+  readonly id: string
+  readonly kind: CapabilityKind
+  /** Empty or provider-identical text restores the provider-derived description. */
+  readonly description: string
+}
+
 /** The `ctx.capability` service surface. */
 export interface CapabilityService {
   /** Enumerate the current catalog (optionally filtered). */
@@ -295,6 +312,11 @@ export interface CapabilityService {
    * for no new information, which is what made a tier click stall.
    */
   rewriteCatalog(): Promise<void>
+  getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined
+  updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>
+  summaryMaxChars(): number
+  searchSettingsEnabled(): boolean
+  updateSummaryMaxChars(value: number): Promise<void>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -325,6 +347,8 @@ export interface Config {
    * emission. Disabled capabilities are never written.
    */
   catalogFile?: string
+  /** Discovery text overrides; defaults to ~/.dsh/capability-menu-search-metadata.json. */
+  searchMetadataFile?: string
   /**
    * Debounce window (ms) applied to catalog rebuilds triggered by
    * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
@@ -340,13 +364,14 @@ export interface Config {
 
 /** Validate and default the registry configuration. */
 export const Config: z<Config> = z.object({
-  summaryMaxChars: z.number().default(160),
+  summaryMaxChars: z.number().default(320),
   detailIncludesBody: z.boolean().default(false),
   maxResults: z.number().default(20),
   weighting: z.number().default(0.1),
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
   catalogFile: z.string(),
+  searchMetadataFile: z.string(),
   refreshDebounceMs: z.number().default(200),
 })
 
@@ -386,7 +411,14 @@ async function isInside(root: string, target: string): Promise<boolean> {
 function toSummary(description: string, maxChars: number): string {
   const collapsed = description.replace(/\s+/g, ' ').trim()
   if (collapsed.length <= maxChars) return collapsed
-  return `${collapsed.slice(0, maxChars - 1)}…`
+  const prefix = collapsed.slice(0, maxChars - 1)
+  const lastBoundary = Math.max(
+    ...['。', '！', '？', '.', '!', '?', '；', ';', '，', ',', '、', ' '].map(char => prefix.lastIndexOf(char)),
+  )
+  const summary = lastBoundary >= Math.floor(prefix.length * 0.75)
+    ? prefix.slice(0, lastBoundary + (prefix[lastBoundary] === ' ' ? 0 : 1)).trimEnd()
+    : prefix
+  return `${summary}…`
 }
 
 function toSkillSummary(description: string, whenToUse: string | undefined, name: string, maxChars: number): string {
@@ -397,10 +429,11 @@ function toSkillSummary(description: string, whenToUse: string | undefined, name
 }
 
 /** BM25-ish keyword score over one record (pure JS, zero dependencies). */
-function keywordScore(record: CapabilityRecord, tokens: readonly string[]): number {
+function keywordScore(record: CapabilityRecord, tokens: readonly string[], includeSourceDescription: boolean): number {
   const haystack = [
     record.name,
-    record.description,
+    record.summary,
+    ...(includeSourceDescription ? [record.description] : []),
     record.whenToUse ?? '',
     record.origin.provider,
     ...record.tags,
@@ -425,12 +458,14 @@ export const name = 'capability-menu-registry'
 export const inject = ['tools', 'skills']
 
 export function apply(ctx: Context, config: Config = {}): void {
-  const summaryMaxChars = config.summaryMaxChars ?? 160
+  const configuredSummaryMaxChars = config.summaryMaxChars ?? 320
+  let summaryMaxChars = configuredSummaryMaxChars
   const detailIncludesBody = config.detailIncludesBody ?? false
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
   const dshHome = process.env['DSH_HOME']?.trim()
   const catalogFile = (config.catalogFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-catalog.yaml')).trim()
+  const searchMetadataFile = (config.searchMetadataFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-menu-search-metadata.json')).trim()
   const refreshDebounceMs = config.refreshDebounceMs ?? 200
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
@@ -451,6 +486,76 @@ export function apply(ctx: Context, config: Config = {}): void {
   let undocumentedSkills: CapabilityDiagnostics['undocumentedSkills'] = []
   /** Last emitted catalog text, so an unchanged rebuild skips the write. */
   let lastCatalogContent: string | undefined
+
+  const metadata = new Map<string, string>()
+  const metadataKey = (kind: CapabilityKind, id: string): string => `${kind}:${id}`
+  let legacyMetadata = false
+  let savedSummaryMaxChars: number | undefined
+  if (searchMetadataFile.length > 0) {
+    try {
+      const saved: unknown = JSON.parse(readFileSync(searchMetadataFile, 'utf8'))
+      if (saved === null || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('expected an object')
+      const settings = (saved as Record<string, unknown>)['_settings']
+      if (settings !== null && typeof settings === 'object' && !Array.isArray(settings)) {
+        const value = (settings as Record<string, unknown>)['summaryMaxChars']
+        if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 20) {
+          savedSummaryMaxChars = value
+          summaryMaxChars = value
+        }
+      }
+      for (const [key, value] of Object.entries(saved)) {
+        if (!/^(tool|skill):/.test(key) || value === null || typeof value !== 'object' || Array.isArray(value)) continue
+        const entry = value as Record<string, unknown>
+        if ('summary' in entry || 'tags' in entry) legacyMetadata = true
+        const description = typeof entry.description === 'string' ? entry.description : entry.summary
+        if (typeof description === 'string' && description.trim().length > 0) {
+          metadata.set(key, description.trim())
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        ctx.logger.warn(`capability-registry: search metadata read failed (${searchMetadataFile}): ${String(error)}`)
+      }
+    }
+  }
+  let metadataWrite = Promise.resolve()
+  const persistSearchState = async (next: Map<string, string>, savedLimit: number | undefined): Promise<void> => {
+    const entries = Object.fromEntries(
+      [...next].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, { description: value }]),
+    )
+    const content = JSON.stringify({
+      ...(savedLimit !== undefined ? { _settings: { summaryMaxChars: savedLimit } } : {}),
+      ...entries,
+    }, null, 2) + '\n'
+    await mkdir(dirname(searchMetadataFile), { recursive: true })
+    if (legacyMetadata) {
+      try {
+        await copyFile(searchMetadataFile, `${searchMetadataFile}.legacy.bak`, constants.COPYFILE_EXCL)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    const temp = `${searchMetadataFile}.${process.pid}.${Date.now()}.tmp`
+    try {
+      await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      await rename(temp, searchMetadataFile)
+    } catch (error) {
+      await unlink(temp).catch(() => undefined)
+      throw error
+    }
+    metadata.clear()
+    for (const [key, value] of next) metadata.set(key, value)
+    savedSummaryMaxChars = savedLimit
+    legacyMetadata = false
+  }
+  const overrideOf = (record: CapabilityRecord): string | undefined => {
+    const value = metadata.get(metadataKey(record.kind, record.id))
+    return value === record.summary ? undefined : value
+  }
+  const effectiveRecord = (record: CapabilityRecord): CapabilityRecord => {
+    const override = overrideOf(record)
+    return override === undefined ? record : { ...record, summary: override }
+  }
 
   const statsOf = (record: CapabilityRecord): CapabilityStats => record.stats
 
@@ -712,21 +817,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (policy === undefined) return
     const onDemand = [...toolRecords.values(), ...skillRecords.values()]
       .filter(record => policy.classifyCapability(record.id, record.kind) === 'on-demand')
-      .map(record => ({
-        id: record.id,
-        kind: record.kind,
-        name: record.name,
-        // Use the trimmed summary (160 chars), not the full description: the
-        // file is for grep/read discovery, and a few hundred tools would
-        // otherwise balloon to tens of KB of context.
-        description: record.summary,
-        ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
-        ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
-      }))
+      .map(source => {
+        const record = effectiveRecord(source)
+        return {
+          id: record.id,
+          kind: record.kind,
+          // Keep the file small so model-side grep/read remains useful.
+          description: record.summary,
+          ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
+          ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
+        }
+      })
     onDemandCount = onDemand.length
-    const content = onDemand.length === 0
-      ? '# No on-demand capabilities are currently classified.\ncapabilities: []\n'
-      : yaml.dump({ capabilities: onDemand })
+    const content = yaml.dump({ capabilities: onDemand })
     // A rebuild that changed nothing must not touch the disk: at debounce rate
     // this was rewriting the file several times a second.
     if (content === lastCatalogContent) return
@@ -955,12 +1058,13 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       // Rank: exact id/name first, then keyword score, then experience weight.
       const tokens = (query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
-      const ranked = filtered.map(record => {
+      const ranked = filtered.map(source => {
+        const record = effectiveRecord(source)
         let score = 0
         if (query !== undefined && query.length > 0) {
           const exact = record.id === query || record.name === query
           if (exact) score += 100
-          score += keywordScore(record, tokens)
+          score += keywordScore(record, tokens, overrideOf(source) === undefined)
         }
         const rate = successRate(record.stats)
         if (rate !== undefined && weighting > 0) score += rate * weighting * 10
@@ -990,11 +1094,73 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
 
     get(id: string, kind?: CapabilityKind): CapabilityRecord | undefined {
-      return resolveRecord(id.trim(), kind)
+      const record = resolveRecord(id.trim(), kind)
+      return record === undefined ? undefined : effectiveRecord(record)
+    },
+
+    getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined {
+      const record = resolveRecord(id.trim(), kind)
+      if (record === undefined) return undefined
+      const override = overrideOf(record)
+      return {
+        id: record.id,
+        kind: record.kind,
+        defaultDescription: record.summary,
+        ...override !== undefined ? { description: override } : {},
+        maxChars: summaryMaxChars,
+      }
+    },
+
+    summaryMaxChars(): number {
+      return summaryMaxChars
+    },
+
+    searchSettingsEnabled(): boolean {
+      return searchMetadataFile.length > 0
+    },
+
+    async updateSummaryMaxChars(value: number): Promise<void> {
+      assertPositiveInteger('summaryMaxChars', value, 20)
+      if (!Number.isSafeInteger(value)) throw new Error('summaryMaxChars must be a safe integer')
+      if (searchMetadataFile.length === 0) throw new Error('检索信息存储未启用')
+      const commit = metadataWrite.then(async () => {
+        const tooLong = [...metadata].find(([, description]) => description.length > value)
+        if (tooLong !== undefined) {
+          throw new Error(`已有检索描述超过 ${value} 个字符：${tooLong[0]}；请先缩短该描述`)
+        }
+        if (value === summaryMaxChars) return
+        await persistSearchState(new Map(metadata), value)
+        summaryMaxChars = value
+        await refresh()
+      })
+      metadataWrite = commit.then(() => undefined, () => undefined)
+      await commit
+    },
+
+    async updateSearchMetadata(input: SearchMetadataUpdate): Promise<void> {
+      const record = resolveRecord(input.id.trim(), input.kind)
+      if (record === undefined) throw new Error('能力不存在，无法修改检索描述')
+      if (searchMetadataFile.length === 0) throw new Error('检索描述存储未启用')
+      const description = input.description.replace(/\s+/g, ' ').trim()
+      const key = metadataKey(input.kind, record.id)
+      const commit = metadataWrite.then(async () => {
+        if (description.length > summaryMaxChars) throw new Error(`检索描述不能超过 ${summaryMaxChars} 个字符`)
+        const next = new Map(metadata)
+        const defaultDescription = record.kind === 'tool'
+          ? toSummary(record.description, summaryMaxChars)
+          : toSkillSummary(record.description, record.whenToUse, record.name, summaryMaxChars)
+        if (description.length === 0 || description === defaultDescription) next.delete(key)
+        else next.set(key, description)
+        await persistSearchState(next, savedSummaryMaxChars)
+        await writeCatalog()
+      })
+      metadataWrite = commit.then(() => undefined, () => undefined)
+      await commit
     },
 
     async getDetail(id: string, kind?: CapabilityKind, context: MetaLookupContext = {}): Promise<CapabilityDetail | undefined> {
-      const record = resolveRecord(id.trim(), kind)
+      const source = resolveRecord(id.trim(), kind)
+      const record = source === undefined ? undefined : effectiveRecord(source)
       if (record === undefined) return undefined
 
       if (record.kind === 'tool') {

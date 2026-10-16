@@ -496,7 +496,7 @@ describe('meta-registry', () => {
     expect(second).toBe(first)
   })
 
-  it('writes and explains an empty on-demand catalog instead of leaving an ambiguous blank state', async () => {
+  it('writes an empty on-demand catalog as plain YAML', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const { join } = await import('node:path')
     const { readFile } = await import('node:fs/promises')
@@ -504,7 +504,7 @@ describe('meta-registry', () => {
     const ctx = await setup(home, { catalogFile })
     await ctx.plugin(policy, { stateFile: '' })
     await ctx.capability.refresh()
-    expect(await readFile(catalogFile, 'utf8')).toContain('# No on-demand capabilities')
+    expect(await readFile(catalogFile, 'utf8')).toBe('capabilities: []\n')
     expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'empty', count: 0, path: catalogFile })
   })
 
@@ -649,7 +649,7 @@ describe('meta-registry', () => {
     })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     // Deliberately long description: the catalog must carry the trimmed
-    // summary (≤ 160 chars), not the full body, to bound file size.
+    // summary (≤ 320 chars), not the full body, to bound file size.
     registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base and return relevant documents and snippets. '.repeat(6))
     registerMcpTool(ctx, 'secret', 'read', 'Read a secret')
     await ctx.capability.refresh()
@@ -661,7 +661,7 @@ describe('meta-registry', () => {
     expect(ids).toContain('mcp__km__search')
     expect(ids).not.toContain('mcp__gongfeng__create_issue')
     expect(ids).not.toContain('mcp__secret__read')
-    expect(doc.capabilities.find(entry => entry.id === 'mcp__km__search')?.description.length).toBeLessThanOrEqual(160)
+    expect(doc.capabilities.find(entry => entry.id === 'mcp__km__search')?.description.length).toBeLessThanOrEqual(320)
     // The emitted YAML uses block sequences (`- id: ...`), not flow arrays.
     expect(raw).toContain('- id: mcp__km__search')
     expect(raw).not.toMatch(/capabilities:\s*\[/)

@@ -170,6 +170,20 @@ interface CapabilityDiagnostics {
     readonly count: number;
   };
 }
+/** User-owned text used only for discovery; the provider's definition stays intact. */
+interface SearchMetadata {
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  readonly defaultDescription: string;
+  readonly description?: string;
+  readonly maxChars: number;
+}
+interface SearchMetadataUpdate {
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  /** Empty or provider-identical text restores the provider-derived description. */
+  readonly description: string;
+}
 /** The `ctx.capability` service surface. */
 interface CapabilityService {
   /** Enumerate the current catalog (optionally filtered). */
@@ -253,6 +267,11 @@ interface CapabilityService {
    * for no new information, which is what made a tier click stall.
    */
   rewriteCatalog(): Promise<void>;
+  getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined;
+  updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
+  summaryMaxChars(): number;
+  searchSettingsEnabled(): boolean;
+  updateSummaryMaxChars(value: number): Promise<void>;
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -281,10 +300,12 @@ interface CapabilityRow {
   readonly classLabel?: string;
   readonly mandatory: boolean;
 }
-/** 能力目录查看负载：两份只读「文件」+ 缺失原因。 */
+/** Current exposure rules and the generated on-demand search catalog. */
 interface CatalogDocs {
-  /** 当前生效的三档策略配置 YAML。 */
+  /** Effective rule configuration in YAML. */
   readonly policyYaml: string;
+  readonly summaryMaxChars: number;
+  readonly searchSettingsEnabled: boolean;
   /** 按需能力目录物化文件（path + content）。 */
   readonly catalog?: {
     readonly path: string;
@@ -381,6 +402,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
     getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    getSearchMetadata: (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>;
+    updateSearchMetadata: (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>;
+    updateSummaryMaxChars: (value: number) => Promise<RemoteResult<void>>;
     getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>;
     listLocations: () => Promise<RemoteResult<McpLocation[]>>;
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>;
@@ -403,6 +427,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
     'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    'capabilityPolicy/getSearchMetadata': (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>;
+    'capabilityPolicy/updateSearchMetadata': (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>;
+    'capabilityPolicy/updateSummaryMaxChars': (value: number) => Promise<RemoteResult<void>>;
     'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>;
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>;
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>;
@@ -512,6 +539,36 @@ interface CapabilityPolicyRemote {
   getDetail(id: string): Promise<{
     ok: true;
     value: ToolDetail | undefined;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
+  getSearchMetadata(id: string, kind: 'tool' | 'skill'): Promise<{
+    ok: true;
+    value: SearchMetadata | undefined;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
+  updateSearchMetadata(input: SearchMetadataUpdate): Promise<{
+    ok: true;
+    value: void;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
+  updateSummaryMaxChars(value: number): Promise<{
+    ok: true;
+    value: void;
   } | {
     ok: false;
     error: {
@@ -648,7 +705,7 @@ interface CapabilitySectionInjected {
   subscribeSignals?: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'packageName' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable' | 'diagnosticTitle' | 'diagnosticClean' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'catalogState' | 'catalogSandboxHint' | 'projectRootLabel' | 'skillBrowseUnavailable';
+type CapabilityKey = 'nav' | 'title' | 'packageName' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'catalogWriteFailed' | 'catalogPolicyUnavailable' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

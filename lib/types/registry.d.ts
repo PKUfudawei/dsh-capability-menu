@@ -183,6 +183,20 @@ export interface CapabilityDiagnostics {
         readonly count: number;
     };
 }
+/** User-owned text used only for discovery; the provider's definition stays intact. */
+export interface SearchMetadata {
+    readonly id: string;
+    readonly kind: CapabilityKind;
+    readonly defaultDescription: string;
+    readonly description?: string;
+    readonly maxChars: number;
+}
+export interface SearchMetadataUpdate {
+    readonly id: string;
+    readonly kind: CapabilityKind;
+    /** Empty or provider-identical text restores the provider-derived description. */
+    readonly description: string;
+}
 /** The `ctx.capability` service surface. */
 export interface CapabilityService {
     /** Enumerate the current catalog (optionally filtered). */
@@ -266,6 +280,11 @@ export interface CapabilityService {
      * for no new information, which is what made a tier click stall.
      */
     rewriteCatalog(): Promise<void>;
+    getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined;
+    updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
+    summaryMaxChars(): number;
+    searchSettingsEnabled(): boolean;
+    updateSummaryMaxChars(value: number): Promise<void>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -294,6 +313,8 @@ export interface Config {
      * emission. Disabled capabilities are never written.
      */
     catalogFile?: string;
+    /** Discovery text overrides; defaults to ~/.dsh/capability-menu-search-metadata.json. */
+    searchMetadataFile?: string;
     /**
      * Debounce window (ms) applied to catalog rebuilds triggered by
      * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
