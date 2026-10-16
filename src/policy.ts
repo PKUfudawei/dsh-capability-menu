@@ -464,6 +464,22 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const persistDebounceMs = config.persistDebounceMs ?? 1500
   let persistTimer: ReturnType<typeof setTimeout> | undefined
 
+  /**
+   * Tier moves this instance made, per capability kind: id → the class the
+   * operator put it in. Persisting replays exactly these onto the lists the
+   * *file* already has, so the file stays authoritative.
+   *
+   * Writing the whole in-memory rule set out instead loses entries this
+   * instance never saw: another profile (or a hand edit) can have added or
+   * moved rules since this instance loaded, and any later write — including the
+   * teardown flush — would then put the stale set back, so flipping one
+   * capability silently rewrote its neighbours.
+   */
+  const movedTiers: Record<CapabilityKind, Map<string, CapabilityClass>> = {
+    tool: new Map(),
+    skill: new Map(),
+  }
+
   /** Order-insensitive signature of one rule set (resident / on-demand / disabled). */
   const tierSetSignature = (rules: unknown): string => {
     if (rules === null || typeof rules !== 'object') return ''
@@ -471,6 +487,54 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return ['resident', 'on-demand', 'disabled']
       .map(tier => Array.isArray(record[tier]) ? [...(record[tier] as unknown[])].sort().join('\u0000') : '')
       .join('\u0001')
+  }
+
+  /** The three classes, in the order every patch file lists them. */
+  const TIER_KEYS = ['resident', 'on-demand', 'disabled'] as const
+
+  /** One set config's three lists as writable arrays (non-string entries dropped). */
+  const tierLists = (set: unknown): Record<CapabilityClass, string[]> => {
+    const record = set !== null && typeof set === 'object' && !Array.isArray(set)
+      ? set as Record<string, unknown>
+      : {}
+    const lists = { resident: [], 'on-demand': [], disabled: [] } as Record<CapabilityClass, string[]>
+    for (const tier of TIER_KEYS) {
+      const raw = record[tier]
+      lists[tier] = Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
+    }
+    return lists
+  }
+
+  /** `name → class` for one set config, so two views can be compared per id. */
+  const classByName = (set: unknown): Map<string, CapabilityClass> => {
+    const map = new Map<string, CapabilityClass>()
+    const lists = tierLists(set)
+    for (const tier of TIER_KEYS) {
+      for (const name of lists[tier]) map.set(name, tier)
+    }
+    return map
+  }
+
+  /** Record the ids whose class differs between two set configs. */
+  const recordMoves = (
+    previousSet: unknown,
+    nextSet: unknown,
+    moves: Map<string, CapabilityClass>,
+  ): void => {
+    const previous = classByName(previousSet)
+    for (const [name, tier] of classByName(nextSet)) {
+      if (previous.get(name) !== tier) moves.set(name, tier)
+    }
+  }
+
+  /** Apply `id → class` moves to one set's own lists, leaving other entries alone. */
+  const replayMoves = (set: unknown, moves: ReadonlyMap<string, CapabilityClass>): Record<CapabilityClass, string[]> => {
+    const lists = tierLists(set)
+    for (const [name, tier] of moves) {
+      for (const key of TIER_KEYS) lists[key] = lists[key].filter(entry => entry !== name)
+      lists[tier] = [...lists[tier], name]
+    }
+    return lists
   }
 
   /**
@@ -508,8 +572,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const next: Record<string, unknown> = typeof prior === 'object' && prior !== null
           ? { ...(prior as Record<string, unknown>) }
           : {}
-        next['tools'] = current.tools ?? {}
-        next['skills'] = current.skills ?? {}
         if (existing === undefined) {
           // An override row, never an insert: this file is normally not where the
           // policy row comes from — the package's own bundle patch inserts it,
@@ -517,14 +579,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           // second row with the same id would compose into a tree the loader
           // rejects (`duplicate loader entry id: capability-menu-policy`), so the
           // config has to be landed on the row that already exists.
+          next['tools'] = current.tools ?? {}
+          next['skills'] = current.skills ?? {}
           addEntryOverride(doc, { id: POLICY_ENTRY_ID, name: POLICY_ENTRY_NAME, config: next })
           return true
         }
+        // Nothing moved since the last write: not writing at all is what keeps a
+        // no-op flush — and a plain restart — from making dsh reload the plugin.
+        if (movedTiers.tool.size === 0 && movedTiers.skill.size === 0) return false
+        // Replay this instance's own moves onto the file's lists instead of
+        // writing the in-memory sets out wholesale (see `movedTiers`): entries
+        // another writer touched since this instance loaded stay as it left them.
+        const priorRecord = (prior ?? {}) as Record<string, unknown>
+        if (movedTiers.tool.size > 0) next['tools'] = replayMoves(priorRecord['tools'], movedTiers.tool)
+        if (movedTiers.skill.size > 0) next['skills'] = replayMoves(priorRecord['skills'], movedTiers.skill)
         // Rewriting an unchanged config would still make dsh reload the plugin.
         if (policyTierSignature(prior) === policyTierSignature(next)) return false
         return setEntryConfig(doc, POLICY_ENTRY_ID, next)
       })
-      if (written) ctx.logger.info(`capability-policy: persisted tier rules to ${patchFile}`)
+      if (written) {
+        movedTiers.tool.clear()
+        movedTiers.skill.clear()
+        ctx.logger.info(`capability-policy: persisted tier rules to ${patchFile}`)
+      }
     } catch (error) {
       ctx.logger.warn(`capability-policy: cannot persist tier rules to ${patchFile}: ${String(error)}`)
     }
@@ -646,10 +723,18 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       // pay for a full re-enumeration.
       const updateStartedAt = Date.now()
       const before = onDemandSignature()
+      const merged: Config = { ...current, ...partial }
+      // Record what this call flips, per kind. The caller built its lists from
+      // the last `getConfig()`, i.e. from `current`, so diffing against that
+      // same view isolates the ids it meant to move — a view that is stale
+      // relative to the file cancels out on both sides instead of smuggling its
+      // stale copies of untouched capabilities into the file (see `movedTiers`).
+      recordMoves(current.tools, merged.tools, movedTiers.tool)
+      recordMoves(current.skills, merged.skills, movedTiers.skill)
       // Validate first, commit second (see `applyConfig`): a rejected update
       // leaves the live policy exactly as it was.
       applyConfig(
-        { ...current, ...partial },
+        merged,
         partial.metaTools !== undefined ? [...(partial.metaTools ?? DEFAULT_META_TOOLS)] : metaTools,
       )
       // The On-demand set moved, so the grep-able YAML is stale (and a

@@ -532,9 +532,107 @@ describe('capability-policy persistence (tier writes)', () => {
       return { disabled: row?.config?.tools?.disabled, onDemand: row?.config?.tools?.['on-demand'] }
     }, { timeout: 5_000 }).toEqual({
       disabled: ['mcp__km__search'],
-      // The on-demand rule must no longer be present (whole `tools` object is
-      // replaced on each write).
-      onDemand: undefined,
+      // The move is replayed onto the file's own lists, so every tier is now an
+      // explicit list: the on-demand rule is gone (empty, which the signature
+      // treats exactly like an absent key).
+      onDemand: [],
+    })
+  })
+
+  it('replays tier moves onto the file instead of writing the whole set back', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-replay-'))
+    const patchFile = join(home, 'cordis.patch.yml')
+    // The row already carries a rule this instance never loaded (`sneaky`):
+    // another writer added it after the config below was resolved. Writing the
+    // in-memory set out wholesale drops it — which is how flipping one
+    // capability used to rewrite its neighbours.
+    await fs.writeFile(patchFile, [
+      '- insert: []',
+      '- id: capability-menu-policy',
+      "  name: '@daweifu/capability-menu/policy'",
+      '  config:',
+      '    skills:',
+      '      resident: [stale]',
+      "      'on-demand': [sneaky, moved]",
+      '      disabled: []',
+      '',
+    ].join('\n'), 'utf8')
+
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(policy, {
+      patchFile,
+      persistDebounceMs: 50,
+      skills: { resident: ['stale'], 'on-demand': ['moved'] },
+    })
+
+    await ctx.capabilityPolicy.updateConfig({ skills: { resident: ['stale', 'moved'] } })
+    await expect.poll(async () => {
+      const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+      return row?.config?.skills
+    }, { timeout: 5_000 }).toEqual({
+      resident: ['stale', 'moved'],
+      'on-demand': ['sneaky'],
+      disabled: [],
+    })
+  })
+
+  it('flushes only its own pending move when the file changed after load', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-flush-'))
+    const patchFile = join(home, 'cordis.patch.yml')
+    const rowText = (skills: string): string => [
+      '- insert: []',
+      '- id: capability-menu-policy',
+      "  name: '@daweifu/capability-menu/policy'",
+      '  config:',
+      '    skills:',
+      skills,
+      '',
+    ].join('\n')
+    await fs.writeFile(patchFile, rowText([
+      '      resident: [stale]',
+      "      'on-demand': [moved]",
+      '      disabled: []',
+    ].join('\n')), 'utf8')
+
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { catalogFile: '' })
+    // A debounce long enough that the write is still pending when the plugin is
+    // torn down, which is the flush path (the one that used to put a stale set
+    // back over whatever another writer had landed meanwhile).
+    const fiber = await ctx.plugin(policy, {
+      patchFile,
+      persistDebounceMs: 60_000,
+      skills: { resident: ['stale'], 'on-demand': ['moved'] },
+    })
+
+    await ctx.capabilityPolicy.updateConfig({ skills: { resident: ['stale', 'moved'] } })
+    // Second writer lands while this instance's write is still debounced.
+    await fs.writeFile(patchFile, rowText([
+      '      resident: [stale]',
+      "      'on-demand': [sneaky, moved]",
+      '      disabled: []',
+    ].join('\n')), 'utf8')
+
+    await fiber.dispose()
+
+    const row = (await loadPatchRows(patchFile)).find(entry => entry.id === 'capability-menu-policy')
+    expect(row?.config?.skills).toEqual({
+      resident: ['stale', 'moved'],
+      'on-demand': ['sneaky'],
+      disabled: [],
     })
   })
 })
