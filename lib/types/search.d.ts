@@ -37,11 +37,10 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult;
  * Register the `meta_search` tool.
  *
  * - Mode A (list, default): search by keyword/tag/server and return a paginated candidate list.
- * - Mode B (detail): pass a candidate's exact id (optionally `detail: true`) to inspect its full description and tool schema or Skill usage guidance before invocation.
+ * - Mode B (detail): pass a candidate's exact id to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
  * - `query` and `id` are mutually exclusive.
- * - `detail: true` with a fuzzy query (no exact id) is rejected.
  */
 export declare function apply(ctx: Context, config?: Config): void;
 //# sourceMappingURL=search.d.ts.map

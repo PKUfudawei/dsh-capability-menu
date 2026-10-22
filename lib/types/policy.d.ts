@@ -218,8 +218,7 @@ declare module '@deepseek-ai/cordis' {
     }
 }
 /**
- * Build the projection listener for one assembly: keep only Resident tools plus
- * the mandatory meta tools.
+ * Keep Resident tools and their matching web guidance in one assembly.
  */
 export declare function projectAssemblyTools(assembly: PromptAssembly, service: CapabilityPolicyService): PromptAssembly;
 /** Build the policy plugin. */

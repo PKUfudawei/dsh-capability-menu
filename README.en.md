@@ -134,7 +134,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 > **Scope & reserved tools**:
 > - Tiers apply to MCP and harness-native built-in tools; built-ins use the reserved `built-in` group. **Do not name an MCP server `built-in`.**
 > - `meta_search` and `meta_invoke` are always Resident and cannot be disabled. `run_code` is reserved for Code Mode; it is excluded from the catalog and menu and needs no tier rule.
-> - **Keep high-frequency core tools Resident**: On-demand built-ins require `meta_search` → `meta_invoke` to use.
+> - **Keep high-frequency core tools Resident**: For an On-demand built-in, find its ID with `meta_search({query})`, inspect the exact-ID schema, then call `meta_invoke`.
 
 ## Configuration
 
@@ -193,7 +193,7 @@ The plugin writes On-demand Tools and Skills to a YAML search catalog. Resident 
 - **Catalog file:** Defaults to `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`; with no On-demand capabilities it contains `capabilities: []`. Set `catalogFile: ''` to disable generation. It updates when capabilities, tiers, or search descriptions change, so do not edit the generated file directly.
 - **Search description:** An On-demand row opens an editor prefilled with the provider description shortened to `summaryMaxChars` characters (320 by default, preferring word or punctuation boundaries). Edits affect `meta_search` lists and keyword matching and are written to the catalog; the provider definition and exact detail stay unchanged. **Restore** resets the field, and **Save** applies it.
 - **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `searchMetadataFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
-- **Search and invoke:** Find an entry with `meta_search`, then call or load it with `meta_invoke`. If the model can read the catalog path, it can also search the file with `grep` / `read`. `meta_search` returns 20 entries per page by default (50 maximum); the next `offset` is the current `offset + returned`. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
+- **Search and invoke:** Find a candidate with `meta_search({query})` or a catalog `id`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load it with `meta_invoke({id, kind, args})`. The catalog contains search summaries, not parameter schemas. If the model can read the catalog path, it can also search the file with `grep` / `read`. `meta_search` returns 20 entries per page by default (50 maximum); the next `offset` is the current `offset + returned`. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
 
 Generated file example:
 

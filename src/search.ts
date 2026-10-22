@@ -50,11 +50,10 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult
  * Register the `meta_search` tool.
  *
  * - Mode A (list, default): search by keyword/tag/server and return a paginated candidate list.
- * - Mode B (detail): pass a candidate's exact id (optionally `detail: true`) to inspect its full description and tool schema or Skill usage guidance before invocation.
+ * - Mode B (detail): pass a candidate's exact id to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
  * - `query` and `id` are mutually exclusive.
- * - `detail: true` with a fuzzy query (no exact id) is rejected.
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const maxResults = config.maxResults ?? 20
@@ -64,11 +63,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const tool = defineTool({
     name: 'meta_search',
-    description: 'Search capabilities available to this session by keyword/tag/source, with offset pagination, or inspect one candidate by exact id. List mode returns total, returned, offset and has_more. Detail mode returns the full description and tool schema; use meta_invoke to load Skill instructions.',
+    description: 'Find a capability id by keyword/tag/source, then call meta_search with the exact id and kind to inspect its full tool parameter schema before meta_invoke. Exact id returns detail; list mode supports offset pagination.',
     parameters: {
       query: { type: 'string', description: 'Natural-language or keyword query; mutually exclusive with id.' },
       id: { type: 'string', description: 'Exact capability id (from a previous search results[].id); mutually exclusive with query, takes precedence.' },
-      detail: { type: 'boolean', description: 'When true with an exact id, returns the full description and tool parameter schema or Skill usage guidance.' },
       kind: { type: 'string', enum: ['tool', 'skill', 'all'], description: 'Filter by capability kind (default all).' },
       server: { type: 'string', description: 'Filter by server name — an MCP server (gongfeng/iwiki/km/zhiyan_qci) or the reserved built-in pseudo-server grouping harness-native tools.' },
       tag: { type: 'string', description: 'Filter by tag.' },
@@ -106,7 +104,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     async execute(args: {
       query?: string
       id?: string
-      detail?: boolean
       kind?: 'tool' | 'skill' | 'all'
       server?: string
       tag?: string
@@ -115,7 +112,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     }, exec: ToolRunContext) {
       const query = args.query?.trim() ?? ''
       const id = args.id?.trim() ?? ''
-      const detail = args.detail === true
       const kind = args.kind ?? 'all'
       const server = args.server?.trim() || undefined
       const tag = args.tag?.trim() || undefined
@@ -128,9 +124,6 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       if (query.length > 0 && id.length > 0) {
         throw new Error('meta_search: query and id are mutually exclusive; pass exactly one')
-      }
-      if (detail && id.length === 0) {
-        throw new Error('meta_search: detail:true requires an exact id; pass id to get the full schema of one capability')
       }
 
       const scope = exec.agent
@@ -192,8 +185,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         has_more: offset + results.length < matches.length,
         results: results as unknown as JsonValue[],
         hint: catalogPath !== undefined
-          ? `On-demand capabilities catalog: ${catalogPath} (YAML, grep/read searchable). Call meta_search with an exact id for full schema, or meta_invoke to run/load it.`
-          : 'Call meta_search with an exact id for full schema, or meta_invoke to run/load it.',
+          ? `Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}). Optional YAML catalog: ${catalogPath}.`
+          : 'Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).',
       }
     },
     presentCall(args) {

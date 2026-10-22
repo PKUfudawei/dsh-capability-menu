@@ -4,6 +4,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
@@ -139,6 +140,53 @@ async function runTool(
 }
 
 describe('capability-menu-invoke', () => {
+  it('preserves the caller session for an On-demand native tool', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    await ctx.plugin(policy, { tools: { 'on-demand': ['ppt_list_templates'] }, stateFile: '' })
+    ctx.tools.register(defineTool({
+      name: 'ppt_list_templates',
+      description: 'List presentation templates',
+      parameters: { workflow: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      async execute(args, exec) {
+        if (!exec.agent) throw new Error('PPT tools require an agent session')
+        return { workflow: args.workflow }
+      },
+    }))
+    await ctx.capability.refresh()
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('ppt-session-repro'),
+      name: 'meta_invoke',
+      arguments: { id: 'ppt_list_templates', kind: 'tool', args: { workflow: 'wf-1' } },
+      agent: agentStub('ppt-session') as never,
+      signal: testSignal,
+    })
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    expect(result.value).toMatchObject({ ok: true, kind: 'mcp' })
+  })
+
+  it('does not bypass a caller scope restriction by known id', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
+    const ctx = await setup(home)
+    const name = registerMcpTool(ctx, 'secret', 'read', 'Restricted tool')
+    await ctx.capability.refresh()
+    const agent = agentStub('restricted') as { ctx: Context }
+    const scoped = createScope(ctx, agent as never)
+    agent.ctx = scoped.ctx
+    await scoped.ctx.plugin({
+      name: 'restrict-secret-tool',
+      inject: ['tools'],
+      apply(restrictedCtx) { restrictedCtx.tools.restrict({ deny: [name] }) },
+    })
+    const result = await runTool(ctx, 'meta_invoke', {
+      id: name, kind: 'tool', args: { title: 'x' },
+    }, agent)
+    expect(result.isError).toBe(true)
+  })
   it('forwards MCP calls through the tool pipeline and preserves args', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-invoke-'))
     const ctx = await setup(home)
@@ -370,7 +418,7 @@ describe('capability-menu-invoke', () => {
       watch: false,
     })
     await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { tools: { 'on-demand': ['grep'] } })
+    await ctx.plugin(policy, { tools: { 'on-demand': ['grep'] }, stateFile: '' })
     await ctx.plugin(toolMetaInvoke, {})
     const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions', args => ({ ok: true, received: args }))
     await ctx.capability.refresh()

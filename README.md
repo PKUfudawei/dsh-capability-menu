@@ -134,7 +134,7 @@ dsh plugin --profile web remove @daweifu/capability-menu
 > **覆盖与保留**：
 > - 三档策略同时覆盖 MCP 与内置原生工具；内置工具归入保留组 `built-in`。**请勿把 MCP server 命名为 `built-in`。**
 > - `meta_search` 和 `meta_invoke` 固定常驻且不可禁用。`run_code` 是 Code Mode 保留工具，不进目录或菜单，也无需配置档位。
-> - **高频核心工具建议设为常驻**：按需内置工具需经 `meta_search` → `meta_invoke` 两步调用。
+> - **高频核心工具建议设为常驻**：按需内置工具先用 `meta_search({query})` 找 ID，再用精确 ID 查看 schema，最后通过 `meta_invoke` 调用。
 
 ## 配置
 
@@ -193,7 +193,7 @@ config:
 - **目录文件：** 默认为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`；无按需能力时内容是 `capabilities: []`。设置 `catalogFile: ''` 可关闭生成。目录随能力、档位和检索描述变化自动更新，请勿直接编辑生成文件。
 - **检索描述：** 按需能力旁可打开编辑框。它预填最多 `summaryMaxChars` 个字符的来源描述（默认 320，截断时优先保留完整词句）；修改后用于 `meta_search` 列表与关键词匹配，并同步到目录，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
 - **描述上限：** 在「策略与目录 → 按需能力检索目录」修改，最小 20 字符。设置保存在 `searchMetadataFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
-- **检索与调用：** 使用 `meta_search` 查找，再用 `meta_invoke` 调用或加载；模型能读取目录路径时，也可用 `grep` / `read` 检索。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
+- **检索与调用：** 使用 `meta_search({query})` 或目录中的 `id` 查找候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。目录只保存检索摘要，不包含参数 schema。模型能读取目录路径时，也可用 `grep` / `read` 检索。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
 
 生成文件示例：
 

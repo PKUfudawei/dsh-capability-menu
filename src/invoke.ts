@@ -12,7 +12,6 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, renderSkillContent, type SkillResourceBase } from '@deepseek-ai/dsh-skill'
-import { MCP_ID_PREFIX } from './registry.ts'
 
 export const name = 'capability-menu-invoke'
 export const inject = ['capability', 'tools', 'skills']
@@ -200,17 +199,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       // harness-native tool cataloged under the built-in server) — or resolve its
       // schema.
       if (capability.kind === 'tool') {
-        // Resolve the definition on the GLOBAL view (no agent scope) so a
-        // tool hidden from the caller's exposure (On-demand) is still addressable.
-        // Native tools cataloged from a preset standing scope live on the agent
-        // plane and are invisible to the global view; for those, fall back to the
-        // caller's own view (the agent joining the preset standing mount).
-        const native = !capability.name.startsWith(MCP_ID_PREFIX)
-        let definition = ctx.tools.get(capability.name)
-        const nativeCallerView = native && definition === undefined ? exec.agent : undefined
-        if (definition === undefined && nativeCallerView !== undefined) {
-          definition = ctx.tools.get(capability.name, nativeCallerView)
-        }
+        // On-demand tools are omitted from the prompt assembly, not from the
+        // caller's tool view. Resolve in that view so session restrictions and
+        // preset-scoped definitions apply to both resolve and execution.
+        const definition = ctx.tools.get(capability.name, exec.agent)
         if (definition === undefined) {
           throw new Error(`meta_invoke: tool "${capability.name}" is not available`)
         }
@@ -232,12 +224,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         // this as a transport sub-dispatch so code-mode collapse rules treat it
         // like a nested SDK call, and `tools/result` observers can attribute the
         // outcome to the target capability.
-        // Do NOT pass `agent` for MCP tools — `ctx.tools.execute` resolves through
-        // the caller's `view.visible`, so passing an agent whose projection hid the
-        // On-demand tool would surface `UNKNOWN_TOOL`. Executing on the global view
-        // keeps On-demand tools runnable; the target tool's own guards still apply
-        // (no permission bypass — see README). A native tool reachable only through
-        // the caller's view does pass that view, mirroring the direct-call surface.
+        // Keep the caller's agent for every target, including MCP and On-demand
+        // tools. Executing on the global view would drop the target's session and
+        // could bypass restrictions on the caller's tool view.
         // `args.args` is normalized to an argument object first. The declared
         // contract (see `parameters.args`) already rejects a stringified payload
         // before this runs; what is left for `normalizeArgs` is guaranteeing the
@@ -257,7 +246,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           arguments: forwarded,
           signal: exec.signal,
           parent: exec.token,
-          ...nativeCallerView !== undefined ? { agent: nativeCallerView } : {},
+          agent: exec.agent,
         })
         if (result.isError) {
           const message = result.content.map(block => block.type === 'text' ? block.text : `[${block.type} content]`).join('\n')
