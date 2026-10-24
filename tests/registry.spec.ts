@@ -8,8 +8,7 @@ import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
-import { readTierState } from '../src/policy-state.ts'
-import yaml from 'js-yaml'
+import { readMenuState, readTierState } from '../src/policy-state.ts'
 
 const testSignal = new AbortController().signal
 
@@ -39,12 +38,7 @@ async function setup(home: string, config: registry.Config = {}): Promise<Contex
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  // Disable on-demand catalog emission by default. The registry's own default
-  // path is the real `~/.dsh/capability-catalog.yaml`, and mounting a policy is
-  // what enables emission — so a test that plugs a policy without overriding
-  // this would overwrite the developer's live catalog. Tests that exercise
-  // emission pass an explicit path inside their temp home.
-  await ctx.plugin(registry, { catalogFile: '', ...config })
+  await ctx.plugin(registry, { stateFile: '', ...config })
   return ctx
 }
 
@@ -95,6 +89,28 @@ function registerNativeTool(ctx: Context, name: string, description: string): st
 }
 
 describe('meta-registry', () => {
+  it('keeps migrated search settings and tier choices in one state file', async () => {
+    const { mkdtemp, readdir, writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await mkdtemp('/tmp/dsh-registry-state-')
+    const stateFile = join(home, 'capability-menu-policy.json')
+    const legacyFile = join(home, 'capability-menu-search-metadata.json')
+    await writeFile(stateFile, JSON.stringify({ version: 1, tools: { bash: 'resident' }, skills: {} }))
+    await writeFile(legacyFile, JSON.stringify({ _settings: { summaryMaxChars: 180 } }))
+    const ctx = await setup(home, { stateFile })
+    registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
+    await ctx.capability.refresh()
+
+    expect(ctx.capability.summaryMaxChars()).toBe(180)
+    await ctx.capability.updateSearchMetadata({ id: 'mcp__km__search', kind: 'tool', description: 'Find knowledge' })
+    await ctx.capability.updateSummaryMaxChars(140)
+    const state = await readMenuState(stateFile)
+    expect(state.tiers.tool.get('bash')).toBe('resident')
+    expect(state.search.summaryMaxChars).toBe(140)
+    expect(state.search.descriptions.get('tool:mcp__km__search')).toBe('Find knowledge')
+    expect((await readdir(home)).some(name => name.startsWith('capability-menu-search-metadata.json.migrated-'))).toBe(true)
+  })
+
   it('indexes harness-native tools under the built-in pseudo-server and keeps the control plane out', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
@@ -474,12 +490,9 @@ describe('meta-registry', () => {
     expect(maxInFlight).toBe(1)
   })
 
-  it('updates the catalog on a tier change without re-enumerating anything', async () => {
+  it('updates the live On-demand classification without re-enumerating anything', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const { readFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    const catalogFile = join(home, 'capability-catalog.yaml')
-    const ctx = await setup(home, { refreshDebounceMs: 5, catalogFile })
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
     await ctx.plugin(policy, { stateFile: '', tools: { resident: ['mcp__gongfeng__create_issue'] } })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
     registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base')
@@ -497,56 +510,25 @@ describe('meta-registry', () => {
     await ctx.capability.refresh()
     listCalls = 0
 
-    // Resident → Disabled: nothing is On-demand before or after, so nothing on
-    // disk is stale and no rebuild may run (a full re-enumeration per click is
-    // what made the management UI feel slow).
+    // A tier click changes policy without scanning preset scopes again.
     await ctx.capabilityPolicy.updateConfig({
       tools: { resident: ['mcp__gongfeng__create_issue'], disabled: ['mcp__km__search'] },
     })
     await wait(80)
     expect(listCalls).toBe(0)
 
-    // Moving a capability to On-demand does make the file stale — but the
-    // inventory is unchanged, so re-emitting the catalog from the index already
-    // in hand is all that is needed. A rebuild here would re-scan every preset
-    // scope for no new information, which is what made the tier click stall; and
-    // because the rewrite is awaited, the file is correct without waiting out a
-    // debounce window.
     await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__km__search'] } })
     expect(listCalls).toBe(0)
-    const doc = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
-    expect(doc.capabilities.map(entry => entry.id)).toEqual(['mcp__km__search'])
+    expect(ctx.capabilityPolicy.classifyCapability('mcp__km__search', 'tool')).toBe('on-demand')
+    expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'ready', count: 1 })
   })
 
-  it('does not rewrite the catalog file when a rebuild changes nothing', async () => {
+  it('reports an empty On-demand set from the live index', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const { join } = await import('node:path')
-    const { stat } = await import('node:fs/promises')
-    const catalogFile = join(home, 'capability-catalog.yaml')
-    const ctx = await setup(home, { catalogFile, refreshDebounceMs: 5 })
-    // The catalog is only emitted while a policy is mounted (it supplies the
-    // classification that decides what counts as On-demand).
-    await ctx.plugin(policy, { stateFile: '', tools: { 'on-demand': ['mcp__gongfeng__create_issue'] } })
-    registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-
-    await ctx.capability.refresh()
-    const first = (await stat(catalogFile)).mtimeNs
-    // A second rebuild that finds the same capabilities must not touch disk.
-    await ctx.capability.refresh()
-    const second = (await stat(catalogFile)).mtimeNs
-    expect(second).toBe(first)
-  })
-
-  it('writes an empty on-demand catalog as plain YAML', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const { join } = await import('node:path')
-    const { readFile } = await import('node:fs/promises')
-    const catalogFile = join(home, 'nested', 'capability-catalog.yaml')
-    const ctx = await setup(home, { catalogFile })
+    const ctx = await setup(home)
     await ctx.plugin(policy, { stateFile: '' })
     await ctx.capability.refresh()
-    expect(await readFile(catalogFile, 'utf8')).toBe('capabilities: []\n')
-    expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'empty', count: 0, path: catalogFile })
+    expect(ctx.capability.diagnostics().catalog).toMatchObject({ state: 'empty', count: 0 })
   })
 
   it('coalesces a burst of change events into a single rebuild', async () => {
@@ -665,11 +647,8 @@ describe('meta-registry', () => {
     expect(listCalls).toBe(0)
   })
 
-  it('emits the on-demand catalog YAML with only On-demand capabilities', async () => {
+  it('keeps only On-demand capabilities in the policy-filtered search view', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
-    const { readFile } = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    const catalogFile = join(home, 'capability-catalog.yaml')
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
@@ -679,7 +658,7 @@ describe('meta-registry', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
       stateFile: '',
       tools: {
@@ -689,37 +668,18 @@ describe('meta-registry', () => {
       },
     })
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
-    // Deliberately long description: the catalog must carry the trimmed
-    // summary (≤ 320 chars), not the full body, to bound file size.
+    // Deliberately long description: search summaries stay bounded.
     registerMcpTool(ctx, 'km', 'search', 'Search the knowledge base and return relevant documents and snippets. '.repeat(6))
     registerMcpTool(ctx, 'secret', 'read', 'Read a secret')
     await ctx.capability.refresh()
 
-    expect(ctx.capability.catalogPath()).toBe(catalogFile)
-    const raw = await readFile(catalogFile, 'utf8')
-    const doc = yaml.load(raw) as { capabilities: Array<{ id: string; description: string }> }
-    const ids = doc.capabilities.map(entry => entry.id)
-    expect(ids).toContain('mcp__km__search')
-    expect(ids).not.toContain('mcp__gongfeng__create_issue')
-    expect(ids).not.toContain('mcp__secret__read')
-    expect(doc.capabilities.find(entry => entry.id === 'mcp__km__search')?.description.length).toBeLessThanOrEqual(320)
-    // The emitted YAML uses block sequences (`- id: ...`), not flow arrays.
-    expect(raw).toContain('- id: mcp__km__search')
-    expect(raw).not.toMatch(/capabilities:\s*\[/)
+    const onDemand = () => ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })
+      .filter(row => ctx.capabilityPolicy.classifyCapability(row.id, row.kind) === 'on-demand')
+    expect(onDemand().map(row => row.id)).toEqual(['mcp__km__search'])
+    expect(onDemand()[0]?.summary.length).toBeLessThanOrEqual(320)
 
-    // C2: reclassifying the On-demand capability to disabled must remove it
-    // from the disk catalog — the grep-able file must not keep exposing it
-    // after the in-memory classification changed.
-    //
-    // updateConfig no longer awaits the rebuild (that made every click in the
-    // management UI wait for a full re-enumeration); it requests one, so the
-    // disk file catches up on the next rebuild. The in-memory classification
-    // is already correct the moment updateConfig returns.
     await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__km__search'] } })
-    expect(ctx.capabilityPolicy.classifyCapability('mcp__km__search')).toBe('disabled')
-    await ctx.capability.refresh()
-    const doc2 = yaml.load(await readFile(catalogFile, 'utf8')) as { capabilities: Array<{ id: string }> }
-    expect(doc2.capabilities.map(entry => entry.id)).not.toContain('mcp__km__search')
+    expect(onDemand()).toEqual([])
   })
 
   it('persists tier changes outside the watched patch and skips unchanged writes', async () => {

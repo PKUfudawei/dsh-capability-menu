@@ -122,7 +122,7 @@ interface MetaSearchOptions {
    * capabilities must remain searchable regardless of the caller's projection.
    */
   readonly scope?: ScopeKey | undefined;
-  /** Query string for keyword matching; exact id/name match wins. */
+  /** Query string for keyword matching; only matches are returned, with exact id/name first. */
   readonly query?: string;
   /** Exact capability id. */
   readonly id?: string;
@@ -164,9 +164,7 @@ interface CapabilityDiagnostics {
     readonly summary: string;
   }[];
   readonly catalog: {
-    readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
-    readonly path?: string;
-    readonly error?: string;
+    readonly state: 'empty' | 'ready';
     readonly count: number;
   };
 }
@@ -225,18 +223,6 @@ interface CapabilityService {
   /** Return the current number of indexed capabilities. */
   size(): number;
   /**
-   * Absolute path of the on-demand capability catalog YAML, when emission is
-   * enabled. The model can browse this file with grep/read instead of only
-   * reaching the catalog through `meta_search`.
-   */
-  catalogPath(): string | undefined;
-  /**
-   * Number of On-demand capabilities in the latest catalog emission. Used by
-   * the policy's assemble hook to skip the catalog pointer when there is
-   * nothing On-demand to browse.
-   */
-  onDemandCount(): number;
-  /**
    * Monotonic catalog version. It advances only when a rebuild finishes
    * applying, so a caller that compares two samples learns "the catalog really
    * moved" without re-reading the rows — which is what lets the management UI
@@ -259,14 +245,6 @@ interface CapabilityService {
    * a classification) triggers one rebuild, not one per call.
    */
   requestRefresh(): void;
-  /**
-   * Re-emit the materialized on-demand catalog from the index already in hand,
-   * without re-enumerating tools or skills. Moving a capability between tiers
-   * changes no inventory, so the only thing stale on disk is that file — and a
-   * full rebuild would re-scan the global skill layer plus every agent preset
-   * for no new information, which is what made a tier click stall.
-   */
-  rewriteCatalog(): Promise<void>;
   getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined;
   updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
   summaryMaxChars(): number;
@@ -300,20 +278,18 @@ interface CapabilityRow {
   readonly classLabel?: string;
   readonly mandatory: boolean;
 }
-/** Current exposure rules and the generated on-demand search catalog. */
+/** Current exposure rules and the live on-demand search summaries. */
 interface CatalogDocs {
   /** Effective rule configuration in YAML. */
   readonly policyYaml: string;
   readonly summaryMaxChars: number;
   readonly searchSettingsEnabled: boolean;
-  /** 按需能力目录物化文件（path + content）。 */
-  readonly catalog?: {
-    readonly path: string;
-    readonly content: string;
-  };
-  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed';
-  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
+  readonly onDemand: readonly {
+    readonly id: string;
+    readonly kind: 'tool' | 'skill';
+    readonly summary: string;
+    readonly server?: string;
+  }[];
 }
 interface SelfUpdateStatus {
   readonly current: string;
@@ -748,7 +724,7 @@ interface CapabilitySectionInjected {
   subscribeSignals: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogDisabled' | 'catalogUnreadable' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'catalogWriteFailed' | 'catalogPolicyUnavailable' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogSearchNote' | 'catalogEmpty' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

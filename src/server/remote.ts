@@ -9,7 +9,6 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
-import { readFile } from 'node:fs/promises'
 import yaml from 'js-yaml'
 import type {
   CapabilityClassification,
@@ -33,17 +32,18 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Effective exposure rules and the generated on-demand search catalog. */
+/** Effective exposure rules and the current on-demand search summaries. */
 export interface CatalogDocs {
   /** Effective rules (`getConfig()` + `metaTools()`), rendered as YAML. */
   readonly policyYaml: string
   readonly summaryMaxChars: number
   readonly searchSettingsEnabled: boolean
-  /** 按需能力目录物化文件（capability.catalogPath()）。 */
-  readonly catalog?: { readonly path: string; readonly content: string }
-  /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed'
-  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'
+  readonly onDemand: readonly {
+    readonly id: string
+    readonly kind: 'tool' | 'skill'
+    readonly summary: string
+    readonly server?: string
+  }[]
 }
 
 /**
@@ -147,7 +147,7 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capability.readSkillFile(id, relPath)
   }
 
-  /** Return the effective rules and the generated on-demand search catalog. */
+  /** Return the effective rules and summaries from the same index as meta_search. */
   @Remote('getCatalogDocs')
   async getCatalogDocs(): Promise<CatalogDocs> {
     const config = this.ctx.capabilityPolicy.getConfig()
@@ -159,21 +159,11 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
       tools: config.tools ?? {},
       skills: config.skills ?? {},
     })
-    const catalogPath = this.ctx.capability.catalogPath?.()
-    if (catalogPath === undefined) {
-      return { policyYaml, ...settings, catalogMissing: 'disabled', catalogState: 'disabled' }
-    }
-    const catalogStatus = this.ctx.capability.diagnostics().catalog
-    if (catalogStatus.state === 'policy-unmounted' || catalogStatus.state === 'write-failed') {
-      return { policyYaml, ...settings, catalogMissing: catalogStatus.state, catalogState: catalogStatus.state }
-    }
-    try {
-      const content = await readFile(catalogPath, 'utf8')
-      return { policyYaml, ...settings, catalog: { path: catalogPath, content }, catalogState: catalogStatus.state }
-    } catch (error) {
-      this.ctx.logger.warn(`capability-menu-remote: on-demand catalog read failed (${catalogPath}): ${String(error)}`)
-      return { policyYaml, ...settings, catalogMissing: 'read-failed', catalogState: catalogStatus.state }
-    }
+    const onDemand = this.ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })
+      .filter(row => this.ctx.capabilityPolicy.classifyCapability(row.id, row.kind) === 'on-demand')
+      .map(row => ({ id: row.id, kind: row.kind, summary: row.summary,
+        ...(row.server !== undefined ? { server: row.server } : {}) }))
+    return { policyYaml, ...settings, onDemand }
   }
 
   // — 注册能力（MCP 服务器 / Skill 目录）—
@@ -269,7 +259,8 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
    */
   @Remote('adoptSkillLocation')
   async adoptSkillLocation(name: string): Promise<string> {
-    const record = this.ctx.capability.get(name.trim(), 'skill')
+    const skillName = name.trim()
+    const record = this.ctx.capability.get(skillName, 'skill')
     const dir = record?.origin.path
     const source = record?.origin.source
     const preset = record?.origin.preset
@@ -277,6 +268,14 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
       throw new Error(`该技能随预设 ${preset} 分发，不支持纳入管理（纳入管理会把它变成全局技能）`)
     }
     if (dir === undefined) throw new Error(`该技能没有可链接的目录，无法纳入管理：${name}`)
+    // The client can still show its previous source while the registry refreshes
+    // after a successful link. Treat a repeated click as success when the skill
+    // is already in the managed user root.
+    if (source === 'user-dsh') {
+      const existing = (await this.ctx.capabilityPolicy.listSkillLocations())
+        .find(row => row.root === 'user' && (row.skillName ?? row.name) === skillName)
+      if (existing !== undefined) return existing.path
+    }
     if (source === undefined || !ADOPTABLE_SKILL_SOURCES.has(source)) {
       throw new Error(`该技能来自 ${source ?? '未知来源'}，不支持纳入管理`)
     }

@@ -10,12 +10,11 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
-import yaml from 'js-yaml'
-import { mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { BUILT_IN_SERVER, MCP_ID_PREFIX } from './constants.ts'
+import { migrateLegacySearchState, readMenuState, writeSearchState } from './policy-state.ts'
 
 // Re-exported for the package's public surface (`/registry` subpath).
 export { BUILT_IN_SERVER, MCP_ID_PREFIX }
@@ -184,7 +183,7 @@ export interface MetaSearchOptions {
    * capabilities must remain searchable regardless of the caller's projection.
    */
   readonly scope?: ScopeKey | undefined
-  /** Query string for keyword matching; exact id/name match wins. */
+  /** Query string for keyword matching; only matches are returned, with exact id/name first. */
   readonly query?: string
   /** Exact capability id. */
   readonly id?: string
@@ -211,7 +210,7 @@ export interface CapabilityDiagnostics {
   readonly brokenPresets: readonly { readonly id: string; readonly reason: string }[]
   readonly unbrowseableSkills: readonly { readonly name: string; readonly reason: string }[]
   readonly undocumentedSkills: readonly { readonly name: string; readonly summary: string }[]
-  readonly catalog: { readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'; readonly path?: string; readonly error?: string; readonly count: number }
+  readonly catalog: { readonly state: 'empty' | 'ready'; readonly count: number }
 }
 
 /** User-owned text used only for discovery; the provider's definition stays intact. */
@@ -267,18 +266,6 @@ export interface CapabilityService {
   /** Return the current number of indexed capabilities. */
   size(): number
   /**
-   * Absolute path of the on-demand capability catalog YAML, when emission is
-   * enabled. The model can browse this file with grep/read instead of only
-   * reaching the catalog through `meta_search`.
-   */
-  catalogPath(): string | undefined
-  /**
-   * Number of On-demand capabilities in the latest catalog emission. Used by
-   * the policy's assemble hook to skip the catalog pointer when there is
-   * nothing On-demand to browse.
-   */
-  onDemandCount(): number
-  /**
    * Monotonic catalog version. It advances only when a rebuild finishes
    * applying, so a caller that compares two samples learns "the catalog really
    * moved" without re-reading the rows — which is what lets the management UI
@@ -301,14 +288,6 @@ export interface CapabilityService {
    * a classification) triggers one rebuild, not one per call.
    */
   requestRefresh(): void
-  /**
-   * Re-emit the materialized on-demand catalog from the index already in hand,
-   * without re-enumerating tools or skills. Moving a capability between tiers
-   * changes no inventory, so the only thing stale on disk is that file — and a
-   * full rebuild would re-scan the global skill layer plus every agent preset
-   * for no new information, which is what made a tier click stall.
-   */
-  rewriteCatalog(): Promise<void>
   getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined
   updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>
   summaryMaxChars(): number
@@ -337,15 +316,8 @@ export interface Config {
   maxResults?: number
   /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
   weighting?: number
-  /**
-   * Optional path for the on-demand capability catalog emitted as a YAML file
-   * for model-side grep/read browsing. Defaults to
-   * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
-   * emission. Disabled capabilities are never written.
-   */
-  catalogFile?: string
-  /** Discovery text overrides; defaults to ~/.dsh/capability-menu-search-metadata.json. */
-  searchMetadataFile?: string
+  /** Shared menu state; set to the policy entry's stateFile when customizing its path. */
+  stateFile?: string
   /**
    * Debounce window (ms) applied to catalog rebuilds triggered by
    * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
@@ -367,8 +339,7 @@ export const Config: z<Config> = z.object({
   weighting: z.number().default(0.1),
   // schemastery object properties are optional-by-default: a missing key or
   // undefined value is accepted (no `meta.required`), so no `.optional()` needed.
-  catalogFile: z.string(),
-  searchMetadataFile: z.string(),
+  stateFile: z.string(),
   refreshDebounceMs: z.number().default(200),
 })
 
@@ -454,15 +425,16 @@ function successRate(stats: CapabilityStats): number | undefined {
 export const name = 'capability-menu-registry'
 export const inject = ['tools', 'skills']
 
-export function apply(ctx: Context, config: Config = {}): void {
+export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const configuredSummaryMaxChars = config.summaryMaxChars ?? 320
   let summaryMaxChars = configuredSummaryMaxChars
   const detailIncludesBody = config.detailIncludesBody ?? false
   const maxResults = config.maxResults ?? 20
   const weighting = config.weighting ?? 0.1
   const dshHome = process.env['DSH_HOME']?.trim()
-  const catalogFile = (config.catalogFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-catalog.yaml')).trim()
-  const searchMetadataFile = (config.searchMetadataFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-menu-search-metadata.json')).trim()
+  const stateFile = (config.stateFile ?? join(dshHome || join(homedir(), '.dsh'), 'capability-menu-policy.json')).trim()
+  const legacySearchFile = stateFile.length > 0 ? join(dirname(stateFile), 'capability-menu-search-metadata.json') : ''
+  const searchSettingsEnabled = stateFile.length > 0
   const refreshDebounceMs = config.refreshDebounceMs ?? 200
   assertPositiveInteger('summaryMaxChars', summaryMaxChars, 20)
   assertPositiveInteger('maxResults', maxResults, 1)
@@ -476,67 +448,29 @@ export function apply(ctx: Context, config: Config = {}): void {
   let skillScopes = new Map<string, ScopeKey | undefined>()
   /** The project cwd used to discover an indexed skill, when applicable. */
   let skillCwds = new Map<string, string | undefined>()
-  /** On-demand count of the latest catalog emission (0 until first write). */
-  let onDemandCount = 0
-  let catalogError: string | undefined
   let unavailableSkills: CapabilityDiagnostics['unavailableSkills'] = []
   let shadowedSkills: CapabilityDiagnostics['shadowedSkills'] = []
   let brokenPresets: CapabilityDiagnostics['brokenPresets'] = []
   let undocumentedSkills: CapabilityDiagnostics['undocumentedSkills'] = []
-  /** Last emitted catalog text, so an unchanged rebuild skips the write. */
-  let lastCatalogContent: string | undefined
-
   const metadata = new Map<string, string>()
   const metadataKey = (kind: CapabilityKind, id: string): string => `${kind}:${id}`
-  let savedSummaryMaxChars: number | undefined
-  if (searchMetadataFile.length > 0) {
+  if (searchSettingsEnabled) {
     try {
-      const saved: unknown = JSON.parse(readFileSync(searchMetadataFile, 'utf8'))
-      if (saved === null || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('expected an object')
-      const settings = (saved as Record<string, unknown>)['_settings']
-      if (settings !== null && typeof settings === 'object' && !Array.isArray(settings)) {
-        const value = (settings as Record<string, unknown>)['summaryMaxChars']
-        if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 20) {
-          savedSummaryMaxChars = value
-          summaryMaxChars = value
-        }
-      }
-      for (const [key, value] of Object.entries(saved)) {
-        if (!/^(tool|skill):/.test(key) || value === null || typeof value !== 'object' || Array.isArray(value)) continue
-        const entry = value as Record<string, unknown>
-        const description = entry.description
-        if (typeof description === 'string' && description.trim().length > 0) {
-          metadata.set(key, description.trim())
-        }
-      }
+      await migrateLegacySearchState(stateFile, legacySearchFile)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        ctx.logger.warn(`capability-registry: search metadata read failed (${searchMetadataFile}): ${String(error)}`)
+      ctx.logger.warn(`capability-registry: legacy search migration failed (${legacySearchFile}): ${String(error)}`)
+    }
+    try {
+      const saved = (await readMenuState(stateFile)).search
+      if (saved.summaryMaxChars !== undefined) {
+        summaryMaxChars = saved.summaryMaxChars
       }
+      for (const [key, description] of saved.descriptions) metadata.set(key, description)
+    } catch (error) {
+      ctx.logger.warn(`capability-registry: menu state read failed (${stateFile}): ${String(error)}`)
     }
   }
   let metadataWrite = Promise.resolve()
-  const persistSearchState = async (next: Map<string, string>, savedLimit: number | undefined): Promise<void> => {
-    const entries = Object.fromEntries(
-      [...next].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, { description: value }]),
-    )
-    const content = JSON.stringify({
-      ...(savedLimit !== undefined ? { _settings: { summaryMaxChars: savedLimit } } : {}),
-      ...entries,
-    }, null, 2) + '\n'
-    await mkdir(dirname(searchMetadataFile), { recursive: true })
-    const temp = `${searchMetadataFile}.${process.pid}.${Date.now()}.tmp`
-    try {
-      await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-      await rename(temp, searchMetadataFile)
-    } catch (error) {
-      await unlink(temp).catch(() => undefined)
-      throw error
-    }
-    metadata.clear()
-    for (const [key, value] of next) metadata.set(key, value)
-    savedSummaryMaxChars = savedLimit
-  }
   const overrideOf = (record: CapabilityRecord): string | undefined => {
     const value = metadata.get(metadataKey(record.kind, record.id))
     return value === record.summary ? undefined : value
@@ -813,47 +747,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     undocumentedSkills = [...nextUndocumented.values()]
   }
 
-  /**
-   * Emit the on-demand capability catalog as a YAML file the model can browse
-   * with grep/read. Only On-demand capabilities are written; Resident ones are
-   * already in the model surface and Disabled ones must stay undiscoverable.
-   * Skips emission when the policy plugin is not mounted (no classification) or
-   * the file path is disabled.
-   */
-  const writeCatalog = async (): Promise<void> => {
-    catalogError = undefined
-    onDemandCount = 0
-    if (catalogFile.length === 0) return
-    const policy = ctx.get('capabilityPolicy')
-    if (policy === undefined) return
-    const onDemand = [...toolRecords.values(), ...skillRecords.values()]
-      .filter(record => policy.classifyCapability(record.id, record.kind) === 'on-demand')
-      .map(source => {
-        const record = effectiveRecord(source)
-        return {
-          id: record.id,
-          kind: record.kind,
-          // Keep the file small so model-side grep/read remains useful.
-          description: record.summary,
-          ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
-          ...record.origin.serverName !== undefined ? { server: record.origin.serverName } : {},
-        }
-      })
-    onDemandCount = onDemand.length
-    const content = yaml.dump({ capabilities: onDemand })
-    // A rebuild that changed nothing must not touch the disk: at debounce rate
-    // this was rewriting the file several times a second.
-    if (content === lastCatalogContent) return
-    try {
-      await mkdir(dirname(catalogFile), { recursive: true })
-      await writeFile(catalogFile, content, 'utf8')
-      lastCatalogContent = content
-    } catch (error) {
-      catalogError = String(error)
-      ctx.logger.warn(`capability-registry: on-demand catalog write failed (${catalogFile}): ${String(error)}`)
-    }
-  }
-
   // --- Refresh scheduling --------------------------------------------------
   // Change events (`tools/change` / `skills/change`) arrive in bursts: the
   // skill/preset lifecycle invalidates caches and re-registers providers in
@@ -937,7 +830,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     try {
       await rebuildTools()
       await refreshSkills()
-      await writeCatalog()
     } catch (error) {
       ctx.logger.warn(`capability-registry: catalog rebuild failed: ${String(error)}`)
     } finally {
@@ -1082,16 +974,22 @@ export function apply(ctx: Context, config: Config = {}): void {
         return true
       })
 
-      // Rank: exact id/name first, then keyword score, then experience weight.
+      // Match before ranking so usage history cannot surface an unrelated result.
+      // An empty query deliberately browses the full catalog.
       const tokens = (query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
-      const ranked = filtered.map(source => {
+      const matched = filtered.map(source => {
         const record = effectiveRecord(source)
-        let score = 0
+        let matchScore = 0
         if (query !== undefined && query.length > 0) {
           const exact = record.id === query || record.name === query
-          if (exact) score += 100
-          score += keywordScore(record, tokens, overrideOf(source) === undefined)
+          if (exact) matchScore += 100
+          matchScore += keywordScore(record, tokens, overrideOf(source) === undefined)
         }
+        return { record, matchScore }
+      }).filter(({ matchScore }) => query === undefined || query.length === 0 || matchScore > 0)
+
+      const ranked = matched.map(({ record, matchScore }) => {
+        let score = matchScore
         const rate = successRate(record.stats)
         if (rate !== undefined && weighting > 0) score += rate * weighting * 10
         if (record.stats.uses > 0 && weighting > 0) score += Math.min(record.stats.uses, 100) * weighting * 0.01
@@ -1142,20 +1040,20 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
 
     searchSettingsEnabled(): boolean {
-      return searchMetadataFile.length > 0
+      return searchSettingsEnabled
     },
 
     async updateSummaryMaxChars(value: number): Promise<void> {
       assertPositiveInteger('summaryMaxChars', value, 20)
       if (!Number.isSafeInteger(value)) throw new Error('summaryMaxChars must be a safe integer')
-      if (searchMetadataFile.length === 0) throw new Error('检索信息存储未启用')
+      if (!searchSettingsEnabled) throw new Error('检索信息存储未启用')
       const commit = metadataWrite.then(async () => {
         const tooLong = [...metadata].find(([, description]) => description.length > value)
         if (tooLong !== undefined) {
           throw new Error(`已有检索描述超过 ${value} 个字符：${tooLong[0]}；请先缩短该描述`)
         }
         if (value === summaryMaxChars) return
-        await persistSearchState(new Map(metadata), value)
+        await writeSearchState(stateFile, { summaryMaxChars: value })
         summaryMaxChars = value
         await refresh()
       })
@@ -1166,7 +1064,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     async updateSearchMetadata(input: SearchMetadataUpdate): Promise<void> {
       const record = resolveRecord(input.id.trim(), input.kind)
       if (record === undefined) throw new Error('能力不存在，无法修改检索描述')
-      if (searchMetadataFile.length === 0) throw new Error('检索描述存储未启用')
+      if (!searchSettingsEnabled) throw new Error('检索描述存储未启用')
       const description = input.description.replace(/\s+/g, ' ').trim()
       const key = metadataKey(input.kind, record.id)
       const commit = metadataWrite.then(async () => {
@@ -1177,8 +1075,11 @@ export function apply(ctx: Context, config: Config = {}): void {
           : toSkillSummary(record.description, record.whenToUse, record.name, summaryMaxChars)
         if (description.length === 0 || description === defaultDescription) next.delete(key)
         else next.set(key, description)
-        await persistSearchState(next, savedSummaryMaxChars)
-        await writeCatalog()
+        await writeSearchState(stateFile, {
+          description: { key, ...next.has(key) ? { value: next.get(key) } : {} },
+        })
+        metadata.clear()
+        for (const [savedKey, value] of next) metadata.set(savedKey, value)
       })
       metadataWrite = commit.then(() => undefined, () => undefined)
       await commit
@@ -1285,13 +1186,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     diagnostics(): CapabilityDiagnostics {
       const policy = ctx.get('capabilityPolicy')
-      const state = catalogFile.length === 0
-        ? 'disabled' as const
-        : policy === undefined
-          ? 'policy-unmounted' as const
-          : catalogError !== undefined
-            ? 'write-failed' as const
-            : onDemandCount === 0 ? 'empty' as const : 'ready' as const
+      const count = policy === undefined ? 0 : this.search({ maxResults: Number.MAX_SAFE_INTEGER })
+        .filter(record => policy.classifyCapability(record.id, record.kind) === 'on-demand').length
       return {
         unavailableSkills,
         shadowedSkills,
@@ -1300,25 +1196,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         unbrowseableSkills: [...skillRecords.values()]
           .filter(record => record.origin.path === undefined)
           .map(record => ({ name: record.name, reason: '技能提供方没有可浏览的目录路径' })),
-        catalog: {
-          state,
-          ...(catalogFile.length > 0 ? { path: catalogFile } : {}),
-          ...(catalogError !== undefined ? { error: catalogError } : {}),
-          count: onDemandCount,
-        },
+        catalog: { state: count === 0 ? 'empty' : 'ready', count },
       }
     },
 
     size(): number {
       return toolRecords.size + skillRecords.size
-    },
-
-    catalogPath(): string | undefined {
-      return catalogFile.length === 0 ? undefined : catalogFile
-    },
-
-    onDemandCount(): number {
-      return onDemandCount
     },
 
     version(): number {
@@ -1335,9 +1218,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       schedule()
     },
 
-    rewriteCatalog(): Promise<void> {
-      return writeCatalog()
-    },
   }
 
   // Observe tool results to write back objective stats. Nested dispatches

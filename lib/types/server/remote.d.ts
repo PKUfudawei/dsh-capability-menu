@@ -19,20 +19,18 @@ declare module '@deepseek-ai/cordis' {
         capability: CapabilityService;
     }
 }
-/** Effective exposure rules and the generated on-demand search catalog. */
+/** Effective exposure rules and the current on-demand search summaries. */
 export interface CatalogDocs {
     /** Effective rules (`getConfig()` + `metaTools()`), rendered as YAML. */
     readonly policyYaml: string;
     readonly summaryMaxChars: number;
     readonly searchSettingsEnabled: boolean;
-    /** 按需能力目录物化文件（capability.catalogPath()）。 */
-    readonly catalog?: {
-        readonly path: string;
-        readonly content: string;
-    };
-    /** catalog 不可用原因：'disabled' = catalogFile 为空（未启用物化）；'read-failed' = 读盘失败。 */
-    readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed';
-    readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
+    readonly onDemand: readonly {
+        readonly id: string;
+        readonly kind: 'tool' | 'skill';
+        readonly summary: string;
+        readonly server?: string;
+    }[];
 }
 /**
  * Host-side remote face for the 能力菜单 tab. Every method delegates to the
@@ -75,7 +73,7 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     listSkillDir(id: string, relPath?: string): Promise<SkillDirEntry[] | undefined>;
     /** Read a text file inside a skill's directory. */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
-    /** Return the effective rules and the generated on-demand search catalog. */
+    /** Return the effective rules and summaries from the same index as meta_search. */
     getCatalogDocs(): Promise<CatalogDocs>;
     /** MCP servers declared in the patch file. */
     listLocations(): Promise<McpLocation[]>;

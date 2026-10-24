@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.2"/></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.3-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.3"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
-  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://badgen.net/github/stars/PKUfudawei/dsh-capability-menu?icon=github&color=dbab09" alt="GitHub stars"/></a>
+  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://img.shields.io/github/stars/PKUfudawei/dsh-capability-menu?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://img.shields.io/badge/featured%20in-awesome--dsh--plugin-8250DF?style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="featured in awesome-dsh-plugin"/></a>
 </p>
 
@@ -27,10 +27,9 @@
   - [从源码安装](#从源码安装)
   - [验证安装](#验证安装)
   - [卸载](#卸载)
-- [暴露策略](#暴露策略)
-  - [Tools 和 Skills 三档暴露与执行对照](#tools-和-skills-三档暴露与执行对照)
-- [配置](#配置)
-  - [按需能力检索目录（`catalogFile`）](#按需能力检索目录catalogfile)
+- [策略与目录](#策略与目录)
+  - [能力暴露规则](#能力暴露规则)
+  - [按需检索目录](#按需检索目录)
 
 ---
 
@@ -72,7 +71,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | 查看能力详情 | 点击 Tool 查看定义；点击 Skill 展开文件列表并预览文件，内容按 Markdown 渲染 |
 | 注册能力 | 点击右上角「注册能力」，添加 MCP 服务器或 Skill 目录；Skill 支持本机目录或公开 GitHub 链接 |
 | 编辑或移除 | 在 Tools 的服务器分组或 Skills 的技能项中点击「编辑」 |
-| 查看规则和检索目录 | 点击页头右侧的「策略与目录」，查看生效规则及自动生成的按需能力检索目录；可在目录页调整检索描述上限 |
+| 查看规则和按需目录 | 点击页头右侧的「策略与目录」，查看生效规则及按需能力摘要；可在按需检索目录中调整描述上限 |
 | 编辑检索描述 | 将 Tool 或 Skill 设为「按需」后，点击旁边的「检索描述」，在来源描述的简短版本上修改 |
 
 备注：
@@ -85,7 +84,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-兼容性：已在 DSH `0.2.0-rc.2` 和 `0.2.1-rc.2` 上通过测试；当前开发与构建依赖使用 `0.2.1-rc.2`。
+当前适配 DSH `0.2.1-rc.3`。
 
 ### 从 npm 安装（推荐）
 
@@ -115,20 +114,22 @@ cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu 
 dsh plugin --profile web remove @daweifu/capability-menu
 ```
 
-## 暴露策略
+## 策略与目录
+
+这一章对应能力菜单中的「策略与目录」弹窗。
+
+### 能力暴露规则
 
 所有能力（Tool 与 Skill）按 **暴露程度**（模型在上下文中看到什么）与 **执行方式** 分为三档：
-
-### Tools 和 Skills 三档暴露与执行对照
 
 | 档位 | 能力 | 模型能看到什么 | 如何找到 | 如何使用 |
 | --- | --- | --- | --- | --- |
 | **常驻** | tool | 工具定义始终随请求提供 | 无需查找 | 直接调用；运行时经过完整 `ctx.tools` 管线 |
 | | skill | 名称和简介显示在 `<available_skills>` 中 | 无需查找 | `skill` 工具按需加载正文 |
-| **按需** | tool | 不随请求提供工具定义 | 用 `meta_search` 搜索候选项，或搜索能力目录 YAML（`catalogFile`） | 按精确 ID 查看参数后，用 `meta_invoke` 调用 |
-| | skill | 不显示在 `<available_skills>` 中 | 用 `meta_search` 搜索，或搜索能力目录 YAML（`catalogFile`） | 用 `meta_invoke` 加载 `SKILL.md` |
-| **禁用** | tool | 不随请求提供工具定义 | 搜索结果和能力目录中均不可见 | 调用会被拒绝 |
-| | skill | 不显示在 `<available_skills>` 中 | 搜索结果和能力目录中均不可见 | 加载会被拒绝 |
+| **按需** | tool | 不随请求提供工具定义 | 用 `meta_search` 搜索候选项 | 按精确 ID 查看参数后，用 `meta_invoke` 调用 |
+| | skill | 不显示在 `<available_skills>` 中 | 用 `meta_search` 搜索 | 用 `meta_invoke` 加载 `SKILL.md` |
+| **禁用** | tool | 不随请求提供工具定义 | `meta_search` 中不可见 | 调用会被拒绝 |
+| | skill | 不显示在 `<available_skills>` 中 | `meta_search` 中不可见 | 加载会被拒绝 |
 
 适用范围与例外：
 
@@ -136,13 +137,13 @@ dsh plugin --profile web remove @daweifu/capability-menu
 - `meta_search` 和 `meta_invoke` 默认常驻，不能在菜单中禁用。DSH Code Mode 的入口 `run_code` 不进入本插件的目录或菜单；手写通配规则仍可能匹配它，请勿将其设为按需或禁用。
 - 高频工具建议保持常驻；按需工具可通过 `meta_search` 找 ID、查看参数 schema，再调用。
 
-## 配置
+#### 规则配置与保存
 
-手写规则位于 `capability-menu-policy` entry 的 `config` 下。以下是配置片段；完整安装补丁见 [cordis.patch.yml](./cordis.patch.yml)。
+弹窗显示的是当前生效规则，由手写规则和菜单选择合成，并非另一份 YAML 文件。手写规则位于 `capability-menu-policy` entry 的 `config` 下。以下是配置片段；完整安装补丁见 [cordis.patch.yml](./cordis.patch.yml)。
 
 - 默认 patch 是 `${DSH_HOME:-~/.dsh}/cordis.patch.yml`；Profile 也可在自己的 patch 中覆盖该 entry。
-- 菜单中的档位调整立即生效，停手约 1.5 秒后写入独立的 `stateFile`，不会因档位写入而重载插件。手写规则仍是基础；界面选择覆盖同一能力的精确规则，禁用通配规则仍优先。
-- `stateFile` 默认与 `patchFile` 同目录，各 Profile 共用；需要隔离时，分别指定 `stateFile`。要清除界面选择，停止 DSH 后删除该状态文件；原有 patch 规则仍会生效。
+- 菜单中的档位调整立即生效，停手约 1.5 秒后写入 `stateFile`；检索描述和描述上限也保存在这里。这些写入不会触发 DSH 配置重载。手写规则仍是基础；界面选择覆盖同一能力的精确规则，禁用通配规则仍优先。
+- `stateFile` 默认在 `${DSH_HOME:-~/.dsh}/capability-menu-policy.json`（默认 patch 的同目录），各 Profile 共用；需要隔离时，在 policy 和 registry 两个 entry 中指定同一个 `stateFile`。要清除界面选择，停止 DSH 后删除状态文件；原有 patch 规则仍会生效。
 
 ```yaml
 config:
@@ -172,28 +173,13 @@ config:
 
 若更高优先级规则覆盖了所选档位，界面会提示「分类未生效」。
 
-### 按需能力检索目录（`catalogFile`）
+### 按需检索目录
 
-插件将按需 Tool 和 Skill 写入 YAML 检索目录；常驻与禁用能力不写入。
+`meta_search` 是 Agent 检索按需 Tool 和 Skill 的唯一入口。「策略与目录 → 按需检索目录」直接显示同一内存索引中的按需能力摘要，不生成单独的 YAML 文件。Agent 的检索结果还会按当前会话的可用范围过滤。
 
-- **目录文件：** 默认为 `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`；无按需能力时内容是 `capabilities: []`。设置 `catalogFile: ''` 可关闭生成。目录随能力、档位和检索描述变化自动更新，请勿直接编辑生成文件。
-- **检索描述：** 按需能力旁可打开编辑框。它预填最多 `summaryMaxChars` 个字符的来源描述（默认 320，截断时优先保留完整词句）；修改后用于 `meta_search` 列表与关键词匹配，并同步到目录，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
-- **描述上限：** 在「策略与目录 → 按需能力检索目录」修改，最小 20 字符。设置保存在 `searchMetadataFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
-- **检索与调用：** 使用 `meta_search({query})` 或目录中的 `id` 查找候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。目录只保存检索摘要，不包含参数 schema。模型能读取目录路径时，也可用 `grep` / `read` 检索。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
-
-生成文件示例：
-
-```yaml
-capabilities:
-  - id: mcp__km__search
-    kind: tool
-    description: 搜索知识库
-    server: km
-  - id: example_skill
-    kind: skill
-    description: 处理日志的低频技能
-    whenToUse: 排查日志问题时使用
-```
+- **检索描述：** 按需能力旁可打开编辑框。它预填最多 `summaryMaxChars` 个字符的来源描述（默认 320，截断时优先保留完整词句）；修改后用于 `meta_search` 列表与关键词匹配，并立即反映在展示页，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
+- **描述上限：** 在「策略与目录 → 按需检索目录」修改，最小 20 字符。设置保存在 `stateFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
+- **检索与调用：** 使用 `meta_search({query})` 查找匹配的候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。不知道关键词时可用 `meta_search({})` 分页浏览，无须预先读取完整目录。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
 
 ## License
 

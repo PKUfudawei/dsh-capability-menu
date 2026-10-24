@@ -88,6 +88,32 @@ describe('server gateway · catalogVersion', () => {
   })
 })
 
+describe('server gateway · on-demand search view', () => {
+  it('shows the live search summary for On-demand items only', async () => {
+    const ctx = new Context()
+    const rows = [
+      { id: 'mcp__km__search', kind: 'tool' as const, summary: 'Find current documents', server: 'km' },
+      { id: 'mcp__gh__create', kind: 'tool' as const, summary: 'Create an issue', server: 'gh' },
+      { id: 'hidden-skill', kind: 'skill' as const, summary: 'Hidden' },
+    ]
+    ctx.provide('capability', {
+      search: () => rows,
+      summaryMaxChars: () => 320,
+      searchSettingsEnabled: () => true,
+    } as unknown as CapabilityService)
+    ctx.provide('capabilityPolicy', {
+      getConfig: () => ({}),
+      metaTools: () => new Set(['meta_search', 'meta_invoke']),
+      classifyCapability: (id: string) => id === 'mcp__km__search' ? 'on-demand'
+        : id === 'hidden-skill' ? 'disabled' : 'resident',
+    } as unknown as CapabilityPolicyService)
+
+    const docs = await new CapabilityPolicyGateway(ctx).getCatalogDocs()
+    expect(docs.onDemand).toEqual([rows[0]])
+    expect(docs.summaryMaxChars).toBe(320)
+  })
+})
+
 describe('server gateway · adoptSkillLocation', () => {
   /**
    * A gateway whose catalog knows one skill. The adopt path reads the record's
@@ -117,6 +143,23 @@ describe('server gateway · adoptSkillLocation', () => {
     })
 
     await expect(gateway.adoptSkillLocation('preset-skill')).rejects.toThrow(/随预设 cordis 分发/)
+  })
+
+  it('returns an existing user-root link when an adopt click is repeated', async () => {
+    const ctx = new Context()
+    ctx.provide('capability', {
+      get: () => ({ origin: { source: 'user-dsh', path: '/root/.dsh/skills/frontend-slides' } }),
+    } as unknown as CapabilityService)
+    ctx.provide('capabilityPolicy', {
+      listSkillLocations: async () => [{
+        name: 'frontend-slides', skillName: 'frontend-slides', root: 'user',
+        path: '/root/.dsh/skills/frontend-slides',
+      }],
+      addSkillLocation: async () => { throw new Error('must not add a second link') },
+    } as unknown as CapabilityPolicyService)
+
+    await expect(new CapabilityPolicyGateway(ctx).adoptSkillLocation('frontend-slides'))
+      .resolves.toBe('/root/.dsh/skills/frontend-slides')
   })
 })
 

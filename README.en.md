@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.2"/></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.3-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.3"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
-  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://badgen.net/github/stars/PKUfudawei/dsh-capability-menu?icon=github&color=dbab09" alt="GitHub stars"/></a>
+  <a href="https://github.com/PKUfudawei/dsh-capability-menu"><img src="https://img.shields.io/github/stars/PKUfudawei/dsh-capability-menu?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://img.shields.io/badge/featured%20in-awesome--dsh--plugin-8250DF?style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="featured in awesome-dsh-plugin"/></a>
 </p>
 
@@ -27,10 +27,9 @@
   - [Install from source](#install-from-source)
   - [Verify the install](#verify-the-install)
   - [Uninstall](#uninstall)
-- [Exposure Policy](#exposure-policy)
-  - [Tools and Skills three-tier exposure and execution](#tools-and-skills-three-tier-exposure-and-execution)
-- [Configuration](#configuration)
-  - [On-demand search catalog (`catalogFile`)](#on-demand-search-catalog-catalogfile)
+- [Policy & catalog](#policy--catalog)
+  - [Exposure rules](#exposure-rules)
+  - [On-demand search catalog](#on-demand-search-catalog)
 
 ---
 
@@ -72,7 +71,7 @@ After installation, open **Settings** and select **Capability Menu** from the se
 | View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
 | Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
 | Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
-| View rules and catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
+| View rules and on-demand catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
 | Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
 
 Notes:
@@ -85,7 +84,7 @@ Notes:
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Compatibility: tested with DSH `0.2.0-rc.2` and `0.2.1-rc.2`; development and build dependencies now use `0.2.1-rc.2`.
+Currently targets DSH `0.2.1-rc.3`.
 
 ### Install from npm (recommended)
 
@@ -115,20 +114,22 @@ cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu 
 dsh plugin --profile web remove @daweifu/capability-menu
 ```
 
-## Exposure Policy
+## Policy & catalog
+
+This chapter follows the **Policy & catalog** dialog in Capability Menu.
+
+### Exposure rules
 
 All capabilities (Tool and Skill) fall into three tiers by their **exposure level** (what the model sees in the context) and their **execution mode**:
-
-### Tools and Skills three-tier exposure and execution
 
 | tier | capability | what the model sees | how to find it | how to use it |
 | --- | --- | --- | --- | --- |
 | **Resident** | tool | Tool definition is included with every request | No search needed | Call directly; it goes through the full `ctx.tools` pipeline |
 | | skill | Name and summary appear in `<available_skills>` | No search needed | The `skill` tool loads the content when needed |
-| **On-demand** | tool | Tool definition is not included with requests | Search candidates with `meta_search` or search the capability catalog YAML (`catalogFile`) | Inspect parameters by exact ID, then call with `meta_invoke` |
-| | skill | Not shown in `<available_skills>` | Search with `meta_search` or search the capability catalog YAML (`catalogFile`) | Load `SKILL.md` with `meta_invoke` |
-| **Disabled** | tool | Tool definition is not included with requests | Hidden from search results and the capability catalog | Calls are rejected |
-| | skill | Not shown in `<available_skills>` | Hidden from search results and the capability catalog | Loads are rejected |
+| **On-demand** | tool | Tool definition is not included with requests | Search candidates with `meta_search` | Inspect parameters by exact ID, then call with `meta_invoke` |
+| | skill | Not shown in `<available_skills>` | Search with `meta_search` | Load `SKILL.md` with `meta_invoke` |
+| **Disabled** | tool | Tool definition is not included with requests | Hidden from `meta_search` | Calls are rejected |
+| | skill | Not shown in `<available_skills>` | Hidden from `meta_search` | Loads are rejected |
 
 Scope and exceptions:
 
@@ -136,13 +137,13 @@ Scope and exceptions:
 - `meta_search` and `meta_invoke` are Resident by default and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu; handwritten wildcard rules can still match it, so do not set it to On-demand or Disabled.
 - Keep frequently used tools Resident; use `meta_search` to find an On-demand tool's ID and inspect its schema before invocation.
 
-## Configuration
+#### Rule configuration and persistence
 
-Hand-written rules belong under `config` in the `capability-menu-policy` entry. This is a config fragment; see [cordis.patch.yml](./cordis.patch.yml) for the complete installation patch.
+The dialog shows effective rules composed from hand-written rules and menu choices; it is not another YAML file. Hand-written rules belong under `config` in the `capability-menu-policy` entry. This is a config fragment; see [cordis.patch.yml](./cordis.patch.yml) for the complete installation patch.
 
 - The default patch is `${DSH_HOME:-~/.dsh}/cordis.patch.yml`. A profile can override the entry in its own patch.
-- Tier changes in Capability Menu apply immediately and are written to a separate `stateFile` about 1.5 seconds after input stops. These writes do not reload the plugin. Patch rules remain the base; UI choices override exact rules for the same capability, while Disabled wildcards still take priority.
-- By default, `stateFile` sits beside `patchFile`, so profiles share UI choices. Set a different `stateFile` per profile to isolate them. To clear UI choices, stop DSH and delete the state file; patch rules remain in effect.
+- Tier changes in Capability Menu apply immediately and are written to `stateFile` about 1.5 seconds after input stops; search descriptions and their length limit are stored there too. These writes do not trigger DSH config reloads. Patch rules remain the base; UI choices override exact rules for the same capability, while Disabled wildcards still take priority.
+- `stateFile` defaults to `${DSH_HOME:-~/.dsh}/capability-menu-policy.json` (beside the default patch), so profiles share UI choices. To isolate profiles, set the same custom `stateFile` in both the policy and registry entries. To clear UI choices, stop DSH and delete the state file; patch rules remain in effect.
 
 ```yaml
 config:
@@ -172,28 +173,13 @@ Usually, you only need `tools` and `skills`. The optional file paths and debounc
 
 If a higher-priority rule overrides a selected tier, the UI reports that the classification did not apply.
 
-### On-demand search catalog (`catalogFile`)
+### On-demand search catalog
 
-The plugin writes On-demand Tools and Skills to a YAML search catalog. Resident and Disabled capabilities are excluded.
+`meta_search` is the Agent's only search entry for On-demand Tools and Skills. **Policy & catalog → On-demand search catalog** shows summaries from the same in-memory index without generating a separate YAML file. Agent results are also filtered to capabilities available in the current session.
 
-- **Catalog file:** Defaults to `${DSH_HOME:-~/.dsh}/capability-catalog.yaml`; with no On-demand capabilities it contains `capabilities: []`. Set `catalogFile: ''` to disable generation. It updates when capabilities, tiers, or search descriptions change, so do not edit the generated file directly.
-- **Search description:** An On-demand row opens an editor prefilled with the provider description shortened to `summaryMaxChars` characters (320 by default, preferring word or punctuation boundaries). Edits affect `meta_search` lists and keyword matching and are written to the catalog; the provider definition and exact detail stay unchanged. **Restore** resets the field, and **Save** applies it.
-- **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `searchMetadataFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
-- **Search and invoke:** Find a candidate with `meta_search({query})` or a catalog `id`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load it with `meta_invoke({id, kind, args})`. The catalog contains search summaries, not parameter schemas. If the model can read the catalog path, it can also search the file with `grep` / `read`. `meta_search` returns 20 entries per page by default (50 maximum); the next `offset` is the current `offset + returned`. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
-
-Generated file example:
-
-```yaml
-capabilities:
-  - id: mcp__km__search
-    kind: tool
-    description: Search the knowledge base
-    server: km
-  - id: example_skill
-    kind: skill
-    description: A low-frequency skill for analyzing logs
-    whenToUse: Use when investigating log issues
-```
+- **Search description:** An On-demand row opens an editor prefilled with the provider description shortened to `summaryMaxChars` characters (320 by default). Edits affect `meta_search` lists and keyword matching and appear in the catalog tab; the provider definition and exact detail stay unchanged. **Restore** resets the field, and **Save** applies it.
+- **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `stateFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
+- **Search and invoke:** Find matching candidates with `meta_search({query})`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load one with `meta_invoke({id, kind, args})`. If no useful keyword is known, `meta_search({})` can browse the catalog one page at a time; there is no need to load it all first. `meta_search` returns 20 entries per page by default (50 maximum); the next `offset` is the current `offset + returned`. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
 
 ## License
 

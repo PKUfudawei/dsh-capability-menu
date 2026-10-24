@@ -135,7 +135,7 @@ export interface MetaSearchOptions {
      * capabilities must remain searchable regardless of the caller's projection.
      */
     readonly scope?: ScopeKey | undefined;
-    /** Query string for keyword matching; exact id/name match wins. */
+    /** Query string for keyword matching; only matches are returned, with exact id/name first. */
     readonly query?: string;
     /** Exact capability id. */
     readonly id?: string;
@@ -177,9 +177,7 @@ export interface CapabilityDiagnostics {
         readonly summary: string;
     }[];
     readonly catalog: {
-        readonly state: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed';
-        readonly path?: string;
-        readonly error?: string;
+        readonly state: 'empty' | 'ready';
         readonly count: number;
     };
 }
@@ -238,18 +236,6 @@ export interface CapabilityService {
     /** Return the current number of indexed capabilities. */
     size(): number;
     /**
-     * Absolute path of the on-demand capability catalog YAML, when emission is
-     * enabled. The model can browse this file with grep/read instead of only
-     * reaching the catalog through `meta_search`.
-     */
-    catalogPath(): string | undefined;
-    /**
-     * Number of On-demand capabilities in the latest catalog emission. Used by
-     * the policy's assemble hook to skip the catalog pointer when there is
-     * nothing On-demand to browse.
-     */
-    onDemandCount(): number;
-    /**
      * Monotonic catalog version. It advances only when a rebuild finishes
      * applying, so a caller that compares two samples learns "the catalog really
      * moved" without re-reading the rows — which is what lets the management UI
@@ -272,14 +258,6 @@ export interface CapabilityService {
      * a classification) triggers one rebuild, not one per call.
      */
     requestRefresh(): void;
-    /**
-     * Re-emit the materialized on-demand catalog from the index already in hand,
-     * without re-enumerating tools or skills. Moving a capability between tiers
-     * changes no inventory, so the only thing stale on disk is that file — and a
-     * full rebuild would re-scan the global skill layer plus every agent preset
-     * for no new information, which is what made a tier click stall.
-     */
-    rewriteCatalog(): Promise<void>;
     getSearchMetadata(id: string, kind: CapabilityKind): SearchMetadata | undefined;
     updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
     summaryMaxChars(): number;
@@ -306,15 +284,8 @@ export interface Config {
     maxResults?: number;
     /** Experience-weighting intensity for ranking (0 disables, default 0.1). */
     weighting?: number;
-    /**
-     * Optional path for the on-demand capability catalog emitted as a YAML file
-     * for model-side grep/read browsing. Defaults to
-     * `~/.dsh/capability-catalog.yaml`; set to an empty string to disable
-     * emission. Disabled capabilities are never written.
-     */
-    catalogFile?: string;
-    /** Discovery text overrides; defaults to ~/.dsh/capability-menu-search-metadata.json. */
-    searchMetadataFile?: string;
+    /** Shared menu state; set to the policy entry's stateFile when customizing its path. */
+    stateFile?: string;
     /**
      * Debounce window (ms) applied to catalog rebuilds triggered by
      * `tools/change` / `skills/change`. The skill/preset lifecycle emits these
@@ -332,7 +303,7 @@ export declare const Config: z<Config>;
 /** Build the registry plugin. */
 export declare const name = "capability-menu-registry";
 export declare const inject: string[];
-export declare function apply(ctx: Context, config?: Config): void;
+export declare function apply(ctx: Context, config?: Config): Promise<void>;
 /** Derive the server namespace from an `mcp__<server>__<raw>` name. */
 export declare function serverNameOf(publicName: string): string;
 //# sourceMappingURL=registry.d.ts.map

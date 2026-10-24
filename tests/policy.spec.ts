@@ -14,9 +14,7 @@ async function setup(config: policy.Config = {}, registryConfig: registry.Config
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SkillRegistry)
-  // Disable on-demand catalog emission by default so tests never write the
-  // real ~/.dsh; callers override via registryConfig when they test it.
-  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
+  await ctx.plugin(registry, { stateFile: '', ...registryConfig })
   await ctx.plugin(policy, config.patchFile === undefined && config.stateFile === undefined
     ? { ...config, stateFile: '' }
     : config)
@@ -294,31 +292,22 @@ describe('capability-menu-policy plugin', () => {
     expect(text).not.toContain('legacy-skill')
   })
 
-  it('appends a catalog pointer section when a catalog file is configured', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-policy-'))
-    const { stat } = await import('node:fs/promises')
-    const catalogFile = `${home}/capability-catalog.yaml`
-    const ctx = await setup({ tools: { 'on-demand': ['mcp__km__search'] } }, { catalogFile })
+  it('points the model to meta_search when an On-demand capability exists', async () => {
+    const ctx = await setup({ tools: { 'on-demand': ['mcp__km__search'] } })
     registerTool(ctx, 'meta_search')
     registerTool(ctx, 'meta_invoke')
     registerTool(ctx, 'mcp__km__search')
-    // C1: the on-demand catalog must exist right after policy mount, without an
-    // explicit refresh() (the registry startup path skips writeCatalog).
-    await vi.waitFor(async () => {
-      const exists = await stat(catalogFile).then(() => true, () => false)
-      expect(exists).toBe(true)
-    })
+    await ctx.capability.refresh()
 
     const assembly = await ctx.systemPrompt.assemble()
     const pointer = assembly.sections.find(section => section.name === 'capability-menu-catalog')
     expect(pointer).toBeDefined()
-    expect(pointer?.text).toContain(catalogFile)
+    expect(pointer?.text).toContain('meta_search({query})')
+    expect(pointer?.text).not.toContain('YAML')
   })
 
   it('does not inject a catalog pointer when nothing is On-demand', async () => {
-    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-policy-'))
-    const catalogFile = `${home}/capability-catalog.yaml`
-    const ctx = await setup({}, { catalogFile })
+    const ctx = await setup({})
     registerTool(ctx, 'meta_search')
     registerTool(ctx, 'meta_invoke')
     await ctx.capability.refresh()
@@ -348,7 +337,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
       stateFile: '',
       tools: { resident: ['mcp__gongfeng__*'], 'on-demand': ['mcp__*'], disabled: ['mcp__km__search'] },
@@ -408,7 +397,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { stateFile: '' })
 
     registerTool(ctx, 'grep')
@@ -448,7 +437,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { stateFile: '' })
 
     // The registry search default is maxResults=20; classifyAll must enumerate
@@ -499,7 +488,7 @@ describe('capability-policy persistence (tier writes)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
       patchFile,
       persistDebounceMs: 50,
@@ -537,7 +526,7 @@ describe('capability-policy persistence (tier writes)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
       patchFile,
       persistDebounceMs: 50,
@@ -567,7 +556,7 @@ describe('capability-policy persistence (tier writes)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     // Keep the write pending until teardown.
     const fiber = await ctx.plugin(policy, {
       patchFile,
@@ -588,21 +577,15 @@ describe('capability-policy persistence (tier writes)', () => {
 })
 
 describe('capability-policy startup', () => {
-  it('settles despite a pending catalog refresh and emits the available index', async () => {
-    const fs = await import('node:fs/promises')
-    const { join } = await import('node:path')
-    const { tmpdir } = await import('node:os')
-    const home = await fs.mkdtemp(join(tmpdir(), 'dsh-policy-startup-'))
-    const catalogFile = join(home, 'catalog.yml')
+  it('settles despite a pending initial registry refresh', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(registry, { catalogFile })
+    await ctx.plugin(registry, { stateFile: '' })
     registerTool(ctx, 'mcp__km__search')
     await ctx.capability.refresh()
     const refresh = vi.spyOn(ctx.capability, 'refresh').mockImplementation(() => new Promise<void>(() => {}))
-    const rewrite = vi.spyOn(ctx.capability, 'rewriteCatalog')
 
     vi.useFakeTimers()
     try {
@@ -614,11 +597,8 @@ describe('capability-policy startup', () => {
       await vi.advanceTimersByTimeAsync(5_000)
       await mounted
       await vi.advanceTimersByTimeAsync(1)
-      expect(rewrite).toHaveBeenCalledOnce()
       expect(ctx.get('capabilityPolicy')).toBeDefined()
-      await vi.waitFor(async () => {
-        expect(await fs.readFile(catalogFile, 'utf8')).toContain('mcp__km__search')
-      })
+      expect(ctx.capabilityPolicy.classifyCapability('mcp__km__search', 'tool')).toBe('on-demand')
     } finally {
       vi.useRealTimers()
     }

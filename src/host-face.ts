@@ -114,8 +114,8 @@ declare module '@deepseek-ai/cordis' {
 
 /**
  * A wire value is already JSON on both sides, and the gateway runs the codec on
- * every argument, so a pass-through keeps the panel working across rc versions
- * instead of rejecting payloads a stricter schema would not recognize.
+ * every argument. The remote methods validate their own arguments, while this
+ * codec carries the JSON value through the gateway.
  */
 function passThroughCodec(typeSymbol: string): HostFaceCodec {
   return { mode: 'strict', typeSymbol, create: () => ({ parse: (value: unknown) => value }) }

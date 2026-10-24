@@ -26,8 +26,7 @@
 #   no model-facing tool itself. Indexes every visible tool — MCP tools by their
 #   server and harness-native tools (bash/read/write/…) under the reserved
 #   `built-in` pseudo-server — plus skills from the global layer and every
-#   mountable preset's standing scope. The single on-demand catalog is emitted to
-#   `catalogFile` (default `~/.dsh/capability-catalog.yaml`) for grep/read.
+#   mountable preset's standing scope. `meta_search` searches this live index.
 # - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
 # - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
 #   execution of tools — MCP or native — and skill loading). Executes in the
@@ -43,10 +42,11 @@
 #   `updateConfig`), the registered-location surface (`listLocations`/`addLocation`/
 #   `updateLocation`/`removeLocation` and `listSkillLocations`/`addSkillLocation`/
 #   `updateSkillLocation`/`removeSkillLocation`/`adoptSkillLocation`), the
-#   read-only catalog docs (`getCatalogDocs`), a rebuild trigger (`refresh`), and
+#   read-only rules and search summaries (`getCatalogDocs`), a rebuild trigger (`refresh`), and
 #   skill browsing (`getDetail`/`listSkillDir`/`readSkillFile`). Tier clicks land
-#   in the plugin's separate `stateFile` after `persistDebounceMs`; registered
-#   MCP servers land in `patchFile` and skill directories under `skillsDir`.
+#   in the plugin's state file after `persistDebounceMs`; search settings share
+#   that file. Registered MCP servers land in `patchFile`, and skill directories
+#   live under `skillsDir`.
 #
 # Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`

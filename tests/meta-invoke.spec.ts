@@ -32,9 +32,7 @@ async function setup(home: string, config: toolMetaInvoke.Config = {}, registryC
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  // Disable on-demand catalog emission by default so tests never write the
-  // real ~/.dsh; callers override via registryConfig when they test it.
-  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
+  await ctx.plugin(registry, { stateFile: '', ...registryConfig })
   await ctx.plugin(toolMetaInvoke, config)
   return ctx
 }
@@ -417,7 +415,7 @@ describe('capability-menu-invoke', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { tools: { 'on-demand': ['grep'] }, stateFile: '' })
     await ctx.plugin(toolMetaInvoke, {})
     const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions', args => ({ ok: true, received: args }))
@@ -453,7 +451,7 @@ describe('capability-menu-invoke', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaInvoke, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -475,7 +473,7 @@ describe('capability-menu-invoke', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { skills: { disabled: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaInvoke, {})
     await ctx.capability.refresh()

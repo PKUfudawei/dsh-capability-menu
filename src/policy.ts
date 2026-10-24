@@ -623,13 +623,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return { ...current }
     },
     async updateConfig(partial: Partial<Config>): Promise<void> {
-      // Only the materialized On-demand catalog on disk depends on the
-      // classification: the model-facing projection is derived from the rules
-      // on every assemble, so it needs no rebuild. Cycling a capability
-      // between Resident and Disabled changes nothing on disk, so it must not
-      // pay for a full re-enumeration.
-      const updateStartedAt = Date.now()
-      const before = onDemandSignature()
+      // Exposure is projected from current rules on every assemble. A tier
+      // change needs no tool or skill inventory rebuild.
       const previousTools = current.tools
       const previousSkills = current.skills
       const merged: Config = { ...current, ...partial }
@@ -643,21 +638,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       // against the previous in-memory view excludes unrelated stale entries.
       recordMoves(previousTools, merged.tools, movedTiers.tool)
       recordMoves(previousSkills, merged.skills, movedTiers.skill)
-      // The On-demand set moved, so the grep-able YAML is stale (and a
-      // capability reclassified to Disabled must disappear from it). Re-emit it
-      // from the index we already have and await that: it is a filter plus a
-      // small write, so awaiting keeps the file consistent with what the UI is
-      // about to read. `requestRefresh` would instead re-enumerate every tool
-      // and every agent preset scope — no inventory changed, and the cost of
-      // that was exactly what made a tier click feel like a hang.
-      const moved = onDemandSignature() !== before
-      if (moved) await ctx.capability.rewriteCatalog()
-      // One line per tier write: the whole handler's cost, and whether the
-      // catalog was re-emitted. A slow click with a fast line here means the
-      // time went somewhere else (a queued rebuild, the carrier, the browser).
-      ctx.logger.info(
-        `capability-policy: tier write took ${Date.now() - updateStartedAt}ms (catalog rewritten: ${moved})`,
-      )
       schedulePersistTiers()
     },
     classifyAll(): readonly CapabilityClassification[] {
@@ -716,20 +696,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
   }
 
-  /**
-   * Fingerprint of the capability ids currently classified On-demand. This set
-   * is the only thing a classification change can invalidate on disk, so it
-   * decides whether `updateConfig` needs to request a rebuild at all.
-   */
-  const onDemandSignature = (): string => {
-    const ids = ctx.capability
-      .search({ maxResults: Number.MAX_SAFE_INTEGER })
-      .filter(summary => service.classifyCapability(summary.id, summary.kind) === 'on-demand')
-      .map(summary => `${summary.kind}:${summary.id}`)
-    ids.sort()
-    return ids.join('\u0000')
-  }
-
   // Disabled capabilities are a hard deny at the execution surface, not just a
   // projection concern: a hallucinated direct call to a disabled tool (or to the
   // `skill` loader for a disabled skill) must never reach the underlying server.
@@ -786,41 +752,26 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     return { ...decision, messages }
   })
 
-  // Project the model-visible tool list, then append a one-line pointer to the
-  // on-demand catalog so the model knows it exists without having to "think of"
-  // meta_search first. Skills keep the dsh-native catalog, but filtered to
-  // Resident by the `agent/pre-step` hook above.
+  // Point the model to the sole discovery entry when On-demand capabilities
+  // exist. Skills keep the dsh-native catalog, filtered to Resident above.
   ctx.on('system-prompt/assemble', async (_assembly: PromptAssembly, _context, next) => {
     const resolved = await next()
     const projected = projectAssemblyTools(resolved, service)
-    const catalogPath = ctx.capability.catalogPath?.()
-    // Skip the pointer when there is nothing On-demand to browse: an empty
-    // hint wastes ~77 tokens of context and points at an empty file.
-    if (catalogPath === undefined || (ctx.capability.onDemandCount?.() ?? 0) === 0) return projected
+    const hasOnDemand = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })
+      .some(record => service.classifyCapability(record.id, record.kind) === 'on-demand')
+    if (!hasOnDemand) return projected
     const pointer = {
       name: 'capability-menu-catalog',
-      text: [
-        'On-demand capabilities are not in the resident tool list above. Start with meta_search({query}) to find a candidate id. A YAML catalog is also available for grep/read:',
-        `  ${catalogPath}`,
-        'After finding an id, call meta_search({id, kind}) to inspect the full parameter schema before meta_invoke({id, kind, args}).',
-      ].join('\n'),
+      text: 'On-demand capabilities are absent from the resident tool list. Use meta_search({query}) to find an id, meta_search({id, kind}) to inspect its full schema, then meta_invoke({id, kind, args}).',
     }
     return { ...projected, sections: [...projected.sections, pointer] }
   })
 
   ctx.provide('capabilityPolicy', service)
 
-  // Emit the on-demand catalog before the plugin finishes mounting. The
-  // registry's own startup path (rebuildTools + refreshSkills) bypasses
-  // refresh(), so without this the YAML would not exist until the first
-  // tools/skills change event. Awaiting here closes the cold-start window
-  // where the first assemble could point at a file that does not exist yet.
-  //
-  // A pending preset scope must not hold this fiber in `loading` forever. On
-  // timeout, emit the catalog from whatever the registry has indexed so far;
-  // the original refresh remains in flight and will replace it if it finishes.
+  // Complete the initial tool and skill scan before the first menu snapshot.
+  // A pending preset scope must not hold this fiber in loading forever.
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
-  let needsFallback = false
   try {
     const outcome = await Promise.race([
       ctx.capability.refresh().then(() => 'complete' as const),
@@ -829,24 +780,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         refreshTimer.unref()
       }),
     ])
-    if (outcome === 'timeout') {
-      needsFallback = true
-      ctx.logger.warn(`capability-policy: catalog refresh still pending after ${CATALOG_REFRESH_TIMEOUT_MS}ms; emitting current index`)
-    }
+    if (outcome === 'timeout') ctx.logger.warn(`capability-policy: registry refresh still pending after ${CATALOG_REFRESH_TIMEOUT_MS}ms`)
   } catch (error) {
-    needsFallback = true
-    ctx.logger.warn(`capability-policy: on-demand catalog refresh failed: ${String(error)}`)
+    ctx.logger.warn(`capability-policy: registry refresh failed: ${String(error)}`)
   } finally {
     if (refreshTimer !== undefined) clearTimeout(refreshTimer)
-  }
-  if (needsFallback) {
-    // Run after this plugin settles so the registry can resolve the provided
-    // policy service when it writes the catalog.
-    setTimeout(() => {
-      void ctx.capability.rewriteCatalog().catch((error: unknown) => {
-        ctx.logger.warn(`capability-policy: fallback catalog write failed: ${String(error)}`)
-      })
-    }, 0).unref()
   }
 }
 

@@ -28,7 +28,7 @@ export const Config: z<Config> = z.object({
 /** Canonical list-mode result. */
 export interface MetaSearchListResult {
   readonly mode: 'list'
-  /** All matches after scope and Disabled filtering, before pagination. */
+  /** On-demand results in the caller scope, before pagination. */
   readonly total: number
   readonly returned: number
   readonly offset: number
@@ -63,7 +63,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const tool = defineTool({
     name: 'meta_search',
-    description: 'Find a capability id by keyword/tag/source, then call meta_search with the exact id and kind to inspect its full tool parameter schema before meta_invoke. Exact id returns detail; list mode supports offset pagination.',
+    description: 'Find an On-demand capability id by keyword/tag/source, then call meta_search with the exact id and kind to inspect its full tool parameter schema before meta_invoke. Exact id returns detail; list mode supports offset pagination.',
     parameters: {
       query: { type: 'string', description: 'Natural-language or keyword query; mutually exclusive with id.' },
       id: { type: 'string', description: 'Exact capability id (from a previous search results[].id); mutually exclusive with query, takes precedence.' },
@@ -135,12 +135,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       const allowedIds = new Set<string>()
       for (const schema of ctx.tools.schemas(scope)) allowedIds.add(schema.name)
       for (const skill of await ctx.skills.list({ scope, cwd: context.cwd })) allowedIds.add(skill.name)
-      // Disabled capabilities are not discoverable: the registry keeps them
-      // indexed for the management surface, but meta_search never surfaces
-      // them to the model.
+      // The registry keeps every tier for management. Model search exposes
+      // only On-demand capabilities in the current session.
       const policy = ctx.get('capabilityPolicy')
-      const isDisabled = (capId: string, capKind: 'tool' | 'skill'): boolean =>
-        policy?.isDisabledCapability(capId, capKind) ?? false
+      const isOnDemand = (capId: string, capKind: 'tool' | 'skill'): boolean =>
+        policy?.classifyCapability(capId, capKind) === 'on-demand'
       // The kind filter doubles as a disambiguator for exact-id lookups.
       const kindArg = kind === 'all' || kind === undefined ? undefined : kind
 
@@ -150,8 +149,8 @@ export function apply(ctx: Context, config: Config = {}): void {
           throw new Error(`meta_search: capability "${id}" is unknown, unavailable, or ambiguous — pass kind: "tool" | "skill" when both exist`)
         }
         if (!allowedIds.has(id)) throw new Error(`meta_search: capability "${id}" is not available in the current session scope`)
-        if (isDisabled(id, resolved.kind)) {
-          throw new Error(`meta_search: capability "${id}" is disabled and cannot be inspected`)
+        if (!isOnDemand(id, resolved.kind)) {
+          throw new Error(`meta_search: capability "${id}" is not On-demand and cannot be inspected`)
         }
         const result = await ctx.capability.getDetail(id, resolved.kind, context)
         if (result === undefined) {
@@ -160,11 +159,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         return { mode: 'detail' as const, result: result as unknown as JsonValue }
       }
 
-      // Filter Disabled BEFORE applying the result cap: a Disabled hit inside
-      // the top-N would otherwise consume a slot and hide a matching Resident
-      // capability ranked below it (the extreme case being an all-Disabled
-      // top-N returning nothing). Over-fetch — the registry imposes no upper
-      // bound and already ranks the whole catalog — then slice.
+      // Filter by tier and caller scope before pagination. Over-fetch because
+      // the registry ranks the whole index and imposes no upper bound.
       const limit = Math.min(requestedMax ?? maxResults, 50)
       const matches = ctx.capability.search({
         query,
@@ -174,9 +170,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         maxResults: Number.MAX_SAFE_INTEGER,
         scope,
       })
-        .filter(result => allowedIds.has(result.id) && !isDisabled(result.id, result.kind))
+        .filter(result => allowedIds.has(result.id) && isOnDemand(result.id, result.kind))
       const results = matches.slice(offset, offset + limit)
-      const catalogPath = ctx.capability.catalogPath?.()
       return {
         mode: 'list' as const,
         total: matches.length,
@@ -184,9 +179,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         offset,
         has_more: offset + results.length < matches.length,
         results: results as unknown as JsonValue[],
-        hint: catalogPath !== undefined
-          ? `Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}). Optional YAML catalog: ${catalogPath}.`
-          : 'Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).',
+        hint: 'Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).',
       }
     },
     presentCall(args) {

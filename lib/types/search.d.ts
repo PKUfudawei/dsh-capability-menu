@@ -18,7 +18,7 @@ export declare const Config: z<Config>;
 /** Canonical list-mode result. */
 export interface MetaSearchListResult {
     readonly mode: 'list';
-    /** All matches after scope and Disabled filtering, before pagination. */
+    /** On-demand results in the caller scope, before pagination. */
     readonly total: number;
     readonly returned: number;
     readonly offset: number;

@@ -31,9 +31,12 @@ async function setup(home: string, config: toolMetaSearch.Config = {}, registryC
     agentsHome: `${home}/.agents`,
     watch: false,
   })
-  // Disable on-demand catalog emission by default so tests never write the
-  // real ~/.dsh; callers override via registryConfig when they test it.
-  await ctx.plugin(registry, { catalogFile: '', ...registryConfig })
+  await ctx.plugin(registry, { stateFile: '', ...registryConfig })
+  await ctx.plugin(policy, {
+    stateFile: '',
+    tools: { 'on-demand': ['mcp__*', 'grep'] },
+    skills: { 'on-demand': ['*'] },
+  })
   await ctx.plugin(toolMetaSearch, config)
   return ctx
 }
@@ -127,10 +130,35 @@ describe('capability-menu-search', () => {
     expect(result.offset).toBe(0)
   })
 
+  it('excludes unrelated capabilities from keyword results while allowing explicit browsing', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    const ctx = await setup(home)
+    const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create a project issue')
+    const weather = registerMcpTool(ctx, 'weather', 'forecast', 'Predict tomorrow rainfall')
+    await ctx.capability.refresh()
+
+    const searched = await runTool(ctx, 'meta_search', { query: 'issue' })
+    expect(searched.isError).toBe(false)
+    expect(searched.value).toMatchObject({ total: 1, returned: 1, has_more: false, results: [{ id: issue }] })
+
+    const noHits = await runTool(ctx, 'meta_search', { query: 'unmatched-phrase' })
+    expect(noHits.isError).toBe(false)
+    expect(noHits.value).toMatchObject({ total: 0, returned: 0, has_more: false, results: [] })
+
+    const browse = await runTool(ctx, 'meta_search', { max_results: 1 })
+    expect(browse.isError).toBe(false)
+    const page = browse.value as { total: number; returned: number; has_more: boolean; results: Array<{ id: string }> }
+    expect(page.total).toBe(2)
+    expect(page.returned).toBe(1)
+    expect(page.has_more).toBe(true)
+    expect([issue, weather]).toContain(page.results[0]?.id)
+  })
+
   it('reports the full filtered total and reaches results after the first page', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     const ids = Array.from({ length: 57 }, (_, index) => registerMcpTool(ctx, 'paging', `item_${String(index).padStart(2, '0')}`, 'pagination sample capability'))
+    registerMcpTool(ctx, 'paging', 'unrelated', 'Predict tomorrow rainfall')
     await ctx.capability.refresh()
 
     const first = await runTool(ctx, 'meta_search', { query: 'pagination sample', kind: 'tool', max_results: 50 })
@@ -221,6 +249,27 @@ describe('capability-menu-search', () => {
     expect(detailResult.result.name).toBe(grep)
   })
 
+  it('hides Resident capabilities from list and exact-id detail', async () => {
+    const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(registry, { stateFile: '' })
+    await ctx.plugin(policy, { stateFile: '', tools: { 'on-demand': ['mcp__km__search'] } })
+    await ctx.plugin(toolMetaSearch, {})
+    const resident = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
+    const onDemand = registerMcpTool(ctx, 'km', 'search', 'Search issues')
+    await ctx.capability.refresh()
+
+    const list = await runTool(ctx, 'meta_search', { query: 'issue' })
+    expect(list.isError).toBe(false)
+    const rows = (list.value as { results: Array<{ id: string }> }).results
+    expect(rows.map(row => row.id)).toContain(onDemand)
+    expect(rows.map(row => row.id)).not.toContain(resident)
+    expect((await runTool(ctx, 'meta_search', { id: resident })).isError).toBe(true)
+  })
+
   it('hides disabled capabilities from list and rejects disabled detail', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = new Context()
@@ -232,7 +281,7 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__create_issue'] } })
     await ctx.plugin(toolMetaSearch, {})
     const issue = registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -247,7 +296,7 @@ describe('capability-menu-search', () => {
     expect(detail.isError).toBe(true)
   })
 
-  it('does not let disabled hits consume result slots', async () => {
+  it('does not let disabled or resident hits consume result slots', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -258,13 +307,16 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
-    await ctx.plugin(policy, { tools: { disabled: ['mcp__gongfeng__blocked_issue'] } })
+    await ctx.plugin(registry, { stateFile: '' })
+    await ctx.plugin(policy, { tools: {
+      disabled: ['mcp__gongfeng__blocked_issue'],
+      'on-demand': ['mcp__gongfeng__open_issue'],
+    } })
     await ctx.plugin(toolMetaSearch, {})
     // Registered first, so it ranks first for the shared keyword — and used to
     // eat the only result slot before being filtered out.
     registerMcpTool(ctx, 'gongfeng', 'blocked_issue', 'Issue tool that is disabled')
-    const allowed = registerMcpTool(ctx, 'gongfeng', 'open_issue', 'Issue tool that stays resident')
+    const allowed = registerMcpTool(ctx, 'gongfeng', 'open_issue', 'Issue tool that is On-demand')
     await ctx.capability.refresh()
 
     const { value, isError } = await runTool(ctx, 'meta_search', { query: 'issue', max_results: 1 })
@@ -285,7 +337,7 @@ describe('capability-menu-search', () => {
       agentsHome: `${home}/.agents`,
       watch: false,
     })
-    await ctx.plugin(registry, { catalogFile: '' })
+    await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { skills: { disabled: ['forbidden-skill'] } })
     await ctx.plugin(toolMetaSearch, {})
     await ctx.capability.refresh()

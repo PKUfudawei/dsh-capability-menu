@@ -179,16 +179,14 @@ export type CapabilityKey =
   | 'catalogPolicy'
   | 'catalogOnDemand'
   | 'catalogPolicyNote'
-  | 'catalogDisabled'
-  | 'catalogUnreadable'
+  | 'catalogSearchNote'
+  | 'catalogEmpty'
   | 'diagnosticTitle'
   | 'diagnosticUnavailable'
   | 'diagnosticShadowed'
   | 'diagnosticBroken'
   | 'diagnosticUnbrowseable'
   | 'diagnosticUndocumented'
-  | 'catalogWriteFailed'
-  | 'catalogPolicyUnavailable'
   | 'editSearchMetadata'
   | 'searchMetadataButton'
   | 'searchDescription'
@@ -284,6 +282,12 @@ body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 .mc-catalog-limit-error{padding:4px 16px 0;margin:0;font-size:12px}
 @media(max-width:600px){.mc-catalog-toolbar{flex-wrap:wrap}.mc-catalog-toolbar .mc-catalog-path{flex-basis:100%}.mc-summary-setting{flex-wrap:wrap;justify-content:flex-end;margin-left:auto}}
 .mc-catalog-path{padding:8px 16px 0;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
+.mc-search-result{padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.mc-search-result:first-child{padding-top:0}
+.mc-search-result:last-child{border-bottom:0}
+.mc-search-result-head{display:flex;align-items:center;gap:8px;font-size:12px;line-height:20px}
+.mc-search-result-id{font-family:var(--dsw-font-markdown-code-block-font-family);overflow-wrap:anywhere}
+.mc-search-result-summary{margin:4px 0 0;font-size:13px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
 .mc-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;white-space:nowrap}
 /* 三态圆点：常驻=实心、按需=半实心、禁用=圆环+斜杠（禁行标志）。
    形状区分之外仍保留色盲友好（蓝-黄轴）：冷蓝=常驻、暖琥珀=按需、中性灰=禁用。
@@ -998,7 +1002,7 @@ function ReadyBody(props: {
     }
   }, [remote, t])
 
-  /** Current exposure rules and generated on-demand search catalog. */
+  /** Current exposure rules and summaries from the live search index. */
   const [catalogDocs, setCatalogDocs] = useState<
     | { status: 'loading' }
     | { status: 'error'; message: string }
@@ -1133,7 +1137,7 @@ function ReadyBody(props: {
     }
   }, [remote, t, onNotice])
 
-  /** Fetch the exposure rules, catalog, and current search-description limit. */
+  /** Fetch exposure rules, searchable summaries, and the description limit. */
   const openCatalogDocs = useCallback(async () => {
     setCatalogDocs({ status: 'loading' })
     try {
@@ -1170,7 +1174,6 @@ function ReadyBody(props: {
 
   const skillDiagnosticCount = diagnostics === null ? 0
     : diagnostics.unavailableSkills.length + diagnostics.shadowedSkills.length + diagnostics.brokenPresets.length + diagnostics.unbrowseableSkills.length + diagnostics.undocumentedSkills.length
-  const catalogProblem = diagnostics?.catalog.state === 'write-failed' || diagnostics?.catalog.state === 'policy-unmounted'
 
   return (
     <>
@@ -1213,19 +1216,16 @@ function ReadyBody(props: {
         </div>
       )}
       <p className="mc-desc">{t('desc')}</p>
-      {diagnostics !== null && (skillDiagnosticCount > 0 || catalogProblem) && (
+      {diagnostics !== null && skillDiagnosticCount > 0 && (
         <details className="mc-diagnostics">
           <summary>
-            {t('diagnosticTitle', { count: skillDiagnosticCount + (catalogProblem ? 1 : 0) })}
+            {t('diagnosticTitle', { count: skillDiagnosticCount })}
           </summary>
           {diagnostics.unavailableSkills.map((item, index) => <div key={`unavailable-${item.name}-${item.preset ?? ''}-${index}`}>{t('diagnosticUnavailable', { name: item.name, source: item.source, preset: item.preset ?? '' })}</div>)}
           {diagnostics.shadowedSkills.map((item, index) => <div key={`shadowed-${item.name}-${item.shadowedFrom}-${index}`}>{t('diagnosticShadowed', { name: item.name, winner: item.selectedFrom, hidden: item.shadowedFrom })}</div>)}
           {diagnostics.brokenPresets.map(item => <div key={`broken-${item.id}`}>{t('diagnosticBroken', { id: item.id, reason: item.reason })}</div>)}
           {diagnostics.unbrowseableSkills.map(item => <div key={`browse-${item.name}`}>{t('diagnosticUnbrowseable', { name: item.name, reason: item.reason })}</div>)}
           {diagnostics.undocumentedSkills.map(item => <div key={`undocumented-${item.name}`}>{t('diagnosticUndocumented', { name: item.name, summary: item.summary })}</div>)}
-          {diagnostics.catalog.state === 'write-failed' && <div>{t('catalogWriteFailed', { path: diagnostics.catalog.path ?? '' })}</div>}
-          {diagnostics.catalog.state === 'policy-unmounted' && <div>{t('catalogPolicyUnavailable')}</div>}
-          {diagnostics.catalog.error !== undefined && <div>{diagnostics.catalog.error}</div>}
         </details>
       )}
 
@@ -1666,9 +1666,7 @@ function ReadyBody(props: {
                 ) : (
                   <>
                     <div className="mc-catalog-toolbar">
-                      <p className="mc-catalog-path" title={catalogDocs.docs.catalog?.path}>
-                        {catalogDocs.docs.catalog?.path ?? t('catalogOnDemand')}
-                      </p>
+                      <p className="mc-catalog-path">{t('catalogSearchNote', { count: catalogDocs.docs.onDemand.length })}</p>
                       <div className="mc-summary-setting">
                         <label htmlFor="mc-summary-limit">{t('summaryLimit')}</label>
                         <input
@@ -1688,12 +1686,18 @@ function ReadyBody(props: {
                       </div>
                     </div>
                     {summaryLimitError !== undefined && <p className="mc-error mc-catalog-limit-error">{summaryLimitError}</p>}
-                    <pre className="mc-preview-body">
-                      {catalogDocs.docs.catalog?.content
-                        ?? (catalogDocs.docs.catalogMissing === 'disabled'
-                          ? t('catalogDisabled')
-                          : t('catalogUnreadable'))}
-                    </pre>
+                    <div className="mc-preview-body">
+                      {catalogDocs.docs.onDemand.length === 0 && <p className="mc-preview-hint">{t('catalogEmpty')}</p>}
+                      {catalogDocs.docs.onDemand.map(row => (
+                        <div className="mc-search-result" key={`${row.kind}:${row.id}`}>
+                          <div className="mc-search-result-head">
+                            <span>{row.kind === 'tool' ? 'Tool' : 'Skill'}</span>
+                            <span className="mc-search-result-id">{row.id}</span>
+                          </div>
+                          <p className="mc-search-result-summary">{row.summary}</p>
+                        </div>
+                      ))}
+                    </div>
                   </>
                 )}
               </>
@@ -1968,6 +1972,9 @@ function SkillList(props: {
               <span className="mc-preview-title">
                 {t('adoptSkillTitle', { name: confirmAdoptRow?.name ?? confirmAdopt })}
               </span>
+              <button type="button" className="mc-preview-close" onClick={() => setConfirmAdopt(null)}>
+                {t('previewClose')}
+              </button>
             </div>
             <div className="mc-confirm-body">
               <p>{t('adoptSkillHint')}</p>
@@ -1979,9 +1986,6 @@ function SkillList(props: {
                 </p>
               )}
               <div className="mc-confirm-actions">
-                <button type="button" className="mc-catalog-btn" onClick={() => setConfirmAdopt(null)}>
-                  {t('cancel')}
-                </button>
                 <button
                   type="button"
                   className="mc-catalog-btn"

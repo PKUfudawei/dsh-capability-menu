@@ -43,17 +43,18 @@ export interface CapabilityRow {
   readonly mandatory: boolean
 }
 
-/** Current exposure rules and the generated on-demand search catalog. */
+/** Current exposure rules and the live on-demand search summaries. */
 export interface CatalogDocs {
   /** Effective rule configuration in YAML. */
   readonly policyYaml: string
   readonly summaryMaxChars: number
   readonly searchSettingsEnabled: boolean
-  /** 按需能力目录物化文件（path + content）。 */
-  readonly catalog?: { readonly path: string; readonly content: string }
-  /** catalog 不可用原因：'disabled' = 物化未启用；'read-failed' = 读盘失败。 */
-  readonly catalogMissing?: 'disabled' | 'read-failed' | 'policy-unmounted' | 'empty' | 'write-failed'
-  readonly catalogState?: 'disabled' | 'policy-unmounted' | 'empty' | 'ready' | 'write-failed'
+  readonly onDemand: readonly {
+    readonly id: string
+    readonly kind: 'tool' | 'skill'
+    readonly summary: string
+    readonly server?: string
+  }[]
 }
 
 export interface SelfUpdateStatus {
@@ -81,9 +82,7 @@ const capabilityDiagnostics$schema = z.object({
   unbrowseableSkills: z.array(z.object({ name: z.string(), reason: z.string() })),
   undocumentedSkills: z.array(z.object({ name: z.string(), summary: z.string() })),
   catalog: z.object({
-    state: z.union([z.literal('disabled'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('ready'), z.literal('write-failed')]),
-    path: z.string().optional(),
-    error: z.string().optional(),
+    state: z.union([z.literal('empty'), z.literal('ready')]),
     count: z.number(),
   }),
 })
@@ -235,12 +234,12 @@ const catalogDocs$schema = z.object({
   policyYaml: z.string().readonly(),
   summaryMaxChars: z.number().readonly(),
   searchSettingsEnabled: z.boolean().readonly(),
-  catalog: z.object({
-    path: z.string().readonly(),
-    content: z.string().readonly(),
-  }).optional().readonly(),
-  catalogMissing: z.union([z.literal('disabled'), z.literal('read-failed'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('write-failed')]).optional().readonly(),
-  catalogState: z.union([z.literal('disabled'), z.literal('policy-unmounted'), z.literal('empty'), z.literal('ready'), z.literal('write-failed')]).optional().readonly(),
+  onDemand: z.array(z.object({
+    id: z.string().readonly(),
+    kind: z.union([z.literal('tool'), z.literal('skill')]).readonly(),
+    summary: z.string().readonly(),
+    server: z.string().optional().readonly(),
+  })).readonly(),
 })
 
 const toolDetail$schema = z.object({
