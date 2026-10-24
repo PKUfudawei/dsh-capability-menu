@@ -84,7 +84,7 @@ Notes:
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Currently targets DSH `0.2.1-rc.3`.
+The peer range accepts stable DSH `0.2.x` releases and prereleases from `0.2.1-rc.3` on the same version line. The latest tested version is `0.2.1-rc.3`; a stable DSH `0.2.0` is not yet available on npm for testing.
 
 ### Install from npm (recommended)
 

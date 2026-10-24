@@ -84,7 +84,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-当前适配 DSH `0.2.1-rc.3`。
+依赖范围接受 DSH `0.2.x` 稳定版及 `0.2.1-rc.3` 起的同版本预发布版；当前验证版本为 `0.2.1-rc.3`。npm 暂无 DSH `0.2.0` 稳定版可供实测。
 
 ### 从 npm 安装（推荐）
 
