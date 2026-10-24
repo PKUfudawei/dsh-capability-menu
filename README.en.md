@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.0--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.0-rc.2"/></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.2"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -30,7 +30,6 @@
 - [Exposure Policy](#exposure-policy)
   - [Tools and Skills three-tier exposure and execution](#tools-and-skills-three-tier-exposure-and-execution)
 - [Configuration](#configuration)
-  - [All configuration options](#all-configuration-options)
   - [On-demand search catalog (`catalogFile`)](#on-demand-search-catalog-catalogfile)
 
 ---
@@ -76,19 +75,19 @@ After installation, open **Settings** and select **Capability Menu** from the se
 | View rules and catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
 | Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
 
-MCP tool rows omit the repeated `mcp__server__` display prefix inside their server group. Hover to see the full name; search and invocation still use the full ID.
+Notes:
 
-Registering an MCP server writes its patch configuration; a missing file or parent directory is created automatically. MCP credentials such as request headers are stored in the config; keep it secure. Skill registration creates a link or imports a directory into the selected skill root.
-
-GitHub Skill imports accept a default-branch root URL (the root must contain `SKILL.md`), a specific branch root `https://github.com/{owner}/{repo}/tree/{branch}`, or a Skill subdirectory `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`. Local paths are also supported. Only public repositories are supported; Git must be installed on the machine running dsh. The plugin validates `SKILL.md` and copies only the selected directory.
+- **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
+- **Registration**: MCP servers write to the patch config (missing files and directories are created). Request headers and other credentials are stored there; keep it secure. Skills are linked or imported into the selected skill root.
+- **GitHub Skills**: Public repositories support a default-branch root (with `SKILL.md`), a branch root `.../tree/{branch}`, or a Skill directory `.../tree/{branch}/{skill-directory}`. Local paths also work. Git is required on the machine running dsh; the plugin validates `SKILL.md` and copies only the selected directory.
 
 ## Installation and Uninstallation
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-### Install from npm (recommended)
+Compatibility: tested with DSH `0.2.0-rc.2` and `0.2.1-rc.2`; development and build dependencies now use `0.2.1-rc.2`.
 
-Install it in the Web profile:
+### Install from npm (recommended)
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
@@ -99,7 +98,7 @@ dsh plugin --profile web add @daweifu/capability-menu
 ```sh
 git clone https://github.com/PKUfudawei/dsh-capability-menu.git
 cd dsh-capability-menu
-pnpm install                   # the prepare script builds lib/ (server) and lib/client.js (front-end)
+pnpm install
 
 dsh plugin --profile web add .
 ```
@@ -131,10 +130,11 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 | **Disabled** | tool | Tool definition is not included with requests | Hidden from search results and the capability catalog | Calls are rejected |
 | | skill | Not shown in `<available_skills>` | Hidden from search results and the capability catalog | Loads are rejected |
 
-> **Scope & reserved tools**:
-> - Tiers apply to MCP and harness-native built-in tools; built-ins use the reserved `built-in` group. **Do not name an MCP server `built-in`.**
-> - `meta_search` and `meta_invoke` are always Resident and cannot be disabled. `run_code` is reserved for Code Mode; it is excluded from the catalog and menu and needs no tier rule.
-> - **Keep high-frequency core tools Resident**: For an On-demand built-in, find its ID with `meta_search({query})`, inspect the exact-ID schema, then call `meta_invoke`.
+Scope and exceptions:
+
+- MCP tools and cataloged DSH native tools support all three tiers; native tools appear in the `built-in` group. Do not name an MCP server `built-in`, which would collide with that group.
+- `meta_search` and `meta_invoke` are Resident by default and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu; handwritten wildcard rules can still match it, so do not set it to On-demand or Disabled.
+- Keep frequently used tools Resident; use `meta_search` to find an On-demand tool's ID and inspect its schema before invocation.
 
 ## Configuration
 
@@ -156,21 +156,7 @@ config:
       - example_skill        # unlisted capabilities default to Resident
 ```
 
-### All configuration options
-
-| Option | Entry | Default | Description |
-| --- | --- | --- | --- |
-| `tools` / `skills` / `metaTools` | `capability-menu-policy` | see bundled patch | Base tier rules in the patch; UI moves are saved separately |
-| `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | Materialized on-demand catalog path; empty disables it |
-| `searchMetadataFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-menu-search-metadata.json` | Saved search descriptions and UI limit setting; empty prevents saving changes |
-| `summaryMaxChars` | `capability-menu-registry` | `320` | Initial character limit for search descriptions, `meta_search` list summaries, and catalog descriptions; minimum 20; a UI-saved value takes precedence |
-| `refreshDebounceMs` | `capability-menu-registry` | `200` | Debounce window (ms) for change-event rebuilds; `0` disables debouncing |
-| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml` (`$DSH_HOME` wins) | Patch file that MCP server registration writes to |
-| `stateFile` | `capability-menu-policy` | `capability-menu-policy.json` beside `patchFile` | UI tier state; set to an empty string to disable persistence |
-| `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | Skill root used by skill directory registration |
-| `persistDebounceMs` | `capability-menu-policy` | `1500` | Debounce window (ms) before a clicked tier change is written to the state file |
-
-These settings belong to their respective plugin entries and usually live in the same `cordis.patch.yml`. The plugin creates `stateFile` and `searchMetadataFile` automatically. `catalogFile` is the generated catalog for model-side search, while `skillsDir` is a directory for Skills.
+Usually, you only need `tools` and `skills`. The optional file paths and debounce settings can keep their defaults. For every parameter, see the [policy config](./src/policy.ts) and [registry config](./src/registry.ts).
 
 **Rule priority** (evaluated in order: Disabled always wins; between Resident and On-demand, exact rules beat wildcards):
 

@@ -30,13 +30,13 @@
 #   `catalogFile` (default `~/.dsh/capability-catalog.yaml`) for grep/read.
 # - `capability-menu-search` (P1): registers the `meta_search` tool (list + detail).
 # - `capability-menu-invoke` (P2): registers the `meta_invoke` tool (unified
-#   execution of tools — MCP or native — and skill loading). Executes on the GLOBAL
-#   view (no agent) so On-demand tools stay runnable; dedups already-loaded skills.
-#   Rejects Disabled capabilities.
+#   execution of tools — MCP or native — and skill loading). Executes in the
+#   caller's agent view so On-demand tools stay runnable without bypassing scope
+#   restrictions; dedups already-loaded skills. Rejects Disabled capabilities.
 # - `capability-menu-policy` (P3): Resident/On-demand/Disabled projection
 #   strategy + 能力菜单 surface. Reads explicit resident/on-demand/disabled
-#   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` at
-#   `system-prompt/assemble` to Resident + meta tools only. The execution chain
+#   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` and
+#   web guidance sections at `system-prompt/assemble`. The execution chain
 #   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` to the 能力菜单 tab through
 #   the Typert gateway: the tier surface (`classifyAll`/`getConfig`/

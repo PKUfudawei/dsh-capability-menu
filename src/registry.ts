@@ -7,6 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { JsonSchemaNode, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { isModelInvocable, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import yaml from 'js-yaml'
@@ -108,6 +109,11 @@ interface AgentPresetScopes {
   list(): Promise<Array<{ id: string; broken?: string }>>
   /** The scope must stay retained during enumeration. */
   acquireScope(id?: string): Promise<{ key: ScopeKey; [key: symbol]: unknown }>
+}
+
+/** Active agents carry session-local tools and the cwd needed for project skills. */
+interface LiveAgentRegistry {
+  list(): Agent[]
 }
 
 const ASYNC_DISPOSE =
@@ -468,6 +474,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   let skillRecords = new Map<string, CapabilityRecord>()
   /** The scope each indexed skill was collected from; undefined = global layer. */
   let skillScopes = new Map<string, ScopeKey | undefined>()
+  /** The project cwd used to discover an indexed skill, when applicable. */
+  let skillCwds = new Map<string, string | undefined>()
   /** On-demand count of the latest catalog emission (0 until first write). */
   let onDemandCount = 0
   let catalogError: string | undefined
@@ -562,7 +570,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   const skillRootOf = async (id: string): Promise<string | undefined> => {
     const name = id
     const scope = skillScopes.get(name)
-    const lookup = scope === undefined ? {} : { scope }
+    const cwd = skillCwds.get(name)
+    const lookup = { scope, cwd }
     const definition = await ctx.skills.get(name, lookup).catch(() => undefined)
     if (definition !== undefined) {
       if (definition.resourceBase !== undefined && definition.resourceBase.kind === 'directory') {
@@ -610,11 +619,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   /**
    * Rebuild the tool index from the visible tool registries.
    *
-   * Harness-native tools are registered on the agent plane (per agent preset's
-   * standing scope), not the root/global layer the plugin's own `ctx.tools`
-   * view sees — exactly the layout the skills side enumerates below. Mirror
-   * that: index the global view first, then every mountable preset's standing
-   * scope, so natives land under the reserved `built-in` pseudo-server.
+   * Index the global view, every mountable preset's standing scope, and live
+   * agent scopes. The final pass catches tools registered for one session.
    */
   // Rebuilds can overlap (eager mount-time run vs. a change-event refresh);
   // the epoch guard drops a superseded run so its older snapshot never
@@ -627,6 +633,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // (such as an explicit refresh) has already enumerated the same instance;
   // scheduling again would trigger a redundant full scan on policy-only edits.
   let observedAgentPresets: AgentPresetScopes | undefined
+  let observedAgents: LiveAgentRegistry | undefined
   const rebuildTools = async (): Promise<void> => {
     const epoch = ++toolIndexEpoch
     const nextToolRecords = new Map<string, CapabilityRecord>()
@@ -652,17 +659,26 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
       }
     }
+    const agents = (ctx.get as (key: string) => unknown)('agents') as LiveAgentRegistry | undefined
+    if (agents !== undefined) {
+      observedAgents = agents
+      for (const agent of agents.list()) {
+        try {
+          for (const schema of ctx.tools.schemas(agent)) indexToolSchema(nextToolRecords, schema)
+        } catch (error) {
+          ctx.logger.warn(`meta-registry: agent "${agent.id}" tool scope unavailable: ${String(error)}`)
+        }
+      }
+    }
     if (epoch === toolIndexEpoch) toolRecords = nextToolRecords
   }
 
   /**
    * Rebuild the skill index asynchronously; resolves when the refresh completes.
    *
-   * Skills live in a per-scope registry: the global layer plus one layer per
-   * agent preset that mounts skill providers (a preset's `skill-filesystem`
-   * registers into that preset's layer, so the host-plane global read alone
-   * sees nothing). The management catalog enumerates the global layer and then
-   * every mountable preset's standing scope, so preset-scoped skills surface.
+   * Skills live in a per-scope registry. Enumerate global and standing preset
+   * scopes, then live agent scopes with their session cwd. The last pass is
+   * required for project roots and skills registered only for one session.
    *
    * Each skill records the preset it came from (see `CapabilityOrigin.preset`),
    * which is the only way to tell a preset's own `customSkillDirs` apart from a
@@ -682,12 +698,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     const epoch = ++skillIndexEpoch
     const nextSkills = new Map<string, CapabilityRecord>()
     const nextSkillScopes = new Map<string, ScopeKey | undefined>()
+    const nextSkillCwds = new Map<string, string | undefined>()
     const nextUnavailable = new Map<string, { name: string; source: string; preset?: string }>()
     const nextShadowed = new Map<string, { name: string; selectedFrom: string; shadowedFrom: string }>()
     const nextBroken = new Map<string, { id: string; reason: string }>()
     const nextUndocumented = new Map<string, { name: string; summary: string }>()
 
-    const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined, preset?: string): void => {
+    const indexSkill = (skill: SkillSummary, scope: ScopeKey | undefined, preset?: string, cwd?: string): void => {
       const id = skill.name
       const descriptionIsPlaceholder = skill.description.replace(/[|\s\-—–_·•]+/g, '').trim().length === 0
       if (descriptionIsPlaceholder) nextUndocumented.set(`${preset ?? 'global'}\0${id}`, { name: id, summary: toSkillSummary(skill.description, skill.whenToUse, id, summaryMaxChars) })
@@ -732,17 +749,18 @@ export function apply(ctx: Context, config: Config = {}): void {
         summary: toSkillSummary(skill.description, skill.whenToUse, id, summaryMaxChars),
       })
       nextSkillScopes.set(id, scope)
+      nextSkillCwds.set(id, cwd)
     }
 
-    const collectScoped = async (label: string, scope: ScopeKey | undefined, preset?: string): Promise<void> => {
+    const collectScoped = async (label: string, scope: ScopeKey | undefined, preset?: string, cwd?: string): Promise<void> => {
       let skills: SkillSummary[] = []
       try {
-        skills = scope === undefined ? await ctx.skills.list({}) : await ctx.skills.list({ scope })
+        skills = await ctx.skills.list({ scope, cwd })
       } catch (error) {
         ctx.logger.warn(`meta-registry: skill catalog refresh failed for ${label}: ${String(error)}`)
         return
       }
-      for (const skill of skills) indexSkill(skill, scope, preset)
+      for (const skill of skills) indexSkill(skill, scope, preset, cwd)
     }
 
     // Global layer first: the host's own skill providers.
@@ -750,7 +768,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
     // Preset layers: agent presets mount skill providers into their own scope
     // (web surface disables the host-plane rows by design). `agentPresets` is
-    // optional — headless bundles without it index the global layer only.
+    // optional — headless bundles can still index global and live-agent skills.
     const agentPresets = (ctx.get as (key: string) => unknown)('agentPresets') as AgentPresetScopes | undefined
     if (agentPresets !== undefined) {
       let presets: Array<{ id: string; broken?: string }> = []
@@ -774,9 +792,21 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
     }
 
+    // The filesystem provider only discovers project roots when given the
+    // session cwd. Active agent scopes also carry tools/skills registered for
+    // one session rather than for the standing preset.
+    const agents = (ctx.get as (key: string) => unknown)('agents') as LiveAgentRegistry | undefined
+    if (agents !== undefined) {
+      observedAgents = agents
+      for (const agent of agents.list()) {
+        await collectScoped(`agent "${agent.id}"`, agent, undefined, agent.session.header.cwd)
+      }
+    }
+
     if (epoch !== skillIndexEpoch) return
     skillRecords = nextSkills
     skillScopes = nextSkillScopes
+    skillCwds = nextSkillCwds
     unavailableSkills = [...nextUnavailable.values()]
     shadowedSkills = [...nextShadowed.values()]
     brokenPresets = [...nextBroken.values()]
@@ -969,6 +999,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     eventSeq++
     schedule()
   })
+  ctx.inject(['agents'], () => {
+    const agents = (ctx.get as (key: string) => unknown)('agents') as LiveAgentRegistry | undefined
+    if (agents === undefined || agents === observedAgents) return
+    observedAgents = agents
+    eventSeq++
+    schedule()
+  })
 
   /**
    * Refresh the whole catalog, resolving once the rebuild chain covering this
@@ -991,6 +1028,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     schedule()
   }))
   disposers.push(ctx.on('skills/change', () => {
+    eventSeq++
+    schedule()
+  }))
+  disposers.push(ctx.on('agent/created', () => {
+    eventSeq++
+    schedule()
+  }))
+  disposers.push(ctx.on('agent/disposed', () => {
     eventSeq++
     schedule()
   }))

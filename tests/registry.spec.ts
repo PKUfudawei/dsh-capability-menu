@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -386,6 +386,47 @@ describe('meta-registry', () => {
     // Native tools stay cataloged under the built-in pseudo-server.
     const builtIn = ctx.capability.search({ server: 'built-in', maxResults: 100 })
     expect(builtIn.map(summary => summary.id)).toContain('bash')
+  })
+
+  it('indexes live session tools and cwd-dependent project skills', async () => {
+    const { mkdir, mkdtemp } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await mkdtemp('/tmp/dsh-registry-')
+    const project = join(home, 'project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'project-only', 'Project guidance', 'Project body.')
+    const ctx = await setup(home, { refreshDebounceMs: 5 })
+    const agent = agentStub('project-agent') as { ctx: Context; session: { header: { cwd: string } } }
+    agent.session.header.cwd = project
+    const scoped = createScope(ctx, agent as never)
+    agent.ctx = scoped.ctx
+    await scoped.ctx.plugin({
+      name: 'session-only-tool',
+      inject: ['tools'],
+      apply(scope) { registerNativeTool(scope, 'session_only', 'Only this session') },
+    })
+    expect(ctx.tools.schemas().map(tool => tool.name)).not.toContain('session_only')
+    const live: typeof agent[] = []
+    ctx.provide('agents', { list: () => live })
+    await ctx.capability.refresh()
+    live.push(agent)
+    ctx.emit('agent/created', { agent: agent as never, source: 'startup' })
+    await vi.waitFor(() => expect(ctx.capability.get('project-only', 'skill')).toBeDefined())
+
+    const rows = ctx.capability.search({ maxResults: 100 })
+    expect(rows.map(row => row.id)).toContain('session_only')
+    expect(rows.find(row => row.id === 'project-only')).toMatchObject({
+      kind: 'skill', source: 'project-agents',
+    })
+    expect((await ctx.capability.listSkillDir('project-only'))?.map(entry => entry.name)).toContain('SKILL.md')
+    expect(await ctx.capability.readSkillFile('project-only', 'SKILL.md')).toContain('Project body.')
+
+    live.length = 0
+    ctx.emit('agent/disposed', { agent: agent as never })
+    await vi.waitFor(() => {
+      expect(ctx.capability.get('session_only', 'tool')).toBeUndefined()
+      expect(ctx.capability.get('project-only', 'skill')).toBeUndefined()
+    })
   })
 
   it('keeps the catalog complete and serialises overlapping refreshes', async () => {

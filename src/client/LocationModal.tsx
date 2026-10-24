@@ -73,6 +73,7 @@ textarea.lm-input{resize:vertical;font-family:var(--dsw-font-markdown-code-block
 @media(prefers-reduced-motion:reduce){.lm-spinner{animation-duration:2s}}
 .mc-tab:disabled,.mc-preview-close:disabled{cursor:default;opacity:.6}
 .lm-actions{display:flex;gap:8px;justify-content:flex-end;padding:4px 0 0}
+.lm-actions .lm-btn--remove{margin-right:auto}
 /* Removal is irreversible, so it takes over the action row for one confirmation
    step: the message states the consequence, then the buttons act. */
 .lm-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid #b3261e;border-radius:6px}
@@ -305,6 +306,11 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
     )
     : (
       <div className="lm-actions">
+        {editing && (
+          <button type="button" className="lm-btn lm-btn--danger lm-btn--remove" disabled={busy} onClick={() => setConfirm('remove')}>
+            {t('remove')}
+          </button>
+        )}
         <button
           type="button"
           className="lm-btn"
@@ -313,11 +319,6 @@ export function LocationModal(props: LocationModalProps): JSX.Element {
         >
           {progressMessage !== null ? t('importing') : editing ? t('save') : t('register')}
         </button>
-        {editing && (
-          <button type="button" className="lm-btn lm-btn--danger" disabled={busy} onClick={() => setConfirm('remove')}>
-            {t('remove')}
-          </button>
-        )}
       </div>
     )
 

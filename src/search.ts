@@ -134,7 +134,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       const allowedIds = new Set<string>()
       for (const schema of ctx.tools.schemas(scope)) allowedIds.add(schema.name)
-      for (const skill of await ctx.skills.list({ scope })) allowedIds.add(skill.name)
+      for (const skill of await ctx.skills.list({ scope, cwd: context.cwd })) allowedIds.add(skill.name)
       // Disabled capabilities are not discoverable: the registry keeps them
       // indexed for the management surface, but meta_search never surfaces
       // them to the model.

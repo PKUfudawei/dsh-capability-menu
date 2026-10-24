@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.0--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.0-rc.2"/></a>
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.2"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -30,7 +30,6 @@
 - [暴露策略](#暴露策略)
   - [Tools 和 Skills 三档暴露与执行对照](#tools-和-skills-三档暴露与执行对照)
 - [配置](#配置)
-  - [全部配置项](#全部配置项)
   - [按需能力检索目录（`catalogFile`）](#按需能力检索目录catalogfile)
 
 ---
@@ -76,19 +75,19 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 | 查看规则和检索目录 | 点击页头右侧的「策略与目录」，查看生效规则及自动生成的按需能力检索目录；可在目录页调整检索描述上限 |
 | 编辑检索描述 | 将 Tool 或 Skill 设为「按需」后，点击旁边的「检索描述」，在来源描述的简短版本上修改 |
 
-MCP 工具在服务器分组内省略重复的 `mcp__服务器名__` 显示前缀；悬停可查看完整名称，检索和调用仍使用完整 ID。
+备注：
 
-注册 MCP 会写入 patch 配置；文件或父目录缺失时会自动创建。MCP 请求头等凭据保存在配置中，请妥善保管。注册 Skill 则会在所选技能根目录创建链接或导入目录。
-
-GitHub Skill 支持默认分支根目录链接（需含 `SKILL.md`）、指定分支根目录 `https://github.com/{owner}/{repo}/tree/{branch}`，以及指定分支下的技能目录 `https://github.com/{owner}/{repo}/tree/{branch}/{skill-directory}`。也可输入本机目录。仅支持公开仓库；导入需要运行 dsh 的机器安装 Git，插件会校验 `SKILL.md` 并只复制所选目录。
+- **MCP 名称**：分组内省略 `mcp__服务器名__` 前缀；悬停可看全名，检索和调用仍用完整 ID。
+- **注册位置**：MCP 写入 patch 配置（自动创建缺失的文件和目录）；请求头等凭据也保存在其中，请妥善保管。Skill 在所选技能根目录创建链接或导入目录。
+- **GitHub Skill**：支持公开仓库的默认分支根目录（含 `SKILL.md`）、指定分支根目录 `.../tree/{branch}` 或其下的技能目录 `.../tree/{branch}/{skill-directory}`；也支持本机目录。导入需在运行 dsh 的机器上安装 Git；插件会校验 `SKILL.md`，只复制所选目录。
 
 ## 安装与卸载
 
 前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-### 从 npm 安装（推荐）
+兼容性：已在 DSH `0.2.0-rc.2` 和 `0.2.1-rc.2` 上通过测试；当前开发与构建依赖使用 `0.2.1-rc.2`。
 
-在 Web Profile 安装：
+### 从 npm 安装（推荐）
 
 ```sh
 dsh plugin --profile web add @daweifu/capability-menu
@@ -99,7 +98,7 @@ dsh plugin --profile web add @daweifu/capability-menu
 ```sh
 git clone https://github.com/PKUfudawei/dsh-capability-menu.git
 cd dsh-capability-menu
-pnpm install                   # prepare 脚本自动构建 lib/（服务端）与 lib/client.js（前端）
+pnpm install
 
 dsh plugin --profile web add .
 ```
@@ -131,10 +130,11 @@ dsh plugin --profile web remove @daweifu/capability-menu
 | **禁用** | tool | 不随请求提供工具定义 | 搜索结果和能力目录中均不可见 | 调用会被拒绝 |
 | | skill | 不显示在 `<available_skills>` 中 | 搜索结果和能力目录中均不可见 | 加载会被拒绝 |
 
-> **覆盖与保留**：
-> - 三档策略同时覆盖 MCP 与内置原生工具；内置工具归入保留组 `built-in`。**请勿把 MCP server 命名为 `built-in`。**
-> - `meta_search` 和 `meta_invoke` 固定常驻且不可禁用。`run_code` 是 Code Mode 保留工具，不进目录或菜单，也无需配置档位。
-> - **高频核心工具建议设为常驻**：按需内置工具先用 `meta_search({query})` 找 ID，再用精确 ID 查看 schema，最后通过 `meta_invoke` 调用。
+适用范围与例外：
+
+- MCP 工具和可编目的 DSH 原生工具都支持三档；原生工具归入 `built-in` 分组。请勿将 MCP 服务器命名为 `built-in`，以免与该分组冲突。
+- `meta_search` 和 `meta_invoke` 默认常驻，不能在菜单中禁用。DSH Code Mode 的入口 `run_code` 不进入本插件的目录或菜单；手写通配规则仍可能匹配它，请勿将其设为按需或禁用。
+- 高频工具建议保持常驻；按需工具可通过 `meta_search` 找 ID、查看参数 schema，再调用。
 
 ## 配置
 
@@ -156,21 +156,7 @@ config:
       - example_skill        # 未列出的能力默认常驻
 ```
 
-### 全部配置项
-
-| 配置项 | 归属 entry | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `tools` / `skills` / `metaTools` | `capability-menu-policy` | 见随包补丁 | patch 中的基础分类规则；界面档位改动保存在独立状态文件 |
-| `catalogFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-catalog.yaml` | 按需能力目录物化路径，置空禁用 |
-| `searchMetadataFile` | `capability-menu-registry` | `${DSH_HOME:-~/.dsh}/capability-menu-search-metadata.json` | 检索描述与前端上限设置的状态文件；置空后无法保存修改 |
-| `summaryMaxChars` | `capability-menu-registry` | `320` | 检索描述、`meta_search` 列表摘要及目录描述的初始字符上限；最小为 20；前端保存的值优先 |
-| `refreshDebounceMs` | `capability-menu-registry` | `200` | 变更事件的重建防抖窗口（ms）；`0` 关闭防抖 |
-| `patchFile` | `capability-menu-policy` | `~/.dsh/cordis.patch.yml`（`$DSH_HOME` 优先） | 注册 MCP 服务器写入的 patch 文件 |
-| `stateFile` | `capability-menu-policy` | 与 `patchFile` 同目录的 `capability-menu-policy.json` | 界面档位改动的状态文件，置空禁用持久化 |
-| `skillsDir` | `capability-menu-policy` | `~/.dsh/skills` | 注册 Skill 目录的技能根 |
-| `persistDebounceMs` | `capability-menu-policy` | `1500` | 点选改动写入状态文件前的防抖窗口（ms）|
-
-这些配置项分别属于对应的插件 entry，通常都写在同一份 `cordis.patch.yml` 里。`stateFile` 和 `searchMetadataFile` 由插件自动创建；`catalogFile` 是供模型检索的生成文件，`skillsDir` 是 Skill 存放目录。
+通常只需设置 `tools` 和 `skills`。文件路径与防抖等可选项使用默认值即可；完整参数见 [policy 配置](./src/policy.ts) 和 [registry 配置](./src/registry.ts)。
 
 **规则优先级**（按序匹配：禁用始终优先；在常驻与按需之间，精确规则优先于通配）：
 

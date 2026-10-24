@@ -271,7 +271,8 @@ body[data-ds-dark-theme] .mc-feedback-link:focus-visible{outline-color:#96b6d1}
 .mc-summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;align-items:center;padding-bottom:8px}
 .mc-catalog-btn{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:0 10px;cursor:pointer;white-space:nowrap}
 .mc-catalog-btn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-interactive-bg-hover)}
-.mc-heading-actions .mc-catalog-btn,.mc-heading-actions .mc-catalog-btn:hover{background:transparent}
+.mc-heading-actions .mc-catalog-btn{background:transparent}
+.mc-heading-actions .mc-catalog-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .mc-heading-actions .mc-catalog-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 /* 忙碌态靠变淡表示，而不是换文案：换文案会改按钮宽度，把这行挤到第二行。 */
 .mc-catalog-btn:disabled{cursor:default;opacity:.6}

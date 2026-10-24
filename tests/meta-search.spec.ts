@@ -80,18 +80,38 @@ async function runTool(
   ctx: Context,
   name: string,
   args: Record<string, unknown>,
+  agent: ReturnType<typeof agentStub> = agentStub('agent'),
 ): Promise<{ value: unknown; isError: boolean }> {
   const result = await ctx.tools.execute({
     callId: ToolCallId(`call-${name}`),
     name,
     arguments: args,
-    agent: agentStub('agent'),
+    agent,
     signal: testSignal,
   })
   return { value: result.value, isError: result.isError }
 }
 
 describe('capability-menu-search', () => {
+  it('finds a project skill from the calling session cwd', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await fs.mkdtemp('/tmp/dsh-meta-search-')
+    const project = join(home, 'project')
+    await fs.mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'project-only', 'Project guidance', 'Project body.')
+    const ctx = await setup(home)
+    const agent = agentStub('project-agent') as { session: { header: { cwd: string } } }
+    agent.session.header.cwd = project
+    ctx.provide('agents', { list: () => [agent] })
+    await ctx.capability.refresh()
+
+    const list = await runTool(ctx, 'meta_search', { query: 'Project guidance', kind: 'skill' }, agent)
+    expect(list.isError).toBe(false)
+    expect((list.value as { results: Array<{ id: string }> }).results.map(row => row.id)).toContain('project-only')
+    const detail = await runTool(ctx, 'meta_search', { id: 'project-only', kind: 'skill' }, agent)
+    expect(detail.isError).toBe(false)
+  })
   it('lists capabilities by keyword query', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
