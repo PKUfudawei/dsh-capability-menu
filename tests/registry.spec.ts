@@ -183,14 +183,33 @@ describe('meta-registry', () => {
     expect(skillDetail?.output).toBeUndefined()
   })
 
-  it('service search tolerates a fuzzy query (the detail:true rule lives in the tool layer)', async () => {
+  it('searches by keyword without requiring an exact id', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-registry-'))
     const ctx = await setup(home)
     registerMcpTool(ctx, 'iwiki', 'get_document', 'Get a wiki document')
     await ctx.capability.refresh()
-    // The service allows any query; the meta_search tool wrapper enforces the detail/fuzzy rule.
     const results = ctx.capability.search({ query: 'wiki' })
     expect(results.length).toBeGreaterThan(0)
+  })
+
+  it('matches only the displayed description for default and custom search text', async () => {
+    const { mkdtemp } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const home = await mkdtemp('/tmp/dsh-registry-summary-limit-')
+    const description = `Useful guide ${'filler '.repeat(52)} deepneedle`
+    await writeSkill(`${home}/.agents/skills`, 'long-guide', description, 'Guide body.')
+    const ctx = await setup(home, { stateFile: join(home, 'capability-menu-policy.json') })
+    const tool = registerMcpTool(ctx, 'limits', 'inspect', description)
+    await ctx.capability.refresh()
+
+    expect(ctx.capability.search({ query: 'deepneedle' })).toEqual([])
+    await ctx.capability.updateSummaryMaxChars(420)
+    expect(ctx.capability.search({ query: 'deepneedle' }).map(row => row.id).sort()).toEqual([tool, 'long-guide'].sort())
+
+    await ctx.capability.updateSearchMetadata({ id: tool, kind: 'tool', description: 'customneedle only' })
+    expect(ctx.capability.search({ query: 'deepneedle' }).map(row => row.id)).toEqual(['long-guide'])
+    expect(ctx.capability.search({ query: 'customneedle' }).map(row => row.id)).toEqual([tool])
+    expect((await ctx.capability.getDetail(tool, 'tool'))?.description).toContain('deepneedle')
   })
 
   it('writes objective stats back from tools/result for MCP names', async () => {

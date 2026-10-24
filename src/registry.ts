@@ -393,16 +393,14 @@ function toSkillSummary(description: string, whenToUse: string | undefined, name
   const meaningful = (value: string): boolean => value.replace(/[|\s\-—–_·•]+/g, '').trim().length > 0
   if (meaningful(description)) return toSummary(description, maxChars)
   if (whenToUse !== undefined && meaningful(whenToUse)) return toSummary(whenToUse, maxChars)
-  return `Skill: ${name.replace(/[-_]+/g, ' ')}`
+  return toSummary(`Skill: ${name.replace(/[-_]+/g, ' ')}`, maxChars)
 }
 
-/** BM25-ish keyword score over one record (pure JS, zero dependencies). */
-function keywordScore(record: CapabilityRecord, tokens: readonly string[], includeSourceDescription: boolean): number {
+/** Keyword score over the displayed search summary and identity fields. */
+function keywordScore(record: CapabilityRecord, tokens: readonly string[]): number {
   const haystack = [
     record.name,
     record.summary,
-    ...(includeSourceDescription ? [record.description] : []),
-    record.whenToUse ?? '',
     record.origin.provider,
     ...record.tags,
   ].join(' ').toLowerCase()
@@ -983,7 +981,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         if (query !== undefined && query.length > 0) {
           const exact = record.id === query || record.name === query
           if (exact) matchScore += 100
-          matchScore += keywordScore(record, tokens, overrideOf(source) === undefined)
+          matchScore += keywordScore(record, tokens)
         }
         return { record, matchScore }
       }).filter(({ matchScore }) => query === undefined || query.length === 0 || matchScore > 0)

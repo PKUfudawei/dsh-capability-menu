@@ -52,7 +52,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 | 工具 | 作用 | 对应 entry |
 | --- | --- | --- |
-| `meta_search` | 在当前会话可见能力中搜索；列表支持 offset 分页并返回总数、已返回数和是否还有下一页；详情返回说明及工具参数 schema | `@daweifu/capability-menu/search` |
+| `meta_search` | 搜索当前会话可用的按需能力；列表返回匹配总数、已返回数及是否截断，详情返回说明和工具参数 schema | `@daweifu/capability-menu/search` |
 | `meta_invoke` | 统一执行面：Tool 真执行（走完整 `ctx.tools` 管线）+ Skill 加载；`force: true` 可重载已更新的 Skill | `@daweifu/capability-menu/invoke` |
 
 ### 能力菜单
@@ -159,27 +159,26 @@ config:
 
 通常只需设置 `tools` 和 `skills`。文件路径与防抖等可选项使用默认值即可；完整参数见 [policy 配置](./src/policy.ts) 和 [registry 配置](./src/registry.ts)。
 
-**规则优先级**（按序匹配：禁用始终优先；在常驻与按需之间，精确规则优先于通配）：
+**规则优先级：** 按序匹配；禁用优先。在常驻与按需之间，精确规则优先于通配；同为精确或同为通配时，常驻优先。未命中任何规则则常驻。
 
-| 优先级 | 规则 | 示例 | 效果 |
-| --- | --- | --- | --- |
-| 1 | `disabled` 精确 | `disabled: [forbidden_skill]` | 最硬禁用，压过一切 |
-| 2 | `disabled` 通配 | `disabled: ['mcp__secret__*']` | 整组禁用 |
-| 3 | `resident` 精确 | `resident: [bash]` | 单个能力显式常驻 |
-| 4 | `on-demand` 精确 | `on-demand: [example_skill]` | 单个能力显式按需（能力菜单点击写入的就是这类） |
-| 5 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` | 整组常驻 |
-| 6 | `on-demand` 通配 | `on-demand: ['mcp__*']` | 兜底批量按需 |
-| 默认 | 未命中任何规则 | — | 常驻 |
+| 优先级 | 规则 | 示例 |
+| --- | --- | --- |
+| 1 | `disabled` 精确或通配 | `disabled: [forbidden_skill, 'mcp__secret__*']` |
+| 2 | `resident` 精确 | `resident: [bash]` |
+| 3 | `on-demand` 精确 | `on-demand: [example_skill]` |
+| 4 | `resident` 通配 | `resident: ['mcp__gongfeng__*']` |
+| 5 | `on-demand` 通配 | `on-demand: ['mcp__*']` |
+| 默认 | 未命中任何规则 | — |
 
-若更高优先级规则覆盖了所选档位，界面会提示「分类未生效」。
+能力菜单点击档位会写入精确规则。若更高优先级规则覆盖了所选档位，界面会提示「分类未生效」。
 
 ### 按需检索目录
 
 `meta_search` 是 Agent 检索按需 Tool 和 Skill 的唯一入口。「策略与目录 → 按需检索目录」直接显示同一内存索引中的按需能力摘要，不生成单独的 YAML 文件。Agent 的检索结果还会按当前会话的可用范围过滤。
 
-- **检索描述：** 按需能力旁可打开编辑框。它预填最多 `summaryMaxChars` 个字符的来源描述（默认 320，截断时优先保留完整词句）；修改后用于 `meta_search` 列表与关键词匹配，并立即反映在展示页，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
+- **检索描述：** 按需能力旁可打开编辑框。默认取 Tool 或 Skill 的来源描述，最多 `summaryMaxChars` 个字符（默认 320，截断时优先保留完整词句）；Skill 描述无有效内容时使用 `whenToUse`。`meta_search` 列表与关键词匹配均使用这段摘要。自定义后改用保存的文字，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
 - **描述上限：** 在「策略与目录 → 按需检索目录」修改，最小 20 字符。设置保存在 `stateFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
-- **检索与调用：** 使用 `meta_search({query})` 查找匹配的候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。不知道关键词时可用 `meta_search({})` 分页浏览，无须预先读取完整目录。`meta_search` 默认每页 20 项、最多 50 项；下一页的 `offset` 等于当前 `offset + returned`。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
+- **检索与调用：** 使用 `meta_search({query})` 查找匹配的候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。不知道关键词时可用 `meta_search({})` 查看前几项概览。单次默认最多返回 20 项，可用 `max_results` 调整至 100 项；若结果被截断，请缩小查询范围。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
 
 ## License
 

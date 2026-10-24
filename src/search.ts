@@ -13,6 +13,7 @@ import type { CapabilityDetail, CapabilitySummary } from './registry.ts'
 
 export const name = 'capability-menu-search'
 export const inject = ['capability', 'tools', 'skills']
+const MAX_SEARCH_RESULTS = 100
 
 /** Model-facing `meta_search` configuration. */
 export interface Config {
@@ -28,11 +29,10 @@ export const Config: z<Config> = z.object({
 /** Canonical list-mode result. */
 export interface MetaSearchListResult {
   readonly mode: 'list'
-  /** On-demand results in the caller scope, before pagination. */
+  /** Matching On-demand capabilities in the caller scope, before truncation. */
   readonly total: number
   readonly returned: number
-  readonly offset: number
-  readonly has_more: boolean
+  readonly truncated: boolean
   readonly results: CapabilitySummary[]
   readonly hint: string
 }
@@ -49,7 +49,7 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult
 /**
  * Register the `meta_search` tool.
  *
- * - Mode A (list, default): search by keyword/tag/server and return a paginated candidate list.
+ * - Mode A (list, default): search by keyword/tag/server and return a bounded candidate list.
  * - Mode B (detail): pass a candidate's exact id to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:
@@ -57,21 +57,20 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const maxResults = config.maxResults ?? 20
-  if (!Number.isInteger(maxResults) || maxResults < 1) {
-    throw new Error('maxResults must be a positive integer')
+  if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > MAX_SEARCH_RESULTS) {
+    throw new Error(`maxResults must be an integer from 1 to ${MAX_SEARCH_RESULTS}`)
   }
 
   const tool = defineTool({
     name: 'meta_search',
-    description: 'Find an On-demand capability id by keyword/tag/source, then call meta_search with the exact id and kind to inspect its full tool parameter schema before meta_invoke. Exact id returns detail; list mode supports offset pagination.',
+    description: 'Find an On-demand capability id by keyword/tag/source, then call meta_search with the exact id and kind to inspect its full tool parameter schema before meta_invoke. Exact id returns detail; list mode returns up to max_results matches without pagination.',
     parameters: {
       query: { type: 'string', description: 'Natural-language or keyword query; mutually exclusive with id.' },
       id: { type: 'string', description: 'Exact capability id (from a previous search results[].id); mutually exclusive with query, takes precedence.' },
       kind: { type: 'string', enum: ['tool', 'skill', 'all'], description: 'Filter by capability kind (default all).' },
       server: { type: 'string', description: 'Filter by server name — an MCP server (gongfeng/iwiki/km/zhiyan_qci) or the reserved built-in pseudo-server grouping harness-native tools.' },
       tag: { type: 'string', description: 'Filter by tag.' },
-      max_results: { type: 'integer', description: 'Maximum results in list mode (default 20, max 50).' },
-      offset: { type: 'integer', description: 'Zero-based result offset for pagination (default 0).' },
+      max_results: { type: 'integer', description: 'Maximum results in list mode (default 20, max 100); refine query if truncated.' },
     },
     output: {
       schema: {
@@ -83,8 +82,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               mode: { type: 'string', required: true, const: 'list' },
               total: { type: 'integer', required: true },
               returned: { type: 'integer', required: true },
-              offset: { type: 'integer', required: true },
-              has_more: { type: 'boolean', required: true },
+              truncated: { type: 'boolean', required: true },
               results: { type: 'array', required: true, items: { type: 'json' } },
               hint: { type: 'string', required: true },
             },
@@ -108,7 +106,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       server?: string
       tag?: string
       max_results?: number
-      offset?: number
     }, exec: ToolRunContext) {
       const query = args.query?.trim() ?? ''
       const id = args.id?.trim() ?? ''
@@ -116,10 +113,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       const server = args.server?.trim() || undefined
       const tag = args.tag?.trim() || undefined
       const requestedMax = args.max_results
-      const offset = args.offset ?? 0
-      if (!Number.isInteger(offset) || offset < 0) throw new Error('meta_search: offset must be a non-negative integer')
-      if (requestedMax !== undefined && (!Number.isInteger(requestedMax) || requestedMax < 1)) {
-        throw new Error('meta_search: max_results must be a positive integer')
+      if (requestedMax !== undefined && (!Number.isInteger(requestedMax) || requestedMax < 1 || requestedMax > MAX_SEARCH_RESULTS)) {
+        throw new Error(`meta_search: max_results must be an integer from 1 to ${MAX_SEARCH_RESULTS}`)
       }
 
       if (query.length > 0 && id.length > 0) {
@@ -159,9 +154,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         return { mode: 'detail' as const, result: result as unknown as JsonValue }
       }
 
-      // Filter by tier and caller scope before pagination. Over-fetch because
-      // the registry ranks the whole index and imposes no upper bound.
-      const limit = Math.min(requestedMax ?? maxResults, 50)
+      // Filter by tier and caller scope before applying the model-facing limit.
+      // The registry ranks the whole index and imposes no upper bound.
+      const limit = requestedMax ?? maxResults
       const matches = ctx.capability.search({
         query,
         kind,
@@ -171,15 +166,17 @@ export function apply(ctx: Context, config: Config = {}): void {
         scope,
       })
         .filter(result => allowedIds.has(result.id) && isOnDemand(result.id, result.kind))
-      const results = matches.slice(offset, offset + limit)
+      const results = matches.slice(0, limit)
+      const truncated = results.length < matches.length
       return {
         mode: 'list' as const,
         total: matches.length,
         returned: results.length,
-        offset,
-        has_more: offset + results.length < matches.length,
+        truncated,
         results: results as unknown as JsonValue[],
-        hint: 'Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).',
+        hint: truncated
+          ? 'Results were truncated. Refine query, kind, server, or tag to narrow the search; then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).'
+          : 'Use a result id from this meta_search list, then call meta_search({id, kind}) for the full schema before meta_invoke({id, kind, args}).',
       }
     },
     presentCall(args) {

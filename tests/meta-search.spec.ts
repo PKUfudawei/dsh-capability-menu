@@ -123,11 +123,11 @@ describe('capability-menu-search', () => {
 
     const { value, isError } = await runTool(ctx, 'meta_search', { query: 'issue' })
     expect(isError).toBe(false)
-    const result = value as { mode: string; total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
+    const result = value as { mode: string; total: number; returned: number; truncated: boolean; results: Array<{ id: string }> }
     expect(result.mode).toBe('list')
     expect(result.results.some(item => item.id === issue)).toBe(true)
     expect(result.total).toBeGreaterThanOrEqual(result.returned)
-    expect(result.offset).toBe(0)
+    expect(result.truncated).toBe(false)
   })
 
   it('excludes unrelated capabilities from keyword results while allowing explicit browsing', async () => {
@@ -139,44 +139,44 @@ describe('capability-menu-search', () => {
 
     const searched = await runTool(ctx, 'meta_search', { query: 'issue' })
     expect(searched.isError).toBe(false)
-    expect(searched.value).toMatchObject({ total: 1, returned: 1, has_more: false, results: [{ id: issue }] })
+    expect(searched.value).toMatchObject({ total: 1, returned: 1, truncated: false, results: [{ id: issue }] })
 
     const noHits = await runTool(ctx, 'meta_search', { query: 'unmatched-phrase' })
     expect(noHits.isError).toBe(false)
-    expect(noHits.value).toMatchObject({ total: 0, returned: 0, has_more: false, results: [] })
+    expect(noHits.value).toMatchObject({ total: 0, returned: 0, truncated: false, results: [] })
 
     const browse = await runTool(ctx, 'meta_search', { max_results: 1 })
     expect(browse.isError).toBe(false)
-    const page = browse.value as { total: number; returned: number; has_more: boolean; results: Array<{ id: string }> }
-    expect(page.total).toBe(2)
-    expect(page.returned).toBe(1)
-    expect(page.has_more).toBe(true)
-    expect([issue, weather]).toContain(page.results[0]?.id)
+    const overview = browse.value as { total: number; returned: number; truncated: boolean; hint: string; results: Array<{ id: string }> }
+    expect(overview.total).toBe(2)
+    expect(overview.returned).toBe(1)
+    expect(overview.truncated).toBe(true)
+    expect(overview.hint).toContain('Refine query')
+    expect([issue, weather]).toContain(overview.results[0]?.id)
   })
 
-  it('reports the full filtered total and reaches results after the first page', async () => {
+  it('reports truncation and allows up to 100 results without pagination', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
-    const ids = Array.from({ length: 57 }, (_, index) => registerMcpTool(ctx, 'paging', `item_${String(index).padStart(2, '0')}`, 'pagination sample capability'))
-    registerMcpTool(ctx, 'paging', 'unrelated', 'Predict tomorrow rainfall')
+    const ids = Array.from({ length: 105 }, (_, index) => registerMcpTool(ctx, 'samples', `item_${String(index).padStart(3, '0')}`, 'catalogneedle capability'))
+    registerMcpTool(ctx, 'samples', 'unrelated', 'Predict tomorrow rainfall')
     await ctx.capability.refresh()
 
-    const first = await runTool(ctx, 'meta_search', { query: 'pagination sample', kind: 'tool', max_results: 50 })
-    expect(first.isError).toBe(false)
-    const page1 = first.value as { total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
-    expect(page1.total).toBe(57)
-    expect(page1.returned).toBe(50)
-    expect(page1.offset).toBe(0)
-    expect(page1.has_more).toBe(true)
+    const defaultList = await runTool(ctx, 'meta_search', { query: 'catalogneedle', kind: 'tool' })
+    expect(defaultList.isError).toBe(false)
+    expect(defaultList.value).toMatchObject({ total: 105, returned: 20, truncated: true })
+    expect(defaultList.value).not.toHaveProperty('offset')
+    expect(defaultList.value).not.toHaveProperty('has_more')
 
-    const second = await runTool(ctx, 'meta_search', { query: 'pagination sample', kind: 'tool', max_results: 50, offset: 50 })
-    expect(second.isError).toBe(false)
-    const page2 = second.value as { total: number; returned: number; offset: number; has_more: boolean; results: Array<{ id: string }> }
-    expect(page2.total).toBe(57)
-    expect(page2.returned).toBe(7)
-    expect(page2.offset).toBe(50)
-    expect(page2.has_more).toBe(false)
-    expect(new Set([...page1.results, ...page2.results].map(row => row.id))).toEqual(new Set(ids))
+    const expanded = await runTool(ctx, 'meta_search', { query: 'catalogneedle', kind: 'tool', max_results: 100 })
+    expect(expanded.isError).toBe(false)
+    const list = expanded.value as { total: number; returned: number; truncated: boolean; results: Array<{ id: string }> }
+    expect(list.total).toBe(105)
+    expect(list.returned).toBe(100)
+    expect(list.truncated).toBe(true)
+    expect(list.results.every(row => ids.includes(row.id))).toBe(true)
+
+    expect((await runTool(ctx, 'meta_search', { query: 'catalogneedle', max_results: 101 })).isError).toBe(true)
   })
 
   it('does not search or inspect capabilities outside the caller scope', async () => {
@@ -208,7 +208,7 @@ describe('capability-menu-search', () => {
     expect(result.result.parameters.properties).toHaveProperty('title')
   })
 
-  it('does not expose the redundant detail parameter', async () => {
+  it('does not expose redundant detail or removed pagination parameters', async () => {
     const home = await import('node:fs/promises').then(fs => fs.mkdtemp('/tmp/dsh-meta-search-'))
     const ctx = await setup(home)
     registerMcpTool(ctx, 'gongfeng', 'create_issue', 'Create an issue')
@@ -216,6 +216,7 @@ describe('capability-menu-search', () => {
 
     const schema = ctx.tools.get('meta_search')?.parameters as { properties?: Record<string, unknown> }
     expect(schema.properties).not.toHaveProperty('detail')
+    expect(schema.properties).not.toHaveProperty('offset')
   })
 
   it('rejects query and id together', async () => {

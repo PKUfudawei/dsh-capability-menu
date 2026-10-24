@@ -18,11 +18,10 @@ export declare const Config: z<Config>;
 /** Canonical list-mode result. */
 export interface MetaSearchListResult {
     readonly mode: 'list';
-    /** On-demand results in the caller scope, before pagination. */
+    /** Matching On-demand capabilities in the caller scope, before truncation. */
     readonly total: number;
     readonly returned: number;
-    readonly offset: number;
-    readonly has_more: boolean;
+    readonly truncated: boolean;
     readonly results: CapabilitySummary[];
     readonly hint: string;
 }
@@ -36,7 +35,7 @@ export type MetaSearchResult = MetaSearchListResult | MetaSearchDetailResult;
 /**
  * Register the `meta_search` tool.
  *
- * - Mode A (list, default): search by keyword/tag/server and return a paginated candidate list.
+ * - Mode A (list, default): search by keyword/tag/server and return a bounded candidate list.
  * - Mode B (detail): pass a candidate's exact id to inspect its full description and tool schema or Skill usage guidance before invocation.
  *
  * Validation rules enforced here:

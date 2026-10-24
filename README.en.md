@@ -52,7 +52,7 @@ The model gets two meta tools:
 
 | tool | role | corresponding entry |
 | --- | --- | --- |
-| `meta_search` | Search capabilities visible to the current session; list mode supports offset pagination and reports total, returned, and has-more values; detail returns descriptions and tool schemas | `@daweifu/capability-menu/search` |
+| `meta_search` | Search On-demand capabilities available to the current session; list mode reports total, returned, and whether results were truncated; detail returns descriptions and tool schemas | `@daweifu/capability-menu/search` |
 | `meta_invoke` | Unified execution surface for Tools and Skills; pass `force: true` to reload updated Skill instructions | `@daweifu/capability-menu/invoke` |
 
 ### Capability Menu
@@ -159,27 +159,26 @@ config:
 
 Usually, you only need `tools` and `skills`. The optional file paths and debounce settings can keep their defaults. For every parameter, see the [policy config](./src/policy.ts) and [registry config](./src/registry.ts).
 
-**Rule priority** (evaluated in order: Disabled always wins; between Resident and On-demand, exact rules beat wildcards):
+**Rule priority:** Rules are checked in order; Disabled takes precedence. Between Resident and On-demand, exact rules beat wildcards; at the same specificity, Resident wins. Capabilities matching no rule are Resident.
 
-| priority | rule | example | effect |
-| --- | --- | --- | --- |
-| 1 | `disabled` exact | `disabled: [forbidden_skill]` | hardest deny, overrides everything |
-| 2 | `disabled` wildcard | `disabled: ['mcp__secret__*']` | block a whole group |
-| 3 | `resident` exact | `resident: [bash]` | keep one capability resident |
-| 4 | `on-demand` exact | `on-demand: [example_skill]` | one capability on-demand (what a Capability Menu click writes) |
-| 5 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` | keep a whole group resident |
-| 6 | `on-demand` wildcard | `on-demand: ['mcp__*']` | bulk on-demand fallback |
-| default | no rule matched | — | resident |
+| priority | rule | example |
+| --- | --- | --- |
+| 1 | `disabled` exact or wildcard | `disabled: [forbidden_skill, 'mcp__secret__*']` |
+| 2 | `resident` exact | `resident: [bash]` |
+| 3 | `on-demand` exact | `on-demand: [example_skill]` |
+| 4 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` |
+| 5 | `on-demand` wildcard | `on-demand: ['mcp__*']` |
+| default | no rule matched | — |
 
-If a higher-priority rule overrides a selected tier, the UI reports that the classification did not apply.
+Selecting a tier in Capability Menu writes an exact rule. If a higher-priority rule overrides the selected tier, the UI reports that the classification did not apply.
 
 ### On-demand search catalog
 
 `meta_search` is the Agent's only search entry for On-demand Tools and Skills. **Policy & catalog → On-demand search catalog** shows summaries from the same in-memory index without generating a separate YAML file. Agent results are also filtered to capabilities available in the current session.
 
-- **Search description:** An On-demand row opens an editor prefilled with the provider description shortened to `summaryMaxChars` characters (320 by default). Edits affect `meta_search` lists and keyword matching and appear in the catalog tab; the provider definition and exact detail stay unchanged. **Restore** resets the field, and **Save** applies it.
+- **Search description:** By default, a Tool or Skill uses its provider description shortened to `summaryMaxChars` characters (320 by default); a Skill with no meaningful description falls back to `whenToUse`. Both `meta_search` lists and keyword matching use this summary. A saved custom description replaces it without changing the provider definition or exact detail. **Restore** resets the field, and **Save** applies it.
 - **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `stateFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
-- **Search and invoke:** Find matching candidates with `meta_search({query})`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load one with `meta_invoke({id, kind, args})`. If no useful keyword is known, `meta_search({})` can browse the catalog one page at a time; there is no need to load it all first. `meta_search` returns 20 entries per page by default (50 maximum); the next `offset` is the current `offset + returned`. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
+- **Search and invoke:** Find matching candidates with `meta_search({query})`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load one with `meta_invoke({id, kind, args})`. If no useful keyword is known, `meta_search({})` shows a limited overview. A call returns up to 20 entries by default; `max_results` can raise the limit to 100. Refine the query when results are truncated. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
 
 ## License
 
