@@ -19,11 +19,10 @@ afterEach(async () => {
 })
 
 describe('windowsCommand', () => {
-  it('quotes the executable and arguments, including the outer pair required by /s', () => {
+  it('quotes arguments and wraps the line for /s while keeping the PATH command bare', () => {
     expect(windowsCommand('pnpm', ['add', `${PACKAGE}@${latest}`, '--save-exact']))
-      .toBe('""pnpm" "add" "@daweifu/capability-menu@0.1.8" "--save-exact""')
-    expect(windowsCommand('C:\\Program Files\\pnpm.cmd', ['-v']))
-      .toBe('""C:\\Program Files\\pnpm.cmd" "-v""')
+      .toBe('"pnpm "add" "@daweifu/capability-menu@0.1.8" "--save-exact""')
+    expect(() => windowsCommand('pnpm & other', [])).toThrow(/unsupported character/)
   })
 
   it.each(['a"b', 'a\nb', 'a\rb', 'a\0b', '%TEMP%', '!TEMP!'])('rejects shell expansion or unsupported characters: %j', value => {

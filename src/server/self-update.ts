@@ -16,10 +16,13 @@ const execFileAsync = promisify(execFile)
  * Profile paths are passed via cwd, never through this command line.
  */
 export function windowsCommand(file: string, args: string[]): string {
+  // Keep a bare PATH command unquoted: quoting an extensionless batch command
+  // can make its %~dp0 resolve against cwd instead of the shim's directory.
+  if (!/^[\w.-]+$/.test(file)) throw new Error(`Cannot run ${file}: unsupported character in command`)
   for (const value of [file, ...args]) {
     if (/["%!\0\r\n]/.test(value)) throw new Error(`Cannot run ${file}: unsupported character in argument`)
   }
-  return `""${file}" ${args.map(arg => `"${arg}"`).join(' ')}"`
+  return `"${file} ${args.map(arg => `"${arg}"`).join(' ')}"`
 }
 
 /**
