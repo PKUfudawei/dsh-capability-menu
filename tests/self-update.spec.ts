@@ -48,9 +48,9 @@ interface Invocation {
 async function update(mode: Mode = 'success', options: { lock?: boolean; source?: 'registry' | 'local' } = {}) {
   const base = await mkdtemp(join(tmpdir(), 'capability-update-'))
   temporaryDirs.push(base)
-  // TEMP is explicitly defined below, so accidental %TEMP% / !TEMP! expansion
+  // The variable is explicitly defined below, so accidental shell expansion
   // cannot pass unnoticed. Keep the profile name valid for activeProfile().
-  const home = join(base, '中文 home %TEMP% !TEMP! & (data)')
+  const home = join(base, '中文 home %UPDATE_TEST_EXPANSION% !UPDATE_TEST_EXPANSION! & (data)')
   const profile = join(home, 'profiles', 'desktop')
   const root = join(base, 'installed-package')
   const bin = join(base, 'pnpm with spaces')
@@ -133,12 +133,16 @@ async function update(mode: Mode = 'success', options: { lock?: boolean; source?
   const { stdout } = await exec(process.execPath, [join(root, 'runner.mjs')], {
     cwd: base,
     env: { ...env, PATH: bin + delimiter + currentPath, DSH_HOME: home, DSH_PROFILE: 'desktop',
-      UPDATE_TEST_NODE: process.execPath, UPDATE_TEST_LOG: log, UPDATE_TEST_MODE: mode, TEMP: 'expanded-by-shell' },
+      UPDATE_TEST_NODE: process.execPath, UPDATE_TEST_LOG: log, UPDATE_TEST_MODE: mode, UPDATE_TEST_EXPANSION: 'expanded-by-shell' },
     timeout: 15_000,
   })
-  const calls = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Invocation)
+  const outcome = JSON.parse(stdout) as { error: string | null }
+  const recorded = await readFile(log, 'utf8').catch(error => {
+    throw new Error(`Updater did not invoke the pnpm fixture: ${outcome.error}`, { cause: error })
+  })
+  const calls = recorded.trim().split('\n').map(line => JSON.parse(line) as Invocation)
   return {
-    error: (JSON.parse(stdout) as { error: string | null }).error,
+    error: outcome.error,
     calls, profile, oldManifest,
     manifest: await readFile(manifestPath, 'utf8'),
     lock: await readFile(lockPath, 'utf8').catch(() => null),
