@@ -226,4 +226,4 @@ node_modules/
 #   Working notes for a change live next to the code while the change is being
 #   made, but are deliberately not published. Root-anchored on purpose: a
 #   nested docs/ elsewhere in the tree is not this entry's business.
-/docs/
+docs/
