@@ -11,15 +11,15 @@ const execFileAsync = promisify(execFile)
 /**
  * Build the command line handed to `cmd.exe /d /s /c`. The line is wrapped in
  * one extra pair of quotes because `/s` strips the first and the last quote and
- * leaves everything in between untouched; every argument is quoted so paths with
- * spaces survive. Arguments cmd.exe cannot represent are refused rather than
- * silently split.
+ * leaves the remaining quotes in place. Reject shell expansion characters too:
+ * double quotes do not stop cmd.exe from expanding environment variables.
+ * Profile paths are passed via cwd, never through this command line.
  */
 export function windowsCommand(file: string, args: string[]): string {
   for (const value of [file, ...args]) {
-    if (/["\r\n]/.test(value)) throw new Error(`Cannot run ${file}: unsupported character in argument`)
+    if (/["%!\0\r\n]/.test(value)) throw new Error(`Cannot run ${file}: unsupported character in argument`)
   }
-  return `"${file} ${args.map(arg => `"${arg}"`).join(' ')}"`
+  return `""${file}" ${args.map(arg => `"${arg}"`).join(' ')}"`
 }
 
 /**
@@ -28,9 +28,9 @@ export function windowsCommand(file: string, args: string[]): string {
  * `execFile('pnpm', …)` fails with ENOENT — and so does the rollback that calls
  * the same helper. Route Windows through cmd.exe instead.
  */
-const run = (file: string, args: string[], options: { timeout: number; maxBuffer: number }) =>
+const run = (file: string, args: string[], options: { cwd: string; timeout: number; maxBuffer: number }) =>
   process.platform === 'win32'
-    ? execFileAsync(process.env['ComSpec'] || 'cmd.exe', ['/d', '/s', '/c', windowsCommand(file, args)], { ...options, windowsVerbatimArguments: true })
+    ? execFileAsync(process.env['ComSpec'] || 'cmd.exe', ['/d', '/v:off', '/s', '/c', windowsCommand(file, args)], { ...options, windowsVerbatimArguments: true })
     : execFileAsync(file, args, options)
 let installing = false
 
@@ -150,7 +150,8 @@ async function installVersion(version: string, expectedSource: 'registry' | 'loc
     // ERR_PNPM_UNEXPECTED_TOKEN_IN_PROPERTY_PATH), so pin and resolve in one
     // `pnpm add --save-exact` instead of editing the manifest first.
     try {
-      await run('pnpm', ['--dir', profile.dir, 'add', `${PACKAGE}@${version}`, '--save-exact'], {
+      await run('pnpm', ['add', `${PACKAGE}@${version}`, '--save-exact'], {
+        cwd: profile.dir,
         timeout: 180_000,
         maxBuffer: 1024 * 1024,
       })
@@ -163,7 +164,8 @@ async function installVersion(version: string, expectedSource: 'registry' | 'loc
         await writeFile(manifestPath, oldManifest)
         if (oldLock === undefined) await unlink(lockPath).catch(() => undefined)
         else await writeFile(lockPath, oldLock)
-        await run('pnpm', ['--dir', profile.dir, 'install', '--frozen-lockfile'], {
+        await run('pnpm', ['install', '--frozen-lockfile'], {
+          cwd: profile.dir,
           timeout: 180_000,
           maxBuffer: 1024 * 1024,
         })

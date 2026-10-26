@@ -1,9 +1,9 @@
 /**
  * Build the command line handed to `cmd.exe /d /s /c`. The line is wrapped in
  * one extra pair of quotes because `/s` strips the first and the last quote and
- * leaves everything in between untouched; every argument is quoted so paths with
- * spaces survive. Arguments cmd.exe cannot represent are refused rather than
- * silently split.
+ * leaves the remaining quotes in place. Reject shell expansion characters too:
+ * double quotes do not stop cmd.exe from expanding environment variables.
+ * Profile paths are passed via cwd, never through this command line.
  */
 export declare function windowsCommand(file: string, args: string[]): string;
 export interface SelfUpdateStatus {
