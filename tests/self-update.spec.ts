@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -37,6 +37,13 @@ interface Invocation {
   cwd: string
   manifest: string
   lock: string | null
+}
+
+async function expectInvocation(call: Invocation, profile: string, expected: Omit<Invocation, 'cwd'>) {
+  const [actualDir, expectedDir] = await Promise.all([stat(call.cwd), stat(profile)])
+  expect([actualDir.dev, actualDir.ino]).toEqual([expectedDir.dev, expectedDir.ino])
+  const { cwd: _cwd, ...recorded } = call
+  expect(recorded).toEqual(expected)
 }
 
 /**
@@ -153,10 +160,11 @@ describe('self-update process and rollback', () => {
   it.each(['registry', 'local'] as const)('installs the exact scoped version from %s using the literal profile cwd', async source => {
     const result = await update('success', { source })
     expect(result.error).toBeNull()
-    expect(result.calls).toEqual([{
+    expect(result.calls).toHaveLength(1)
+    await expectInvocation(result.calls[0]!, result.profile, {
       args: ['add', `${PACKAGE}@${latest}`, '--save-exact'],
-      cwd: await realpath(result.profile), manifest: result.oldManifest, lock: oldLock,
-    }])
+      manifest: result.oldManifest, lock: oldLock,
+    })
     const expected = JSON.parse(result.oldManifest)
     expected.dependencies[PACKAGE] = latest
     expect(JSON.parse(result.manifest)).toEqual(expected)
@@ -172,8 +180,8 @@ describe('self-update process and rollback', () => {
     const result = await update(mode)
     expect(result.error).toMatch(error)
     expect(result.calls).toHaveLength(2)
-    expect(result.calls[1]).toEqual({
-      args: ['install', '--frozen-lockfile'], cwd: await realpath(result.profile),
+    await expectInvocation(result.calls[1]!, result.profile, {
+      args: ['install', '--frozen-lockfile'],
       manifest: result.oldManifest, lock: oldLock,
     })
     expect(result.manifest).toBe(result.oldManifest)
@@ -184,8 +192,8 @@ describe('self-update process and rollback', () => {
   it('removes a newly created lockfile before rollback when there was no original lockfile', async () => {
     const result = await update('install-failure', { lock: false })
     expect(result.error).toMatch(/simulated install failure/)
-    expect(result.calls[1]).toEqual({
-      args: ['install', '--frozen-lockfile'], cwd: await realpath(result.profile),
+    await expectInvocation(result.calls[1]!, result.profile, {
+      args: ['install', '--frozen-lockfile'],
       manifest: result.oldManifest, lock: null,
     })
     expect(result.manifest).toBe(result.oldManifest)
