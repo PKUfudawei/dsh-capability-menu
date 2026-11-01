@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -155,7 +155,7 @@ describe('self-update process and rollback', () => {
     expect(result.error).toBeNull()
     expect(result.calls).toEqual([{
       args: ['add', `${PACKAGE}@${latest}`, '--save-exact'],
-      cwd: result.profile, manifest: result.oldManifest, lock: oldLock,
+      cwd: await realpath(result.profile), manifest: result.oldManifest, lock: oldLock,
     }])
     const expected = JSON.parse(result.oldManifest)
     expected.dependencies[PACKAGE] = latest
@@ -173,7 +173,7 @@ describe('self-update process and rollback', () => {
     expect(result.error).toMatch(error)
     expect(result.calls).toHaveLength(2)
     expect(result.calls[1]).toEqual({
-      args: ['install', '--frozen-lockfile'], cwd: result.profile,
+      args: ['install', '--frozen-lockfile'], cwd: await realpath(result.profile),
       manifest: result.oldManifest, lock: oldLock,
     })
     expect(result.manifest).toBe(result.oldManifest)
@@ -185,7 +185,7 @@ describe('self-update process and rollback', () => {
     const result = await update('install-failure', { lock: false })
     expect(result.error).toMatch(/simulated install failure/)
     expect(result.calls[1]).toEqual({
-      args: ['install', '--frozen-lockfile'], cwd: result.profile,
+      args: ['install', '--frozen-lockfile'], cwd: await realpath(result.profile),
       manifest: result.oldManifest, lock: null,
     })
     expect(result.manifest).toBe(result.oldManifest)
