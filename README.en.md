@@ -86,7 +86,7 @@ Notes:
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Use plugin `0.1.9` or newer with DSH `0.2.2-rc.1` for full Tool tiering. Plugin `0.1.8` only fixes the request crash; it does not restore this feature.
+Plugin `0.1.9` supports DSH `0.2.2-rc.1` with full Tool tiering and `meta_invoke` forwarding.
 
 ### Install from npm (recommended)
 

@@ -86,7 +86,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 前置：[Node.js](https://nodejs.org/en/download)，以及已安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（确保终端中可运行 `dsh` 命令）。DSH `0.2.2-rc.1` 要求 Node.js `>=24.9.0`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-DSH `0.2.2-rc.1` 请搭配插件 `0.1.9` 或更新版本，以使用 Tool 三档分层。插件 `0.1.8` 只修复了请求崩溃，未恢复这一功能。
+插件 `0.1.9` 适配 DSH `0.2.2-rc.1`，支持 Tool 三档分层和 `meta_invoke` 转发。
 
 ### 从 npm 安装（推荐）
 
