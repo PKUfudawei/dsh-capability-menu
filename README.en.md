@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.3-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.3"/></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.1-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.1"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -84,9 +84,9 @@ Notes:
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). Installing from npm needs no separate pnpm install; installing from source requires pnpm.
+Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-The peer range accepts stable DSH `0.2.x` releases and prereleases from `0.2.1-rc.3` on the same version line. The latest tested version is `0.2.1-rc.3`; a stable DSH `0.2.0` is not yet available on npm for testing.
+Tool exposure and invocation in all three tiers, including `meta_invoke` forwarding, have been tested against the DSH `0.2.2-rc.1` host components. DSH `0.2.1-rc.3` uses the existing assembly path. Plugin `0.1.8` only prevents the request crash on `0.2.2-rc.1`; it does not restore On-demand tool tiering. Install plugin `0.1.9` or newer with that DSH version.
 
 ### Install from npm (recommended)
 

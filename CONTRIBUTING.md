@@ -10,7 +10,7 @@ Thanks for helping improve `dsh-capability-menu`. Bug reports, documentation fix
 
 ## Work locally
 
-CI uses Node.js 22 and pnpm 9. From the repository root:
+CI uses Node.js 24.9.0 and pnpm 9. From the repository root:
 
 ```sh
 pnpm install --frozen-lockfile

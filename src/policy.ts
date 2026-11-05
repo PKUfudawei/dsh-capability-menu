@@ -7,11 +7,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptAssembly, PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 import { dirname, join } from 'node:path'
 import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
 import { readTierState, writeTierState, type TierState } from './policy-state.ts'
+import { installToolAdmission } from './tool-admission.ts'
 import {
   LocationRegistry,
   defaultLocationConfig,
@@ -26,7 +27,7 @@ import {
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
  * - `resident`: the capability is on the dsh-native exposure surface — tools in
- *   `assembly.tools` (the request `tools` payload), skills in the
+ *   the step's request `tools` payload, skills in the
  *   `<available_skills>` catalog — so the model can call/load it single-hop.
  * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
@@ -373,16 +374,13 @@ declare module '@deepseek-ai/cordis' {
  * 'filter')`, which aborted the whole assembly and failed every request before
  * it reached the model.
  *
- * Skipping the tool part there is not a regression: this host owns tool
- * visibility itself, and neither `ctx.tools.restrict()` (global layer only,
- * and it refuses a context-global call) nor `ToolRegistrationOptions.when`
- * (registration-time only) is available to a plugin that mounts afterwards.
- * The section projection below still applies on every host.
+ * DSH 0.2.2 tool visibility is projected at `tools.resolve()` instead; this
+ * helper retains the older host's assembly projection and the section filter.
  */
-export function projectAssemblyTools(
-  assembly: PromptAssembly,
+export function projectAssemblyTools<T extends PromptPresentation & { tools?: PromptAssembly['tools'] }>(
+  assembly: T,
   service: CapabilityPolicyService,
-): PromptAssembly {
+): T {
   const declared = Array.isArray(assembly.tools) ? assembly.tools : undefined
   const kept = declared?.filter(tool => service.isResidentTool(tool.name))
   const searchResident = service.isResidentTool('web_search')
@@ -403,17 +401,16 @@ export function projectAssemblyTools(
     && sections.every((section, index) => section === assembly.sections[index])) return assembly
   // Never introduce a `tools` key the host did not provide: it merges its own
   // list back after this waterfall and would not expect a foreign one.
-  return declared === undefined
+  return (declared === undefined
     ? { ...assembly, sections }
-    : { ...assembly, tools: kept!, sections }
+    : { ...assembly, tools: kept!, sections }) as T
 }
 
 /** Build the policy plugin. */
 export const name = 'capability-menu-policy'
-// The policy needs `capability` (the registry sibling) for classifyAll(); `tools` /
-// `skills` are injected purely for startup ordering — projection itself runs on
-// the `system-prompt/assemble` chain, not through the registries. The bundle
-// mounts registry before policy, so `capability` is always available in practice.
+// The policy needs `capability` (the registry sibling) for classifyAll(). New
+// hosts use the step-owned tool set; older hosts use the assembly waterfall.
+// The bundle mounts registry before policy, so `capability` is available.
 export const inject = ['capability', 'tools', 'skills']
 
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
@@ -728,6 +725,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
   }
 
+  // Newer hosts build tool declarations from a step-owned admission set after
+  // the prompt waterfall. Keep the legacy assembly projection for older hosts.
+  installToolAdmission(ctx, name => service.isResidentTool(name))
+
   // Disabled capabilities are a hard deny at the execution surface, not just a
   // projection concern: a hallucinated direct call to a disabled tool (or to the
   // `skill` loader for a disabled skill) must never reach the underlying server.
@@ -786,7 +787,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   // Point the model to the sole discovery entry when On-demand capabilities
   // exist. Skills keep the dsh-native catalog, filtered to Resident above.
-  ctx.on('system-prompt/assemble', async (_assembly: PromptAssembly, _context, next) => {
+  ctx.on('system-prompt/assemble', async (_assembly: PromptPresentation, _context, next) => {
     const resolved = await next()
     const projected = projectAssemblyTools(resolved, service)
     const hasOnDemand = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })

@@ -3,6 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeOne } from './execute-one.ts'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as registry from '../src/registry.ts'
@@ -25,6 +27,7 @@ async function setup(home: string, config: toolMetaSearch.Config = {}, registryC
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, {
     dshHome: `${home}/.dsh`,
@@ -85,7 +88,7 @@ async function runTool(
   args: Record<string, unknown>,
   agent: ReturnType<typeof agentStub> = agentStub('agent'),
 ): Promise<{ value: unknown; isError: boolean }> {
-  const result = await ctx.tools.execute({
+  const result = await executeOne(ctx, {
     callId: ToolCallId(`call-${name}`),
     name,
     arguments: args,
@@ -255,6 +258,7 @@ describe('capability-menu-search', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { stateFile: '', tools: { 'on-demand': ['mcp__km__search'] } })
@@ -276,6 +280,7 @@ describe('capability-menu-search', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,
@@ -302,6 +307,7 @@ describe('capability-menu-search', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,
@@ -332,6 +338,7 @@ describe('capability-menu-search', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,

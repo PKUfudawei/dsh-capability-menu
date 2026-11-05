@@ -67,7 +67,7 @@ export type MetaInvokeResult =
  *
  * - Tools (`kind: 'tool'`, e.g. `mcp__gongfeng__create_issue` or a harness-native
  *   tool such as `bash`): forwards to the underlying tool call via the official
- *   `ctx.tools.execute` pipeline, preserving `agent`/`signal`/parent lineage.
+ *   `ctx.tools.execute` pipeline, preserving the agent and cancellation signal.
  *   `forwardMode: 'resolve'` instead returns the target schema so the model can
  *   call the tool directly.
  * - Skills (`kind: 'skill'`, id is the bare skill name): loads the full skill
@@ -220,10 +220,8 @@ export function apply(ctx: Context, config: Config = {}): void {
             },
           }
         }
-        // Nested execution through the official pipeline. The parent token marks
-        // this as a transport sub-dispatch so code-mode collapse rules treat it
-        // like a nested SDK call, and `tools/result` observers can attribute the
-        // outcome to the target capability.
+        // Forward through the host's official executor. Older hosts accept a
+        // single nested call; DSH 0.2.2 accepts a one-call batch instead.
         // Keep the caller's agent for every target, including MCP and On-demand
         // tools. Executing on the global view would drop the target's session and
         // could bypass restrictions on the caller's tool view.
@@ -240,14 +238,25 @@ export function apply(ctx: Context, config: Config = {}): void {
         // risks turning a legitimate call into a wrong one (see issue #10).
         const envelope = envelopeDiagnostic(forwarded, capability.name, definition.parameters)
         if (envelope !== undefined) throw new Error(envelope)
-        const result = await ctx.tools.execute({
-          callId: ToolCallId(`${exec.callId}:meta:${id}`),
-          name: capability.name,
-          arguments: forwarded,
-          signal: exec.signal,
-          parent: exec.token,
-          agent: exec.agent,
-        })
+        const result = typeof ctx.tools.resolve === 'function'
+          ? (await ctx.tools.execute({
+              calls: [{
+                type: 'tool-call', id: ToolCallId(`${exec.callId}:meta:${id}`),
+                name: capability.name, arguments: JSON.stringify(forwarded),
+              }],
+              signal: exec.signal,
+              agent: exec.agent,
+            })).results[0]?.result
+          : await (ctx.tools as unknown as {
+              execute(input: {
+                callId: ReturnType<typeof ToolCallId>; name: string; arguments: Record<string, unknown>;
+                signal: AbortSignal; parent: typeof exec.token; agent: typeof exec.agent;
+              }): Promise<{ isError: boolean; content: readonly { type: string; text?: string }[] }>
+            }).execute({
+              callId: ToolCallId(`${exec.callId}:meta:${id}`), name: capability.name,
+              arguments: forwarded, signal: exec.signal, parent: exec.token, agent: exec.agent,
+            })
+        if (result === undefined) throw new Error(`meta_invoke: ${capability.name} returned no result`)
         if (result.isError) {
           const message = result.content.map(block => block.type === 'text' ? block.text : `[${block.type} content]`).join('\n')
           throw new Error(message || `meta_invoke: ${capability.name} failed`)
