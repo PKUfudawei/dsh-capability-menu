@@ -80,6 +80,7 @@ Notes:
 - **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
 - **Registration**: MCP servers write to the patch config (missing files and directories are created). Request headers and other credentials are stored there; keep it secure. Skills are linked or imported into the selected skill root.
 - **GitHub Skills**: Public repositories support a default-branch root (with `SKILL.md`), a branch root `.../tree/{branch}`, or a Skill directory `.../tree/{branch}/{skill-directory}`. Local paths also work. Git is required on the machine running dsh; the plugin validates `SKILL.md` and copies only the selected directory.
+- **Skill updates:** Skills newly imported from GitHub through Capability Menu retain their source. The menu checks on opening and hourly while open, and the Skills tab offers a manual check. It shows installed and latest commits, changed files, and an upstream diff link, with single and batch updates and per-Skill errors. Checks compare only the selected Skill directory; local edits prevent automatic replacement. Earlier imports can be linked to a GitHub URL in the Skills tab only if their contents match the source. Local links and preset Skills cannot be updated automatically. The dsh file watcher refreshes updated Skills; a session that already loaded one can reload it with `meta_invoke` and `force: true`.
 
 ## Installation and Uninstallation
 

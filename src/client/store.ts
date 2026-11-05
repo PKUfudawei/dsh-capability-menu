@@ -19,6 +19,7 @@ export type {
   McpInput,
   McpUpdateInput,
   SkillLocation,
+  SkillUpdateStatus,
   CapabilityDiagnostics,
   SearchMetadata,
   SearchMetadataUpdate,
@@ -32,6 +33,7 @@ import type {
   McpInput,
   McpUpdateInput,
   SkillLocation,
+  SkillUpdateStatus,
   CapabilityDiagnostics,
   SearchMetadata,
   SearchMetadataUpdate,
@@ -72,6 +74,9 @@ export interface CapabilityPolicyRemote {
   removeSkillLocation(name: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   adoptSkillLocation(name: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  checkSkillUpdate(name: string, entryDir?: string): Promise<{ ok: true; value: SkillUpdateStatus } | { ok: false; error: { code: string; message: string } }>
+  associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<{ ok: true; value: SkillUpdateStatus } | { ok: false; error: { code: string; message: string } }>
+  updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ ok: true; value: { revision: string } } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Unwrap a RemoteResult-like, throwing a readable error on failure. */

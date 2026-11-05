@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
 import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts';
-import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts';
+import type { McpInput, McpLocation, McpUpdateInput, SkillLocation, SkillUpdateStatus } from '../locations.ts';
 import { type SelfUpdateStatus } from './self-update.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -120,6 +120,11 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
     /** Repoint a registered skill entry at a different directory. */
     updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>;
+    checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    updateSkillFromGitHub(name: string, entryDir?: string): Promise<{
+        revision: string;
+    }>;
     /**
      * The registry's catalog version — one number, cheap enough to poll. The
      * management page uses it to notice changes the wire never announces (a file

@@ -19,6 +19,7 @@ import {
   type McpLocation,
   type McpUpdateInput,
   type SkillLocation,
+  type SkillUpdateStatus,
 } from './locations.ts'
 
 /**
@@ -351,6 +352,9 @@ export interface CapabilityPolicyService {
   removeSkillLocation(name: string, entryDir?: string): Promise<boolean>
   /** Repoint a registered skill entry at a different directory. */
   updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>
+  checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>
+  associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>
+  updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ revision: string }>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -712,6 +716,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
     updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean> {
       return locations.updateSkill(name, dir, entryDir)
+    },
+    checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus> {
+      return locations.checkSkillUpdate(name, entryDir)
+    },
+    associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus> {
+      return locations.associateGitHubSkillSource(name, url, entryDir)
+    },
+    updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ revision: string }> {
+      return locations.updateSkillFromGitHub(name, entryDir)
     },
   }
 
