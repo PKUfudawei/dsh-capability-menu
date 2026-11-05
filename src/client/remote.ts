@@ -147,6 +147,17 @@ export interface SkillLocation {
   readonly target?: string
 }
 
+export interface SkillUpdateStatus {
+  readonly status: 'current' | 'available' | 'modified' | 'unmanaged'
+  readonly name: string
+  readonly entryDir: string
+  readonly sourceUrl?: string
+  readonly installedRevision?: string
+  readonly latestRevision?: string
+  readonly changedFiles?: readonly string[]
+  readonly compareUrl?: string
+}
+
 /** Input for registering a new MCP server. */
 export interface McpInput {
   readonly serverName: string
@@ -181,12 +192,24 @@ const mcpLocation$schema = z.object({
 
 const skillLocation$schema = z.object({
   name: z.string().readonly(),
+  skillName: z.string().optional().readonly(),
   path: z.string().readonly(),
   linked: z.boolean().readonly(),
   valid: z.boolean().readonly(),
   root: z.union([z.literal('user'), z.literal('project')]).readonly(),
   entryDir: z.string().readonly(),
   target: z.string().optional().readonly(),
+})
+
+const skillUpdateStatus$schema = z.object({
+  status: z.union([z.literal('current'), z.literal('available'), z.literal('modified'), z.literal('unmanaged')]),
+  name: z.string(),
+  entryDir: z.string(),
+  sourceUrl: z.string().optional(),
+  installedRevision: z.string().optional(),
+  latestRevision: z.string().optional(),
+  changedFiles: z.array(z.string()).optional(),
+  compareUrl: z.string().optional(),
 })
 
 const mcpInput$schema = z.object({
@@ -311,6 +334,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     adoptSkillLocation: (name: string) => Promise<RemoteResult<string>>
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    checkSkillUpdate: (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
+    associateGitHubSkillSource: (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
+    updateSkillFromGitHub: (name: string, entryDir?: string) => Promise<RemoteResult<{ revision: string }>>
   }
   interface TypertRemoteMap {
     'capabilityPolicy/checkSelfUpdate': () => Promise<RemoteResult<SelfUpdateStatus>>
@@ -339,6 +365,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/adoptSkillLocation': (name: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/checkSkillUpdate': (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
+    'capabilityPolicy/associateGitHubSkillSource': (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
+    'capabilityPolicy/updateSkillFromGitHub': (name: string, entryDir?: string) => Promise<RemoteResult<{ revision: string }>>
   }
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379
@@ -626,6 +655,40 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: strictCodec('boolean', z.boolean()),
       sourceLocation: { file: 'src/server/remote.ts', line: 264, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/checkSkillUpdate',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'checkSkillUpdate',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
+      ],
+      result: strictCodec('@daweifu/capability-menu#SkillUpdateStatus', skillUpdateStatus$schema),
+      sourceLocation: { file: 'src/server/remote.ts', line: 298, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/updateSkillFromGitHub',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'updateSkillFromGitHub',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
+      ],
+      result: strictCodec('@daweifu/capability-menu#SkillUpdateResult', z.object({ revision: z.string() })),
+      sourceLocation: { file: 'src/server/remote.ts', line: 303, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/associateGitHubSkillSource',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'associateGitHubSkillSource',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'url', wire: 'url', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
+      ],
+      result: strictCodec('@daweifu/capability-menu#SkillUpdateStatus', skillUpdateStatus$schema),
+      sourceLocation: { file: 'src/server/remote.ts', line: 303, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/catalogVersion',

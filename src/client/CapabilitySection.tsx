@@ -38,6 +38,7 @@ const chevronIcons = ClientUiPrimitives as unknown as {
 }
 const IconTriangleRightFill: ChevronIcon = (chevronIcons.IconTriangleRightFillMedium ?? chevronIcons.IconTriangleRightFill14)!
 import { LocationModal } from './LocationModal.tsx'
+import { SkillUpdatePanel } from './SkillUpdatePanel.tsx'
 import { ADOPTABLE_SKILL_SOURCES, BUILT_IN_SERVER, PROJECT_SKILL_SOURCES } from '../constants.ts'
 import {
   compileNameFilter,
@@ -135,6 +136,24 @@ export type CapabilityKey =
   | 'entryNotFound'
   | 'mcpServers'
   | 'skillDirs'
+  | 'skillUpdates'
+  | 'skillCheckUpdates'
+  | 'skillUpdateAll'
+  | 'skillChecking'
+  | 'skillUpdating'
+  | 'skillInstalledRevision'
+  | 'skillLatestRevision'
+  | 'skillUpToDate'
+  | 'skillLocalModified'
+  | 'skillUpdateAvailable'
+  | 'skillChangedFiles'
+  | 'skillViewChanges'
+  | 'skillUpdateOne'
+  | 'skillUpdateProgress'
+  | 'skillAssociating'
+  | 'skillSourceUrl'
+  | 'skillAssociateSource'
+  | 'skillAssociateHint'
   | 'skillDirPath'
   | 'skillDirHint'
   | 'skillRoot'
@@ -339,6 +358,11 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-panel--tight{padding-top:0}
 .mc-panel--tight .mc-subtabs .mc-tab{padding-top:4px}
 .mc-panel-inner{display:flex;flex-direction:column;gap:14px}
+.mc-skill-updates{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.mc-skill-update-head,.mc-skill-update-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mc-skill-update-row{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px;font-size:12px}
+.mc-skill-update-row details{width:100%}
+.mc-skill-update-row li{overflow-wrap:anywhere}
 .mc-group{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}
 .mc-group-header{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .mc-group-header:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -1049,6 +1073,7 @@ function ReadyBody(props: {
   /** 编辑 target; at most one is set. */
   const [editMcp, setEditMcp] = useState<McpLocation | undefined>(undefined)
   const [editSkill, setEditSkill] = useState<SkillLocation | undefined>(undefined)
+  const [skillUpdatesAvailable, setSkillUpdatesAvailable] = useState(0)
   /**
    * Skill directories registered under the skill root. Only those can be
    * edited: a project or bundled skill has no row to repoint, so its row gets
@@ -1249,7 +1274,7 @@ function ReadyBody(props: {
             data-active={activeTab === 'skills' ? 'true' : undefined}
             onClick={() => onTabChange('skills')}
           >
-            {t('skillsGroup')}
+            {t('skillsGroup')}{skillUpdatesAvailable > 0 ? ` · ${skillUpdatesAvailable}` : ''}
           </button>
         </div>
         <div className="mc-summary">
@@ -1443,6 +1468,7 @@ function ReadyBody(props: {
                   </button>
                 </div>
               </div>
+              <SkillUpdatePanel remote={remote} active t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} />
               {skillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList

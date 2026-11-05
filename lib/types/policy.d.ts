@@ -8,7 +8,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
 import { type CapabilityKind } from './registry.ts';
-import { type McpInput, type McpLocation, type McpUpdateInput, type SkillLocation } from './locations.ts';
+import { type McpInput, type McpLocation, type McpUpdateInput, type SkillLocation, type SkillUpdateStatus } from './locations.ts';
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
@@ -211,6 +211,11 @@ export interface CapabilityPolicyService {
     removeSkillLocation(name: string, entryDir?: string): Promise<boolean>;
     /** Repoint a registered skill entry at a different directory. */
     updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>;
+    checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    updateSkillFromGitHub(name: string, entryDir?: string): Promise<{
+        revision: string;
+    }>;
 }
 declare module '@deepseek-ai/cordis' {
     interface Context {

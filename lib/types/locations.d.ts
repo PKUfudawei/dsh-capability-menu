@@ -1,6 +1,16 @@
 import type { Context } from '@deepseek-ai/cordis';
 /** Plugin name of the MCP bridge, as declared in patch rows. */
 export declare const MCP_CLIENT_PLUGIN = "@deepseek-ai/dsh-mcp-client";
+export interface SkillUpdateStatus {
+    readonly status: 'current' | 'available' | 'modified' | 'unmanaged';
+    readonly name: string;
+    readonly entryDir: string;
+    readonly sourceUrl?: string;
+    readonly installedRevision?: string;
+    readonly latestRevision?: string;
+    readonly changedFiles?: readonly string[];
+    readonly compareUrl?: string;
+}
 export interface LocationConfig {
     /** Patch file holding the MCP rows. Defaults to the home-level layer. */
     readonly patchFile: string;
@@ -87,6 +97,7 @@ export interface McpInput {
 export declare class LocationRegistry {
     private readonly ctx;
     private readonly config;
+    private sourceWrite;
     constructor(ctx: Context, config: LocationConfig);
     /** Every MCP server declared in the patch file, in file order. */
     listMcp(): Promise<McpLocation[]>;
@@ -132,6 +143,17 @@ export declare class LocationRegistry {
      * in `ctx.skills`, so a rename is a remove + add, not an update.
      */
     updateSkill(name: string, dir: string, entryDir?: string): Promise<boolean>;
+    /** Compare an imported Skill with its tracked GitHub directory. */
+    checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    /** Attach a source to an older import only when its files match the source. */
+    associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    /** Validate and replace an imported Skill, keeping its old directory on failure. */
+    updateSkillFromGitHub(name: string, entryDir?: string): Promise<{
+        revision: string;
+    }>;
+    private saveGitHubSource;
+    private forgetGitHubSource;
+    private changeGitHubSources;
 }
 /**
  * Describe `<entryDir>/<name>` as a skill entry, or `undefined` when nothing

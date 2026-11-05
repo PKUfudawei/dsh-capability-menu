@@ -17,7 +17,7 @@ import type {
 } from '../policy.ts'
 import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts'
 import { describeSkillEntry, isProjectSkillsDir } from '../locations.ts'
-import type { McpInput, McpLocation, McpUpdateInput, SkillLocation } from '../locations.ts'
+import type { McpInput, McpLocation, McpUpdateInput, SkillLocation, SkillUpdateStatus } from '../locations.ts'
 import { ADOPTABLE_SKILL_SOURCES, PROJECT_SKILL_SOURCES } from '../constants.ts'
 import { checkSelfUpdate, installSelfUpdate, switchSelfToNpm, type SelfUpdateStatus } from './self-update.ts'
 import { basename, dirname, resolve } from 'node:path'
@@ -292,6 +292,21 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
   @Remote('updateSkillLocation')
   async updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean> {
     return this.ctx.capabilityPolicy.updateSkillLocation(name, dir, entryDir)
+  }
+
+  @Remote('checkSkillUpdate')
+  async checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus> {
+    return this.ctx.capabilityPolicy.checkSkillUpdate(name, entryDir)
+  }
+
+  @Remote('associateGitHubSkillSource')
+  async associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus> {
+    return this.ctx.capabilityPolicy.associateGitHubSkillSource(name, url, entryDir)
+  }
+
+  @Remote('updateSkillFromGitHub')
+  async updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ revision: string }> {
+    return this.ctx.capabilityPolicy.updateSkillFromGitHub(name, entryDir)
   }
 
   /**

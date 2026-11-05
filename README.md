@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> · <a href="./README.en.md">English</a>
+  <strong>中文</strong> · <a href="./README.en.md">English</a>
 </p>
 
 ## 目录
@@ -30,6 +30,7 @@
 - [策略与目录](#策略与目录)
   - [能力暴露规则](#能力暴露规则)
   - [按需检索目录](#按需检索目录)
+- [参与贡献](#参与贡献)
 
 ---
 
@@ -79,6 +80,7 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 - **MCP 名称**：分组内省略 `mcp__服务器名__` 前缀；悬停可看全名，检索和调用仍用完整 ID。
 - **注册位置**：MCP 写入 patch 配置（自动创建缺失的文件和目录）；请求头等凭据也保存在其中，请妥善保管。Skill 在所选技能根目录创建链接或导入目录。
 - **GitHub Skill**：支持公开仓库的默认分支根目录（含 `SKILL.md`）、指定分支根目录 `.../tree/{branch}` 或其下的技能目录 `.../tree/{branch}/{skill-directory}`；也支持本机目录。导入需在运行 dsh 的机器上安装 Git；插件会校验 `SKILL.md`，只复制所选目录。
+- **Skill 更新**：通过能力菜单从 GitHub 新导入的 Skill 会记录来源；打开能力菜单时及页面打开期间每小时检查一次，也可在 Skills 页手动检查。页面显示当前与最新提交、变更文件和上游差异链接，支持单个或批量更新，并逐项报告失败。检测只比较所选 Skill 目录；本地修改会阻止自动覆盖。旧版导入可在 Skills 页输入 GitHub 来源链接，内容与上游一致时才允许关联；本地软链和预设 Skill 不提供自动更新。更新后 dsh 的文件监听器会刷新 Skill；已加载该 Skill 的会话可用 `meta_invoke` 的 `force: true` 重新加载。
 
 ## 安装与卸载
 
@@ -179,6 +181,10 @@ config:
 - **检索描述：** 按需能力旁可打开编辑框。默认取 Tool 或 Skill 的来源描述，最多 `summaryMaxChars` 个字符（默认 320，截断时优先保留完整词句）；Skill 描述无有效内容时使用 `whenToUse`。`meta_search` 列表与关键词匹配均使用这段摘要。自定义后改用保存的文字，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
 - **描述上限：** 在「策略与目录 → 按需检索目录」修改，最小 20 字符。设置保存在 `stateFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
 - **检索与调用：** 使用 `meta_search({query})` 查找匹配的候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。不知道关键词时可用 `meta_search({})` 查看前几项概览。单次默认最多返回 20 项，可用 `max_results` 调整至 100 项；若结果被截断，请缩小查询范围。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
+
+## 参与贡献
+
+欢迎提交问题、文档修正和代码。贡献流程与合入标准见 [CONTRIBUTING.md](./CONTRIBUTING.md)；issue 和 PR 可以使用中文或英文。
 
 ## License
 
