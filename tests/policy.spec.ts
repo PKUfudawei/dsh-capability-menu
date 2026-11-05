@@ -604,3 +604,69 @@ describe('capability-policy startup', () => {
     }
   })
 })
+
+describe('projectAssemblyTools across host contracts', () => {
+  const service = {
+    isResidentTool: (name: string) => name !== 'mcp__km__search',
+    isResidentSkill: () => true,
+  } as unknown as policy.CapabilityPolicyService
+  const section = (name: string) => ({ name, text: name })
+
+  it('projects tools when the assembly declares them (0.2.1-rc.x contract)', () => {
+    const assembly = {
+      sections: [section('tool:bash'), section('tool:web_search')],
+      contexts: [],
+      tools: [{ name: 'bash' }, { name: 'mcp__km__search' }],
+      variables: {},
+    } as unknown as import('@deepseek-ai/dsh-system-prompt').PromptAssembly
+
+    const projected = policy.projectAssemblyTools(assembly, service)
+
+    expect(projected.tools?.map(tool => tool.name)).toEqual(['bash'])
+    expect(projected.sections.map(s => s.name)).toEqual(['tool:bash', 'tool:web_search'])
+  })
+
+  it('omits tools when the host does not provide them (0.2.2-rc.1 contract)', () => {
+    // 0.2.2-rc.1 merges tool declarations after the waterfall, so the assembly
+    // a listener receives has no `tools` key. Touching it used to throw and
+    // fail every request before the model was reached.
+    const assembly = {
+      sections: [section('tool:bash')],
+      contexts: [],
+      variables: {},
+    } as unknown as import('@deepseek-ai/dsh-system-prompt').PromptAssembly
+
+    const projected = policy.projectAssemblyTools(assembly, service)
+
+    expect('tools' in projected).toBe(false)
+    expect(projected.sections.map(s => s.name)).toEqual(['tool:bash'])
+  })
+
+  it('still drops web guidance for non-Resident web tools without tools present', () => {
+    const assembly = {
+      sections: [section('tool:bash'), section('tool:web_search'), section('tool:web_fetch')],
+      contexts: [],
+      variables: {},
+    } as unknown as import('@deepseek-ai/dsh-system-prompt').PromptAssembly
+    const nonResident = {
+      isResidentTool: (name: string) => name !== 'web_search' && name !== 'web_fetch',
+      isResidentSkill: () => true,
+    } as unknown as policy.CapabilityPolicyService
+
+    const projected = policy.projectAssemblyTools(assembly, nonResident)
+
+    expect(projected.sections.map(s => s.name)).toEqual(['tool:bash'])
+    expect('tools' in projected).toBe(false)
+  })
+
+  it('returns the same assembly when nothing needs projecting', () => {
+    const assembly = {
+      sections: [section('tool:bash')],
+      contexts: [],
+      tools: [{ name: 'bash' }],
+      variables: {},
+    } as unknown as import('@deepseek-ai/dsh-system-prompt').PromptAssembly
+
+    expect(policy.projectAssemblyTools(assembly, service)).toBe(assembly)
+  })
+})
