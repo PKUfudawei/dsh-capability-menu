@@ -3,6 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeOne } from './execute-one.ts'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
@@ -26,6 +28,7 @@ async function setup(home: string, config: toolMetaInvoke.Config = {}, registryC
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, {
     dshHome: `${home}/.dsh`,
@@ -127,7 +130,7 @@ async function runTool(
   args: Record<string, unknown>,
   agent: unknown = agentStub('agent'),
 ): Promise<{ value: unknown; isError: boolean }> {
-  const result = await ctx.tools.execute({
+  const result = await executeOne(ctx, {
     callId: ToolCallId(`call-${name}`),
     name,
     arguments: args,
@@ -156,7 +159,7 @@ describe('capability-menu-invoke', () => {
       },
     }))
     await ctx.capability.refresh()
-    const result = await ctx.tools.execute({
+    const result = await executeOne(ctx, {
       callId: ToolCallId('ppt-session-repro'),
       name: 'meta_invoke',
       arguments: { id: 'ppt_list_templates', kind: 'tool', args: { workflow: 'wf-1' } },
@@ -257,7 +260,7 @@ describe('capability-menu-invoke', () => {
     await ctx.capability.refresh()
 
     const envelope = { id: issue, kind: 'tool', args: { title: 'x' } }
-    const result = await ctx.tools.execute({
+    const result = await executeOne(ctx, {
       callId: ToolCallId('call-envelope'),
       name: 'meta_invoke',
       arguments: { id: issue, kind: 'tool', args: envelope },
@@ -409,6 +412,7 @@ describe('capability-menu-invoke', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,
@@ -421,16 +425,33 @@ describe('capability-menu-invoke', () => {
     const grep = registerNativeTool(ctx, 'grep', 'Search file contents with regular expressions', args => ({ ok: true, received: args }))
     await ctx.capability.refresh()
 
-    // On-demand natives are projected out of the model-facing tool list…
-    const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.tools.map(tool => tool.name)).not.toContain(grep)
+    const agent = agentStub('on-demand-step')
+    const toolSet = await ctx.tools.resolve({
+      agent, modelSelection: { provider: 'test', model: 'test' } as never, signal: testSignal,
+    })
+    try {
+      const assembly = await ctx.systemPrompt.assemble({ scope: agent, toolSet })
+      expect(assembly.tools.map(tool => tool.name)).not.toContain(grep)
+      expect(assembly.tools.map(tool => tool.name)).toContain('meta_invoke')
 
-    // …but stay reachable through meta_invoke.
-    const { value, isError } = await runTool(ctx, 'meta_invoke', { id: grep, kind: 'tool', args: { command: 'ls' } })
-    expect(isError).toBe(false)
-    const result = value as { ok: boolean; kind: string; detail: { forwarded: boolean; target: string } }
-    expect(result.ok).toBe(true)
-    expect(result.detail.target).toBe(grep)
+      // The model cannot call a hidden tool directly in this step.
+      const direct = await executeOne(ctx, {
+        callId: ToolCallId('direct-hidden'), name: grep, arguments: { command: 'ls' },
+        agent, signal: testSignal, toolSet,
+      })
+      expect(direct.isError).toBe(true)
+
+      // The same step can reach it through the approved meta tool.
+      const forwarded = await executeOne(ctx, {
+        callId: ToolCallId('invoke-hidden'), name: 'meta_invoke',
+        arguments: { id: grep, kind: 'tool', args: { command: 'ls' } },
+        agent, signal: testSignal, toolSet,
+      })
+      expect(forwarded.isError, JSON.stringify(forwarded.content)).toBe(false)
+      expect(forwarded.value).toMatchObject({ ok: true, kind: 'mcp', detail: { target: grep } })
+    } finally {
+      toolSet.dispose()
+    }
   })
 
   it('rejects an unknown capability id', async () => {
@@ -445,6 +466,7 @@ describe('capability-menu-invoke', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,
@@ -467,6 +489,7 @@ describe('capability-menu-invoke', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,

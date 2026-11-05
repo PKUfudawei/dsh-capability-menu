@@ -16,7 +16,7 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.9.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -33,7 +33,7 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.9.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -53,7 +53,7 @@ jobs:
         run: git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.9.0
       - name: Create GitHub Release from annotated tag notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,14 +6,14 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
+import type { PromptAssembly, PromptPresentation } from '@deepseek-ai/dsh-system-prompt';
 import { type CapabilityKind } from './registry.ts';
 import { type McpInput, type McpLocation, type McpUpdateInput, type SkillLocation, type SkillUpdateStatus } from './locations.ts';
 /**
  * Canonical policy classes, mirroring the registry's `CapabilityKind`.
  *
  * - `resident`: the capability is on the dsh-native exposure surface — tools in
- *   `assembly.tools` (the request `tools` payload), skills in the
+ *   the step's request `tools` payload, skills in the
  *   `<available_skills>` catalog — so the model can call/load it single-hop.
  * - `on-demand`: absent from the native surface but discoverable in the
  *   persistent meta registry; the model reaches it via `meta_search` then
@@ -224,8 +224,20 @@ declare module '@deepseek-ai/cordis' {
 }
 /**
  * Keep Resident tools and their matching web guidance in one assembly.
+ *
+ * Tool projection is best-effort by necessity. DSH 0.2.2-rc.1 detached tool
+ * declarations from this waterfall: the host now merges them after it, so the
+ * assembly a listener receives carries no `tools` field. Reading it
+ * unconditionally threw `Cannot read properties of undefined (reading
+ * 'filter')`, which aborted the whole assembly and failed every request before
+ * it reached the model.
+ *
+ * DSH 0.2.2 tool visibility is projected at `tools.resolve()` instead; this
+ * helper retains the older host's assembly projection and the section filter.
  */
-export declare function projectAssemblyTools(assembly: PromptAssembly, service: CapabilityPolicyService): PromptAssembly;
+export declare function projectAssemblyTools<T extends PromptPresentation & {
+    tools?: PromptAssembly['tools'];
+}>(assembly: T, service: CapabilityPolicyService): T;
 /** Build the policy plugin. */
 export declare const name = "capability-menu-policy";
 export declare const inject: string[];

@@ -3,6 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeOne } from './execute-one.ts'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -32,6 +34,7 @@ async function setup(home: string, config: registry.Config = {}): Promise<Contex
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, {
     dshHome: `${home}/.dsh`,
@@ -225,7 +228,7 @@ describe('meta-registry', () => {
       arguments: { title: 'x' },
       signal: testSignal,
     }
-    const result = await ctx.tools.execute(exec)
+    const result = await executeOne(ctx, exec)
     expect(result.isError).toBe(false)
     const after = ctx.capability.get(issue)?.stats.uses ?? 0
     expect(after).toBe(before + 1)
@@ -671,6 +674,7 @@ describe('meta-registry', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       dshHome: `${home}/.dsh`,

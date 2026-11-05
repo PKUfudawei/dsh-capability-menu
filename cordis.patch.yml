@@ -34,9 +34,9 @@
 #   restrictions; dedups already-loaded skills. Rejects Disabled capabilities.
 # - `capability-menu-policy` (P3): Resident/On-demand/Disabled projection
 #   strategy + 能力菜单 surface. Reads explicit resident/on-demand/disabled
-#   rules (exact name + glob + server:<name>:*) and filters `assembly.tools` and
-#   web guidance sections at `system-prompt/assemble`. The execution chain
-#   (`ctx.tools.execute`) is untouched, so On-demand capabilities remain executable
+#   rules (exact name + glob + server:<name>:*) and filters each step's tool
+#   admission on DSH 0.2.2; older hosts use `assembly.tools`. Web guidance
+#   sections are filtered at `system-prompt/assemble`. On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` to the 能力菜单 tab through
 #   the Typert gateway: the tier surface (`classifyAll`/`getConfig`/
 #   `updateConfig`), the registered-location surface (`listLocations`/`addLocation`/

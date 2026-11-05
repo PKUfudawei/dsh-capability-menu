@@ -3,6 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { assembleForStep } from './execute-one.ts'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { serverNameOf } from '../src/registry.ts'
 import * as registry from '../src/registry.ts'
@@ -13,6 +15,7 @@ async function setup(config: policy.Config = {}, registryConfig: registry.Config
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(registry, { stateFile: '', ...registryConfig })
   await ctx.plugin(policy, config.patchFile === undefined && config.stateFile === undefined
@@ -147,7 +150,7 @@ describe('capability-menu-policy plugin', () => {
     ]
     for (const item of cases) {
       await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': item.onDemand } })
-      const assembly = await ctx.systemPrompt.assemble()
+      const assembly = await assembleForStep(ctx)
       expect(assembly.tools.map(tool => tool.name).filter(name => name.startsWith('web_')).sort()).toEqual(item.tools.sort())
       const sections = assembly.sections.filter(section => section.name.startsWith('tool:web_'))
       expect(sections.map(section => section.name)).toEqual(item.sections)
@@ -172,7 +175,7 @@ describe('capability-menu-policy plugin', () => {
     expect(service.isResidentTool('mcp__km__search')).toBe(false)
     expect(service.isResidentTool('meta_search')).toBe(true)
 
-    const assembly = await ctx.systemPrompt.assemble()
+    const assembly = await assembleForStep(ctx)
     const names = assembly.tools.map(t => t.name)
     expect(names).toContain('execute_cmd')
     expect(names).toContain('meta_search')
@@ -186,7 +189,7 @@ describe('capability-menu-policy plugin', () => {
     const ctx = await setup({})
     registerTool(ctx, 'meta_search')
     registerTool(ctx, 'some_tool')
-    const assembly = await ctx.systemPrompt.assemble()
+    const assembly = await assembleForStep(ctx)
     const names = assembly.tools.map(t => t.name)
     expect(names).toContain('meta_search')
     expect(names).toContain('some_tool')
@@ -199,7 +202,7 @@ describe('capability-menu-policy plugin', () => {
     const service = ctx.capabilityPolicy
     expect(service.isDisabledTool('a')).toBe(true)
     expect(service.isResidentTool('a')).toBe(false)
-    const assembly = await ctx.systemPrompt.assemble()
+    const assembly = await assembleForStep(ctx)
     expect(assembly.tools.map(t => t.name)).not.toContain('a')
   })
 
@@ -299,7 +302,7 @@ describe('capability-menu-policy plugin', () => {
     registerTool(ctx, 'mcp__km__search')
     await ctx.capability.refresh()
 
-    const assembly = await ctx.systemPrompt.assemble()
+    const assembly = await assembleForStep(ctx)
     const pointer = assembly.sections.find(section => section.name === 'capability-menu-catalog')
     expect(pointer).toBeDefined()
     expect(pointer?.text).toContain('meta_search({query})')
@@ -312,7 +315,7 @@ describe('capability-menu-policy plugin', () => {
     registerTool(ctx, 'meta_invoke')
     await ctx.capability.refresh()
 
-    const assembly = await ctx.systemPrompt.assemble()
+    const assembly = await assembleForStep(ctx)
     expect(assembly.sections.find(section => section.name === 'capability-menu-catalog')).toBeUndefined()
   })
 })
@@ -336,6 +339,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
@@ -360,6 +364,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     // The registry is stubbed: what is under test is the projection from the
     // catalog summary to a management row, and the preset id has to survive it
@@ -396,6 +401,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { stateFile: '' })
@@ -436,6 +442,7 @@ describe('capability-policy management surface (能力菜单)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, { stateFile: '' })
@@ -487,6 +494,7 @@ describe('capability-policy persistence (tier writes)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
@@ -525,6 +533,7 @@ describe('capability-policy persistence (tier writes)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     await ctx.plugin(policy, {
@@ -555,6 +564,7 @@ describe('capability-policy persistence (tier writes)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     // Keep the write pending until teardown.
@@ -581,6 +591,7 @@ describe('capability-policy startup', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(registry, { stateFile: '' })
     registerTool(ctx, 'mcp__km__search')

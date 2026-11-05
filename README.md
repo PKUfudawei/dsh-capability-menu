@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.3-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.1-rc.3"/></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.1-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.1"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -84,9 +84,9 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 
 ## 安装与卸载
 
-前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
+前置：[Node.js](https://nodejs.org/en/download) 与 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。DSH `0.2.2-rc.1` 要求 Node.js `>=24.9.0`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-依赖范围接受 DSH `0.2.x` 稳定版及 `0.2.1-rc.3` 起的同版本预发布版；当前验证版本为 `0.2.1-rc.3`。npm 暂无 DSH `0.2.0` 稳定版可供实测。
+已在 DSH `0.2.2-rc.1` 的宿主组件上测试 Tool 的三档声明与调用，以及 `meta_invoke` 转发；旧版 `0.2.1-rc.3` 使用原有组装路径。插件 `0.1.8` 只修复了 `0.2.2-rc.1` 上的请求崩溃，未恢复 Tool 按需分层；使用该 DSH 版本时请安装插件 `0.1.9` 或更新版本。
 
 ### 从 npm 安装（推荐）
 
