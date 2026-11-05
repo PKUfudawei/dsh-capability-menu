@@ -84,9 +84,9 @@ Notes:
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
+Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Tool exposure and invocation in all three tiers, including `meta_invoke` forwarding, have been tested against the DSH `0.2.2-rc.1` host components. DSH `0.2.1-rc.3` uses the existing assembly path. Plugin `0.1.8` only prevents the request crash on `0.2.2-rc.1`; it does not restore On-demand tool tiering. Install plugin `0.1.9` or newer with that DSH version.
+Use plugin `0.1.9` or newer with DSH `0.2.2-rc.1` for full Tool tiering. Plugin `0.1.8` only fixes the request crash; it does not restore this feature.
 
 ### Install from npm (recommended)
 
