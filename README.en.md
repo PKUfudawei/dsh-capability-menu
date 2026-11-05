@@ -75,18 +75,16 @@ After installation, open **Settings** and select **Capability Menu** from the se
 | View rules and on-demand catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
 | Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
 
-Notes:
-
 - **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
 - **Registration**: MCP servers write to the patch config (missing files and directories are created). Request headers and other credentials are stored there; keep it secure. Skills are linked or imported into the selected skill root.
 - **GitHub Skills**: Public repositories support a default-branch root (with `SKILL.md`), a branch root `.../tree/{branch}`, or a Skill directory `.../tree/{branch}/{skill-directory}`. Local paths also work. Git is required on the machine running dsh; the plugin validates `SKILL.md` and copies only the selected directory.
-- **Skill updates:** Skills newly imported from GitHub through Capability Menu retain their source. The menu checks on opening and hourly while open, and the Skills tab offers a manual check. It shows installed and latest commits, changed files, and an upstream diff link, with single and batch updates and per-Skill errors. Checks compare only the selected Skill directory; local edits prevent automatic replacement. Earlier imports can be linked to a GitHub URL in the Skills tab only if their contents match the source. Local links and preset Skills cannot be updated automatically. The dsh file watcher refreshes updated Skills; a session that already loaded one can reload it with `meta_invoke` and `force: true`.
+- **Skill updates:** GitHub-imported Skills are checked when the menu opens and hourly while it stays open. The Skills tab also lets you check manually, view diffs, and update one or several Skills. Checks cover only the imported Skill directory; local edits prevent replacement. Local links and preset Skills do not support automatic updates.
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
+Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Tool exposure and invocation in all three tiers, including `meta_invoke` forwarding, have been tested against the DSH `0.2.2-rc.1` host components. DSH `0.2.1-rc.3` uses the existing assembly path. Plugin `0.1.8` only prevents the request crash on `0.2.2-rc.1`; it does not restore On-demand tool tiering. Install plugin `0.1.9` or newer with that DSH version.
+Plugin `0.1.9` supports DSH `0.2.2-rc.1` with full Tool tiering and `meta_invoke` forwarding.
 
 ### Install from npm (recommended)
 
@@ -178,9 +176,9 @@ Selecting a tier in Capability Menu writes an exact rule. If a higher-priority r
 
 `meta_search` is the Agent's only search entry for On-demand Tools and Skills. **Policy & catalog → On-demand search catalog** shows summaries from the same in-memory index without generating a separate YAML file. Agent results are also filtered to capabilities available in the current session.
 
-- **Search description:** By default, a Tool or Skill uses its provider description shortened to `summaryMaxChars` characters (320 by default); a Skill with no meaningful description falls back to `whenToUse`. Both `meta_search` lists and keyword matching use this summary. A saved custom description replaces it without changing the provider definition or exact detail. **Restore** resets the field, and **Save** applies it.
-- **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `stateFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
-- **Search and invoke:** Find matching candidates with `meta_search({query})`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load one with `meta_invoke({id, kind, args})`. If no useful keyword is known, `meta_search({})` shows a limited overview. A call returns up to 20 entries by default; `max_results` can raise the limit to 100. Refine the query when results are truncated. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
+- **Search description:** On-demand capabilities use a short provider description (up to 320 characters) by default; you can edit it in the menu. `meta_search` uses this summary for its list and keyword matching. Editing it does not change the provider definition.
+- **Description limit:** Set it under **Policy & catalog → On-demand search catalog** (minimum 20 characters). Shorten custom descriptions that exceed a lower limit before saving it.
+- **Search and invoke:** Use `meta_search({query})` to find a capability, `meta_search({id, kind})` to inspect its parameters, and `meta_invoke({id, kind, args})` to call or load it. Pass `force: true` to reload a Skill already loaded in the current session.
 
 ## Contributing
 
