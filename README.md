@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> · <a href="./README.en.md">English</a>
+  <strong>中文</strong> · <a href="./README.en.md">English</a>
 </p>
 
 ## 目录
@@ -30,6 +30,7 @@
 - [策略与目录](#策略与目录)
   - [能力暴露规则](#能力暴露规则)
   - [按需检索目录](#按需检索目录)
+- [参与贡献](#参与贡献)
 
 ---
 
@@ -179,6 +180,10 @@ config:
 - **检索描述：** 按需能力旁可打开编辑框。默认取 Tool 或 Skill 的来源描述，最多 `summaryMaxChars` 个字符（默认 320，截断时优先保留完整词句）；Skill 描述无有效内容时使用 `whenToUse`。`meta_search` 列表与关键词匹配均使用这段摘要。自定义后改用保存的文字，不改变来源定义或精确详情。「还原」仅重置输入框，仍需「保存」。
 - **描述上限：** 在「策略与目录 → 按需检索目录」修改，最小 20 字符。设置保存在 `stateFile`，优先于 patch 中的 `summaryMaxChars`；降低上限前需先缩短超限的自定义描述。
 - **检索与调用：** 使用 `meta_search({query})` 查找匹配的候选项，再用 `meta_search({id, kind})` 查看完整参数 schema，最后用 `meta_invoke({id, kind, args})` 调用或加载。不知道关键词时可用 `meta_search({})` 查看前几项概览。单次默认最多返回 20 项，可用 `max_results` 调整至 100 项；若结果被截断，请缩小查询范围。Skill 须先注册到 `ctx.skills`；若要重新加载会话中已读取的 Skill，传 `force: true`。
+
+## 参与贡献
+
+欢迎提交问题、文档修正和代码。贡献流程与合入标准见 [CONTRIBUTING.md](./CONTRIBUTING.md)；issue 和 PR 可以使用中文或英文。
 
 ## License
 

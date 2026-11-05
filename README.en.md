@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">简体中文</a> · <strong>English</strong>
+  <a href="./README.md">中文</a> · <strong>English</strong>
 </p>
 
 ## Table of Contents
@@ -30,6 +30,7 @@
 - [Policy & catalog](#policy--catalog)
   - [Exposure rules](#exposure-rules)
   - [On-demand search catalog](#on-demand-search-catalog)
+- [Contributing](#contributing)
 
 ---
 
@@ -179,6 +180,10 @@ Selecting a tier in Capability Menu writes an exact rule. If a higher-priority r
 - **Search description:** By default, a Tool or Skill uses its provider description shortened to `summaryMaxChars` characters (320 by default); a Skill with no meaningful description falls back to `whenToUse`. Both `meta_search` lists and keyword matching use this summary. A saved custom description replaces it without changing the provider definition or exact detail. **Restore** resets the field, and **Save** applies it.
 - **Description limit:** Set it in **Policy & catalog → On-demand search catalog** (minimum 20). The saved value in `stateFile` takes priority over `summaryMaxChars` in the patch. Shorten any custom descriptions above a proposed lower limit before saving.
 - **Search and invoke:** Find matching candidates with `meta_search({query})`, inspect the full parameter schema with `meta_search({id, kind})`, then call or load one with `meta_invoke({id, kind, args})`. If no useful keyword is known, `meta_search({})` shows a limited overview. A call returns up to 20 entries by default; `max_results` can raise the limit to 100. Refine the query when results are truncated. A Skill must be registered in `ctx.skills`; pass `force: true` to reload one already read in this session.
+
+## Contributing
+
+Bug reports, documentation fixes, and code contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the workflow and merge criteria. Issues and pull requests may be written in English or Chinese.
 
 ## License
 
