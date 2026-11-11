@@ -7,6 +7,23 @@ import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
 import "@deepseek-ai/schemastery";
 import { ScopeKey } from "@deepseek-ai/dsh-scope";
 import { JsonSchemaNode } from "@deepseek-ai/dsh-tools";
+//#region src/client/remote-mount.d.ts
+type RemoteMountState<T> = {
+  status: 'loading';
+} | {
+  status: 'ready';
+  remote: T;
+} | {
+  status: 'error';
+  error: string;
+};
+interface RemoteMount<T> {
+  start(): void;
+  dispose(): void;
+  getSnapshot(): RemoteMountState<T>;
+  subscribe(listener: () => void): () => void;
+}
+//#endregion
 //#region src/registry.d.ts
 /**
  * Kinds of capability the catalog can hold.
@@ -763,10 +780,8 @@ interface CapabilityPolicyRemote {
 //#region src/client/CapabilitySection.d.ts
 /** Props injected by the settings.section registration (see index.ts). */
 interface CapabilitySectionInjected {
-  remote: CapabilityPolicyRemote;
+  remoteMount: RemoteMount<CapabilityPolicyRemote>;
   t(key: CapabilityKey, params?: Record<string, unknown>): string;
-  /** Diagnostic: `$mount` failure surfaced instead of crashing the section. */
-  mountError?: string;
   /**
    * Subscribe to signals that the host catalog may have moved without this page
    * asking: a settings document edit (registering a source, editing a
@@ -791,7 +806,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  which resolves the mounted namespace service without the inject gate. */
 declare const inject: string[];
 /** Register the 能力菜单 section once `settings.section` is on the ledger. */
-declare function apply(ctx: Context): Promise<() => void>;
+declare function apply(ctx: Context): void;
 //#endregion
 export { type CapabilityKey, type CapabilityPolicyRemote, type CapabilityRow, type CapabilitySectionInjected, type CapabilitySectionProps, type CapabilitySnapshot, apply, inject };
 
