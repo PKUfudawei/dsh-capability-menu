@@ -14,7 +14,8 @@
  *                       with flat skill rows carrying the same clickable class
  *                       chip plus a directory tree / file preview
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
+import type { RemoteMount } from './remote-mount.ts'
 import type { KeyboardEvent, ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import * as ClientUiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
@@ -59,10 +60,8 @@ import {
 
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
-  remote: CapabilityPolicyRemote
+  remoteMount: RemoteMount<CapabilityPolicyRemote>
   t(key: CapabilityKey, params?: Record<string, unknown>): string
-  /** Diagnostic: `$mount` failure surfaced instead of crashing the section. */
-  mountError?: string
   /**
    * Subscribe to signals that the host catalog may have moved without this page
    * asking: a settings document edit (registering a source, editing a
@@ -597,7 +596,16 @@ function useDocumentVisible(): boolean {
 }
 
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
-  const { remote, t, mountError, subscribeSignals } = props
+  const { remoteMount, t } = props
+  const state = useSyncExternalStore(remoteMount.subscribe, remoteMount.getSnapshot, remoteMount.getSnapshot)
+  if (state.status === 'ready') return <MountedCapabilitySection remote={state.remote} t={t} subscribeSignals={props.subscribeSignals} />
+  return <section className="mc-section">
+    {state.status === 'loading' ? <p className="mc-empty">{t('desc')}…</p> : <div className="mc-error"><p>{state.error}</p></div>}
+  </section>
+}
+
+function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMount'> & { remote: CapabilityPolicyRemote }): JSX.Element {
+  const { remote, t, subscribeSignals } = props
   // Paint a previous snapshot immediately when this page session has one; the
   // mount effect below still revalidates.
   const [state, setState] = useState<ViewState>(() => {
@@ -613,10 +621,6 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const [activeTab, setActiveTab] = useState<'tools' | 'skills'>('tools')
 
   const reload = useCallback(async () => {
-    if (remote === undefined) {
-      setState({ status: 'error', message: mountError ?? 'capabilityPolicy remote 未挂载' })
-      return
-    }
     try {
       setState(await loadSnapshot(remote).then(snapshot => ({ status: 'ready' as const, snapshot })))
     } catch (e) {
@@ -627,7 +631,7 @@ export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
       setState(prev => prev.status === 'ready' ? prev : { status: 'error', message: String(e) })
       setNotice(String(e))
     }
-  }, [remote, mountError])
+  }, [remote])
 
   useEffect(() => {
     void reload()

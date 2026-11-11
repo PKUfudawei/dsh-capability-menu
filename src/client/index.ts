@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { createRemoteMount } from './remote-mount.ts'
 import { installSettingsNavIcon } from './settings-nav-icon.ts'
 import { TYPERT_REMOTE } from './remote.ts'
 import { CapabilitySection, type CapabilitySectionInjected, type CapabilityKey } from './CapabilitySection.tsx'
@@ -37,7 +38,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'remote']
 
 /** Register the 能力菜单 section once `settings.section` is on the ledger. */
-export async function apply(ctx: ClientContext): Promise<() => void> {
+export function apply(ctx: ClientContext): void {
   const zh = {
     nav: '能力菜单',
     title: '能力菜单',
@@ -373,31 +374,16 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'capability-menu: dictionaries')
 
-  // Mount the Host `capabilityPolicy` remote contribution so
-  // `ctx.remote.capabilityPolicy` exists in this fiber. `$mount` runs the
-  // contribution through an async effect that can fail silently; surface any
-  // failure here instead of crashing the settings section later.
-  let mountError: string | undefined
-  let disposeRemote: (() => Promise<void>) | undefined
-  try {
-    disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE)
-  } catch (error) {
-    mountError = String(error)
-    console.error('[capability-menu] $mount failed:', error)
-  }
+  // Register cleanup before starting asynchronous work. Mount completion must
+  // never register effects on a fiber that may already have been disposed.
+  const remoteMount = createRemoteMount(
+    () => ctx.remote.$mount(TYPERT_REMOTE),
+    // Resolve by key: property access would require injecting our own namespace.
+    () => (ctx.get as (key: string) => unknown)('remote.capabilityPolicy') as import('./store.ts').CapabilityPolicyRemote,
+  )
+  ctx.effect(() => remoteMount.dispose, 'capability-menu: remote mount')
   const t = ctx.locale.bind(NS) as CapabilitySectionInjected['t']
   installSettingsNavIcon(ctx, () => t('nav'))
-  const remote = (): unknown => {
-    try {
-      // Resolve the mounted namespace service by its registered key; a property
-      // access (`ctx.remote.capabilityPolicy`) would hit the "without inject"
-      // gate because the namespace is mounted by this plugin, not injected.
-      return (ctx.get as (key: string) => unknown)('remote.capabilityPolicy')
-    } catch (error) {
-      console.error('[capability-menu] ctx.get("remote.capabilityPolicy") failed:', error)
-      return undefined
-    }
-  }
   /**
    * The two signals that say "the host catalog may have moved, and this page did
    * not ask": a settings document edit, and a carrier reconnect.
@@ -443,14 +429,10 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
   }
 
   const injected = (): CapabilitySectionInjected => {
-    // Resolve by key rather than by property access: `ctx.remote.capabilityPolicy`
-    // would hit the "without inject" gate, since this plugin mounts the namespace
-    // itself instead of injecting it.
     return {
-      remote: remote() as CapabilitySectionInjected['remote'],
+      remoteMount,
       t,
       subscribeSignals,
-      ...mountError !== undefined ? { mountError } : {},
     }
   }
 
@@ -463,7 +445,5 @@ export async function apply(ctx: ClientContext): Promise<() => void> {
     inject: injected,
   }, CapabilitySection))
 
-  return () => {
-    disposeRemote?.()
-  }
+  remoteMount.start()
 }
