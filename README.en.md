@@ -82,6 +82,8 @@ After installation, open **Settings** and select **Capability Menu** from the se
 - **GitHub Skills**: Public repositories support a default-branch root (with `SKILL.md`), a branch root `.../tree/{branch}`, or a Skill directory `.../tree/{branch}/{skill-directory}`. Local paths also work. Git is required on the machine running dsh; the plugin validates `SKILL.md` and copies only the selected directory.
 - **Skill updates:** GitHub-imported Skills are checked when the menu opens and hourly while it stays open. The Skills tab also lets you check manually, view diffs, and update one or several Skills. Checks cover only the imported Skill directory; local edits prevent replacement. Local links and preset Skills do not support automatic updates.
 
+- Older copied directories can link to a matching current or historical GitHub snapshot. History searches inspect up to 200 distinct directory versions within 60 seconds (excluding the initial checkout); reaching a limit is reported without saving a source. Sources can be edited or unlinked: failed validation preserves the old source, and unlinking preserves Skill files. Directories containing `.git` support linking and checking but must be updated using Git; menu and batch updates exclude them. Content comparison excludes only root-level `.git` metadata, not other local files.
+
 ## Installation and Uninstallation
 
 Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.

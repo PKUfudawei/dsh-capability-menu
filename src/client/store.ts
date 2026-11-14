@@ -74,6 +74,7 @@ export interface CapabilityPolicyRemote {
   removeSkillLocation(name: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   adoptSkillLocation(name: string): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
+  dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>
   checkSkillUpdate(name: string, entryDir?: string): Promise<{ ok: true; value: SkillUpdateStatus } | { ok: false; error: { code: string; message: string } }>
   associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<{ ok: true; value: SkillUpdateStatus } | { ok: false; error: { code: string; message: string } }>
   updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ ok: true; value: { revision: string } } | { ok: false; error: { code: string; message: string } }>

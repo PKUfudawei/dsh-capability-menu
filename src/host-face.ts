@@ -164,6 +164,7 @@ const METHODS: ReadonlyArray<readonly [string, readonly string[], readonly strin
   ['updateSkillLocation', ['name', 'dir'], ['entryDir']],
   ['checkSkillUpdate', ['name'], ['entryDir']],
   ['associateGitHubSkillSource', ['name', 'url'], ['entryDir']],
+  ['dissociateGitHubSkillSource', ['name'], ['entryDir']],
   ['updateSkillFromGitHub', ['name'], ['entryDir']],
   ['catalogVersion', [], []],
 ]

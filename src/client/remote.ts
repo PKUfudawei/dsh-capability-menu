@@ -156,6 +156,7 @@ export interface SkillUpdateStatus {
   readonly latestRevision?: string
   readonly changedFiles?: readonly string[]
   readonly compareUrl?: string
+  readonly gitManaged?: boolean
 }
 
 /** Input for registering a new MCP server. */
@@ -210,6 +211,7 @@ const skillUpdateStatus$schema = z.object({
   latestRevision: z.string().optional(),
   changedFiles: z.array(z.string()).optional(),
   compareUrl: z.string().optional(),
+  gitManaged: z.boolean().optional(),
 })
 
 const mcpInput$schema = z.object({
@@ -334,6 +336,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     adoptSkillLocation: (name: string) => Promise<RemoteResult<string>>
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    dissociateGitHubSkillSource: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     checkSkillUpdate: (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
     associateGitHubSkillSource: (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
     updateSkillFromGitHub: (name: string, entryDir?: string) => Promise<RemoteResult<{ revision: string }>>
@@ -365,6 +368,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/adoptSkillLocation': (name: string) => Promise<RemoteResult<string>>
     'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>
+    'capabilityPolicy/dissociateGitHubSkillSource': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>
     'capabilityPolicy/checkSkillUpdate': (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
     'capabilityPolicy/associateGitHubSkillSource': (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>
     'capabilityPolicy/updateSkillFromGitHub': (name: string, entryDir?: string) => Promise<RemoteResult<{ revision: string }>>
@@ -655,6 +659,17 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       ],
       result: strictCodec('boolean', z.boolean()),
       sourceLocation: { file: 'src/server/remote.ts', line: 264, column: 3 },
+    },
+    {
+      id: '@daweifu/capability-menu#capabilityPolicy/dissociateGitHubSkillSource',
+      service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'dissociateGitHubSkillSource',
+      invocation: { kind: 'direct' },
+      parameters: [
+        { name: 'name', wire: 'name', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'entryDir', wire: 'entryDir', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
+      ],
+      result: strictCodec('boolean', z.boolean()),
+      sourceLocation: { file: 'src/server/remote.ts', line: 298, column: 3 },
     },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/checkSkillUpdate',

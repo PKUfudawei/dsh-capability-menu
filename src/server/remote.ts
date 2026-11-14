@@ -294,6 +294,11 @@ export class CapabilityPolicyGateway extends TypertRemoteService {
     return this.ctx.capabilityPolicy.updateSkillLocation(name, dir, entryDir)
   }
 
+  @Remote('dissociateGitHubSkillSource')
+  async dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<boolean> {
+    return this.ctx.capabilityPolicy.dissociateGitHubSkillSource(name, entryDir)
+  }
+
   @Remote('checkSkillUpdate')
   async checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus> {
     return this.ctx.capabilityPolicy.checkSkillUpdate(name, entryDir)

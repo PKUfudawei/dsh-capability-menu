@@ -387,6 +387,7 @@ interface SkillUpdateStatus {
   readonly latestRevision?: string;
   readonly changedFiles?: readonly string[];
   readonly compareUrl?: string;
+  readonly gitManaged?: boolean;
 }
 /** Input for registering a new MCP server. */
 interface McpInput {
@@ -430,6 +431,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     removeSkillLocation: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
     adoptSkillLocation: (name: string) => Promise<RemoteResult<string>>;
     updateSkillLocation: (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
+    dissociateGitHubSkillSource: (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
     checkSkillUpdate: (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>;
     associateGitHubSkillSource: (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>;
     updateSkillFromGitHub: (name: string, entryDir?: string) => Promise<RemoteResult<{
@@ -463,6 +465,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/removeSkillLocation': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
     'capabilityPolicy/adoptSkillLocation': (name: string) => Promise<RemoteResult<string>>;
     'capabilityPolicy/updateSkillLocation': (name: string, dir: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
+    'capabilityPolicy/dissociateGitHubSkillSource': (name: string, entryDir?: string) => Promise<RemoteResult<boolean>>;
     'capabilityPolicy/checkSkillUpdate': (name: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>;
     'capabilityPolicy/associateGitHubSkillSource': (name: string, url: string, entryDir?: string) => Promise<RemoteResult<SkillUpdateStatus>>;
     'capabilityPolicy/updateSkillFromGitHub': (name: string, entryDir?: string) => Promise<RemoteResult<{
@@ -743,6 +746,16 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
+  dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<{
+    ok: true;
+    value: boolean;
+  } | {
+    ok: false;
+    error: {
+      code: string;
+      message: string;
+    };
+  }>;
   checkSkillUpdate(name: string, entryDir?: string): Promise<{
     ok: true;
     value: SkillUpdateStatus;
@@ -791,7 +804,7 @@ interface CapabilitySectionInjected {
   subscribeSignals: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillUpdates' | 'skillCheckUpdates' | 'skillUpdateAll' | 'skillChecking' | 'skillUpdating' | 'skillInstalledRevision' | 'skillLatestRevision' | 'skillUpToDate' | 'skillLocalModified' | 'skillUpdateAvailable' | 'skillChangedFiles' | 'skillViewChanges' | 'skillUpdateOne' | 'skillUpdateProgress' | 'skillAssociating' | 'skillSourceUrl' | 'skillAssociateSource' | 'skillAssociateHint' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogSearchNote' | 'catalogEmpty' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
+type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillUpdates' | 'skillCheckUpdates' | 'skillUpdateAll' | 'skillChecking' | 'skillUpdating' | 'skillInstalledRevision' | 'skillLatestRevision' | 'skillUpToDate' | 'skillLocalModified' | 'skillUpdateAvailable' | 'skillChangedFiles' | 'skillViewChanges' | 'skillUpdateOne' | 'skillUpdateProgress' | 'skillCheckProgress' | 'skillCheckComplete' | 'skillUpdatingItem' | 'skillUpdateComplete' | 'skillAssociatingItem' | 'skillUnlinking' | 'skillUnlinked' | 'skillAssociated' | 'skillSourceFailed' | 'skillAvailableCount' | 'skillWaiting' | 'skillGitManaged' | 'skillEditSource' | 'skillUnlinkSource' | 'skillErrorDetails' | 'skillAssociating' | 'skillSourceUrl' | 'skillAssociateSource' | 'skillAssociateHint' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogSearchNote' | 'catalogEmpty' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

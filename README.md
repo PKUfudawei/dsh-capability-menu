@@ -82,6 +82,8 @@ Capability 是本插件引入的上位概念：Tool / Skill 是不同类型的 c
 - **GitHub Skill**：支持公开仓库的默认分支根目录（含 `SKILL.md`）、指定分支根目录 `.../tree/{branch}` 或其下的技能目录 `.../tree/{branch}/{skill-directory}`；也支持本机目录。导入需在运行 dsh 的机器上安装 Git；插件会校验 `SKILL.md`，只复制所选目录。
 - **Skill 更新**：从 GitHub 导入的 Skill 会在打开菜单时检查更新，页面打开期间每小时再检查一次；也可在 Skills 页手动检查、查看差异并单个或批量更新。只比较导入的 Skill 目录；本地修改会阻止覆盖。本地软链和预设 Skill 不支持自动更新。
 
+- 旧版普通目录可输入原 GitHub 链接关联当前或历史快照；历史搜索最多检查 200 个不同目录版本，限时 60 秒（不含初始检出），达到限制会明确提示，且不写入来源。支持修改或解除来源，验证失败保留旧来源，解除关联保留技能文件。含 `.git` 的目录可关联和检查，但需通过 Git 更新，不参与菜单单个或批量更新。内容比较仅排除技能根目录的 `.git` 元数据，不忽略其他本地文件。
+
 ## 安装与卸载
 
 前置：[Node.js](https://nodejs.org/en/download)，以及已安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（确保终端中可运行 `dsh` 命令）。DSH `0.2.2-rc.1` 要求 Node.js `>=24.9.0`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。

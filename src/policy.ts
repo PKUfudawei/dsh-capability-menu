@@ -353,6 +353,7 @@ export interface CapabilityPolicyService {
   removeSkillLocation(name: string, entryDir?: string): Promise<boolean>
   /** Repoint a registered skill entry at a different directory. */
   updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean>
+  dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<boolean>
   checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>
   associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>
   updateSkillFromGitHub(name: string, entryDir?: string): Promise<{ revision: string }>
@@ -713,6 +714,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
     updateSkillLocation(name: string, dir: string, entryDir?: string): Promise<boolean> {
       return locations.updateSkill(name, dir, entryDir)
+    },
+    dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<boolean> {
+      return locations.dissociateGitHubSkillSource(name, entryDir)
     },
     checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus> {
       return locations.checkSkillUpdate(name, entryDir)

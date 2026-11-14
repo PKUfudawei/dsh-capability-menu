@@ -10,6 +10,7 @@ export interface SkillUpdateStatus {
     readonly latestRevision?: string;
     readonly changedFiles?: readonly string[];
     readonly compareUrl?: string;
+    readonly gitManaged?: boolean;
 }
 export interface LocationConfig {
     /** Patch file holding the MCP rows. Defaults to the home-level layer. */
@@ -145,8 +146,10 @@ export declare class LocationRegistry {
     updateSkill(name: string, dir: string, entryDir?: string): Promise<boolean>;
     /** Compare an imported Skill with its tracked GitHub directory. */
     checkSkillUpdate(name: string, entryDir?: string): Promise<SkillUpdateStatus>;
-    /** Attach a source to an older import only when its files match the source. */
+    /** Validate a source against the complete local snapshot before saving it. */
     associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus>;
+    /** Forget provenance only; never remove the installed files. */
+    dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<boolean>;
     /** Validate and replace an imported Skill, keeping its old directory on failure. */
     updateSkillFromGitHub(name: string, entryDir?: string): Promise<{
         revision: string;

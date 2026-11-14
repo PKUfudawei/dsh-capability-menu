@@ -48,6 +48,7 @@ export interface SkillUpdateStatus {
   readonly latestRevision?: string
   readonly changedFiles?: readonly string[]
   readonly compareUrl?: string
+  readonly gitManaged?: boolean
 }
 
 export interface LocationConfig {
@@ -379,7 +380,7 @@ export class LocationRegistry {
         ...source.ref !== undefined ? [`--branch=${source.ref}`] : [],
         '--', source.repoUrl, repoDir,
       ])
-      await runGit(['-C', repoDir, 'sparse-checkout', 'set', '--cone', '--', source.path])
+      await runGit(['-C', repoDir, 'sparse-checkout', ...(source.path === '.' ? ['disable'] : ['set', '--cone', '--', source.path])])
 
       const sourceDir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
       const outsideRepo = relative(repoDir, sourceDir)
@@ -390,9 +391,8 @@ export class LocationRegistry {
       if (sourceStat?.isDirectory() !== true) {
         throw new Error(`仓库中没有该目录：${source.path}`)
       }
+      const manifest = await checkGitHubManifest(repoDir, source)
       await assertSafeSkillTree(sourceDir, source.path === '.')
-      const manifest = await checkSkillManifest(sourceDir)
-      if (!manifest.ok) throw new Error(manifest.message)
 
       await mkdir(skillsDir, { recursive: true })
       if (await lstat(destination).then(() => true, () => false)) {
@@ -424,7 +424,7 @@ export class LocationRegistry {
       if (isGitMissing(error)) throw new Error('导入 GitHub Skill 需要在运行 dsh 的机器上安装 git')
       if (isGitFailure(error)) {
         const detail = gitFailureMessage(error)
-        throw new Error(`GitHub 检出失败：${detail}`)
+        throw new Error(gitUserMessage(detail))
       }
       throw error
     } finally {
@@ -497,11 +497,12 @@ export class LocationRegistry {
     const record = (await readGitHubSources(skillsDir))[name]
     const base = { name, entryDir: skillsDir }
     if (entry === undefined || entry.linked || record === undefined) return { ...base, status: 'unmanaged' }
-    const common = { ...base, sourceUrl: record.url, installedRevision: record.installedRevision }
+    const common = { ...base, sourceUrl: record.url, installedRevision: record.installedRevision, gitManaged: await hasGitMetadata(entry.path) }
     if (await skillDigest(entry.path) !== record.installedDigest) return { ...common, status: 'modified' }
     const source = parseGitHubSkillUrl(record.url)
     return withGitHubCheckout(source, async repoDir => {
       const latestRevision = await runGit(['-C', repoDir, 'rev-parse', 'HEAD'])
+      await checkGitHubManifest(repoDir, source)
       const latestTree = await gitSkillTree(repoDir, source.path)
       if (latestTree === record.installedTree) return { ...common, latestRevision, status: 'current' }
       const sourceDir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
@@ -511,31 +512,48 @@ export class LocationRegistry {
     })
   }
 
-  /** Attach a source to an older import only when its files match the source. */
+  /** Validate a source against the complete local snapshot before saving it. */
   async associateGitHubSkillSource(name: string, url: string, entryDir?: string): Promise<SkillUpdateStatus> {
     const skillsDir = await this.resolveSkillsDir(entryDir)
     const entry = await describeSkillEntry(skillsDir, name, entryDir === undefined ? 'user' : 'project')
     if (entry === undefined || entry.linked || !entry.valid) throw new Error(`Skill「${name}」不是可关联的本地目录`)
-    if ((await readGitHubSources(skillsDir))[name] !== undefined) throw new Error(`Skill「${name}」已有 GitHub 来源`)
+    const previous = (await readGitHubSources(skillsDir))[name]
+    const installedDigest = await skillDigest(entry.path)
+    if (previous && previous.installedDigest !== installedDigest) throw new Error(`Skill「${name}」含有本地修改，不能修改来源`)
     const source = parseGitHubSkillUrl(url)
-    const revision = await withGitHubCheckout(source, async repoDir => {
+    return withGitHubCheckout(source, async repoDir => {
       const sourceDir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
+      await checkGitHubManifest(repoDir, source)
       await assertSafeSkillTree(sourceDir, source.path === '.')
-      const manifest = await checkSkillManifest(sourceDir)
-      if (!manifest.ok) throw new Error(manifest.message)
+      const latestRevision = await runGit(['-C', repoDir, 'rev-parse', 'HEAD'])
+      const latestTree = await gitSkillTree(repoDir, source.path)
+      const changedFiles = await changedSkillFiles(entry.path, sourceDir)
+      const match = await matchSkillHistory(repoDir, source, installedDigest, latestRevision)
+      const manifest = await checkGitHubManifest(repoDir, source)
       if (manifest.name !== entry.skillName) throw new Error(`GitHub Skill name 与已安装的「${entry.skillName}」不一致`)
-      const installedDigest = await skillDigest(entry.path)
-      if (await skillDigest(sourceDir, source.path === '.') !== installedDigest) {
-        throw new Error(`Skill「${name}」与该 GitHub 来源的内容不同，不能安全关联`)
-      }
-      const installedRevision = await runGit(['-C', repoDir, 'rev-parse', 'HEAD'])
-      await this.saveGitHubSource(skillsDir, name, {
-        url: url.trim(), installedRevision,
-        installedTree: await gitSkillTree(repoDir, source.path), installedDigest, skillName: manifest.name,
+      // Downloading and searching can take time. Never save a stale baseline.
+      if (await skillDigest(entry.path) !== installedDigest) throw new Error(`Skill「${name}」在关联期间发生变化，请重试`)
+      const gitManaged = await hasGitMetadata(entry.path)
+      await this.changeGitHubSources(skillsDir, records => {
+        if (JSON.stringify(records[name]) !== JSON.stringify(previous)) throw new Error('来源记录已变化，请重试')
+        records[name] = { url: url.trim(), installedRevision: match.revision, installedTree: match.tree, installedDigest, skillName: manifest.name }
       })
-      return installedRevision
+      return {
+        status: match.tree === latestTree ? 'current' : 'available', name, entryDir: skillsDir,
+        sourceUrl: url.trim(), installedRevision: match.revision, latestRevision, gitManaged,
+        ...(match.tree === latestTree ? {} : { changedFiles,
+          compareUrl: `${source.repoUrl.slice(0, -4)}/compare/${match.revision}...${latestRevision}` }),
+      }
     })
-    return { status: 'current', name, entryDir: skillsDir, sourceUrl: url.trim(), installedRevision: revision, latestRevision: revision }
+  }
+
+  /** Forget provenance only; never remove the installed files. */
+  async dissociateGitHubSkillSource(name: string, entryDir?: string): Promise<boolean> {
+    const skillsDir = await this.resolveSkillsDir(entryDir)
+    const entry = await describeSkillEntry(skillsDir, name, entryDir === undefined ? 'user' : 'project')
+    if (!entry || entry.linked) throw new Error('该技能不是可管理的本地目录')
+    await this.forgetGitHubSource(skillsDir, name)
+    return true
   }
 
   /** Validate and replace an imported Skill, keeping its old directory on failure. */
@@ -544,13 +562,13 @@ export class LocationRegistry {
     const entry = await describeSkillEntry(skillsDir, name, entryDir === undefined ? 'user' : 'project')
     const record = (await readGitHubSources(skillsDir))[name]
     if (entry === undefined || entry.linked || record === undefined) throw new Error(`Skill「${name}」没有可更新的 GitHub 来源`)
+    if (await hasGitMetadata(entry.path)) throw new Error('该技能由 Git 管理，请通过 Git 更新')
     if (await skillDigest(entry.path) !== record.installedDigest) throw new Error(`Skill「${name}」含有本地修改，更新已取消`)
     const source = parseGitHubSkillUrl(record.url)
     return withGitHubCheckout(source, async repoDir => {
       const sourceDir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
+      const manifest = await checkGitHubManifest(repoDir, source)
       await assertSafeSkillTree(sourceDir, source.path === '.')
-      const manifest = await checkSkillManifest(sourceDir)
-      if (!manifest.ok) throw new Error(manifest.message)
       if (manifest.name !== record.skillName) throw new Error(`Skill name 已从「${record.skillName}」变为「${manifest.name}」，无法自动更新`)
       const revision = await runGit(['-C', repoDir, 'rev-parse', 'HEAD'])
       const installedTree = await gitSkillTree(repoDir, source.path)
@@ -574,12 +592,14 @@ export class LocationRegistry {
         // Recheck after the download: an editor may have changed the installed
         // Skill while the clone was in progress.
         if (await skillDigest(entry.path) !== record.installedDigest) throw new Error(`Skill「${name}」含有本地修改，更新已取消`)
+        if (await hasGitMetadata(entry.path)) throw new Error('该技能由 Git 管理，请通过 Git 更新')
         await rename(entry.path, backup)
         backedUp = true
         await rename(stagedSkill, entry.path)
         replaced = true
-        await this.saveGitHubSource(skillsDir, name, {
-          ...record, installedRevision: revision, installedTree, installedDigest,
+        await this.changeGitHubSources(skillsDir, records => {
+          if (JSON.stringify(records[name]) !== JSON.stringify(record)) throw new Error('来源记录已变化，更新已取消，请重试')
+          records[name] = { ...record, installedRevision: revision, installedTree, installedDigest }
         })
         committed = true
         try {
@@ -760,9 +780,9 @@ function parseGitHubSkillUrl(input: string): GitHubSkillSource {
   }
 }
 
-async function runGit(args: string[]): Promise<string> {
+async function runGit(args: string[], timeout = 120_000): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
-    timeout: 120_000,
+    timeout,
     maxBuffer: 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
   })
@@ -783,7 +803,6 @@ async function readGitHubSources(skillsDir: string): Promise<Record<string, GitH
     if (typeof row['url'] !== 'string' || typeof row['installedRevision'] !== 'string'
       || typeof row['installedTree'] !== 'string' || typeof row['installedDigest'] !== 'string'
       || typeof row['skillName'] !== 'string') throw new Error(`Skill「${name}」来源记录格式无效`)
-    parseGitHubSkillUrl(row['url'])
     records[name] = {
       url: row['url'], installedRevision: row['installedRevision'],
       installedTree: row['installedTree'], installedDigest: row['installedDigest'], skillName: row['skillName'],
@@ -806,18 +825,25 @@ async function withGitHubCheckout<T>(source: GitHubSkillSource, use: (repoDir: s
       ...source.ref !== undefined ? [`--branch=${source.ref}`] : [],
       '--', source.repoUrl, repoDir,
     ])
-    if (source.path !== '.') await runGit(['-C', repoDir, 'sparse-checkout', 'set', '--cone', '--', source.path])
+    await runGit(['-C', repoDir, 'sparse-checkout', ...(source.path === '.' ? ['disable'] : ['set', '--cone', '--', source.path])])
     return await use(repoDir)
   } catch (error) {
     if (isGitMissing(error)) throw new Error('检查 GitHub Skill 更新需要在运行 dsh 的机器上安装 git')
-    if (isGitFailure(error)) throw new Error(`GitHub 检出失败：${gitFailureMessage(error)}`)
+    if (isGitFailure(error)) throw new Error(gitUserMessage(gitFailureMessage(error)))
     throw error
   } finally {
     await rm(checkoutRoot, { recursive: true, force: true })
   }
 }
 
-async function skillFiles(dir: string, ignoreGit = false): Promise<Map<string, string>> {
+async function hasGitMetadata(dir: string): Promise<boolean> {
+  return lstat(join(dir, '.git')).then(() => true, error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  })
+}
+
+async function skillFiles(dir: string, ignoreGit = true): Promise<Map<string, string>> {
   const result = new Map<string, string>()
   async function visit(current: string, prefix: string): Promise<void> {
     const entries = await readdir(current, { withFileTypes: true })
@@ -834,7 +860,7 @@ async function skillFiles(dir: string, ignoreGit = false): Promise<Map<string, s
   return result
 }
 
-async function skillDigest(dir: string, ignoreGit = false): Promise<string> {
+async function skillDigest(dir: string, ignoreGit = true): Promise<string> {
   const files = await skillFiles(dir, ignoreGit)
   const hash = createHash('sha256')
   for (const [path, digest] of [...files].sort(([a], [b]) => a.localeCompare(b))) hash.update(path).update('\0').update(digest).update('\0')
@@ -1033,4 +1059,74 @@ function parseFrontmatter(raw: string): Record<string, unknown> | 'no-frontmatte
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'bad-yaml'
   return parsed as Record<string, unknown>
+}
+
+/** Keep diagnostics available without making raw git stderr the main message. */
+function gitUserMessage(detail: string): string {
+  const summary = /timed out|timeout|SIGTERM/i.test(detail) ? 'GitHub 操作超时，请稍后重试'
+    : /Could not resolve|Failed to connect|unable to access/i.test(detail) ? '无法连接 GitHub，请检查网络后重试'
+    : /Remote branch|not a valid object|unknown revision/i.test(detail) ? '找不到指定分支或版本，请检查来源链接'
+    : /not found|Authentication|password|Username|Permission denied/i.test(detail) ? '仓库不存在或当前无法访问；仅支持公开 GitHub 仓库'
+    : 'GitHub 操作失败，请检查来源链接后重试'
+  return `${summary}\n\n[details]\n${detail}`
+}
+
+async function checkGitHubManifest(repoDir: string, source: GitHubSkillSource) {
+  const dir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
+  const manifest = await checkSkillManifest(dir)
+  if (manifest.ok) return manifest
+  if (!await pathExists(join(dir, 'SKILL.md'))) {
+    // Query the Git tree rather than sparse working files. Never auto-select a Skill.
+    const paths = (await runGit(['-C', repoDir, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'])).split('\0')
+      .filter(path => path === 'SKILL.md' || path.endsWith('/SKILL.md'))
+    const ref = source.ref ?? await runGit(['-C', repoDir, 'symbolic-ref', '--short', 'HEAD'])
+    const candidates = paths.slice(0, 20).map(path => {
+      const directory = path === 'SKILL.md' ? '' : path.slice(0, -9)
+      return `${directory || '.'}: ${source.repoUrl.slice(0, -4)}/tree/${encodeURIComponent(ref)}${directory ? '/' + directory.split('/').map(encodeURIComponent).join('/') : ''}`
+    })
+    throw new Error(`所选目录「${source.path}」没有 SKILL.md。请使用包含 SKILL.md 的技能子目录链接。${candidates.length ? '\n可用技能目录：\n' + candidates.join('\n') : '\n仓库中未找到可用技能。'}`)
+  }
+  throw new Error(manifest.message.replaceAll(dir, source.path))
+}
+
+/** Search only on explicit association, with a shared deadline and distinct-tree budget. */
+async function matchSkillHistory(repoDir: string, source: GitHubSkillSource, digest: string, tip: string): Promise<{ revision: string; tree: string }> {
+  const deadline = Date.now() + 60_000
+  const limitMessage = '历史搜索达到限制，尚未找到匹配版本；本地内容未被修改，请稍后重试或使用更接近安装版本的分支'
+  const git = async (args: string[]) => {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(limitMessage)
+    try { return await runGit(['--literal-pathspecs', '-C', repoDir, ...args], remaining) }
+    catch (error) {
+      if (Date.now() >= deadline || (error as { killed?: boolean }).killed) throw new Error(limitMessage)
+      throw error
+    }
+  }
+  const seen = new Set<string>()
+  const visited = new Set<string>()
+  const dir = source.path === '.' ? repoDir : resolve(repoDir, ...source.path.split('/'))
+  for (let depth = 0; depth <= 8192; depth = depth === 0 ? 64 : depth * 2) {
+    if (depth) await git(['fetch', '--deepen=' + depth, '--filter=blob:none', 'origin'])
+    const revisions = [tip, ...(await git(['log', '--full-history', '--format=%H', '-n', '1001', tip, '--', source.path])).split('\n').filter(Boolean)]
+    for (const revision of revisions) {
+      if (visited.has(revision)) continue
+      visited.add(revision)
+      // A deletion has no tree at this path. ls-tree represents it as an empty result.
+      const tree = source.path === '.' ? await git(['rev-parse', `${revision}^{tree}`])
+        : (await git(['ls-tree', revision, '--', source.path])).split(/\s+/)[2]
+      if (!tree || seen.has(tree)) continue
+      if (seen.size >= 200) throw new Error(limitMessage)
+      seen.add(tree)
+      await git(['checkout', '--detach', '--force', revision])
+      await assertSafeSkillTree(dir, source.path === '.')
+      const matches = await skillDigest(dir) === digest
+      if (Date.now() >= deadline) throw new Error(limitMessage)
+      if (matches) return { revision, tree }
+    }
+    if (revisions.length >= 1002) throw new Error(limitMessage)
+    if (await git(['rev-parse', '--is-shallow-repository']) === 'false') {
+      throw new Error('本地技能与该来源的历史版本内容不同，不能安全关联；请检查来源或本地修改')
+    }
+  }
+  throw new Error(limitMessage)
 }
