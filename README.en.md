@@ -138,6 +138,7 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 Scope and exceptions:
 
 - MCP tools and cataloged DSH native tools support all three tiers; native tools appear in the `built-in` group. Do not name an MCP server `built-in`, which would collide with that group.
+- When an MCP server has tools in the current scope and all of them are Disabled, its shared instructions (DSH's `mcp:<server>` section) are no longer injected automatically. Partial disabling removes the disabled tools' definitions but keeps shared instructions; On-demand tools also keep them. Re-enabling restores the instructions without disconnecting the server or deleting chat history. An empty tool inventory is not treated as all Disabled. If the host also contributes an MCP resource catalog and resource tools remain available, server instructions are conservatively retained because the host does not expose per-server resource instruction ownership.
 - `meta_search` and `meta_invoke` are Resident by default and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu; handwritten wildcard rules can still match it, so do not set it to On-demand or Disabled.
 - Keep frequently used tools Resident; use `meta_search` to find an On-demand tool's ID and inspect its schema before invocation.
 

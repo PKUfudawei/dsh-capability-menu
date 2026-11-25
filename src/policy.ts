@@ -13,6 +13,7 @@ import { escapeText } from '@deepseek-ai/dsh-skill'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
 import { readTierState, writeTierState, type TierState } from './policy-state.ts'
 import { installToolAdmission } from './tool-admission.ts'
+import { projectMcpInstructions } from './mcp-instructions.ts'
 import {
   LocationRegistry,
   defaultLocationConfig,
@@ -791,9 +792,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   // Point the model to the sole discovery entry when On-demand capabilities
   // exist. Skills keep the dsh-native catalog, filtered to Resident above.
-  ctx.on('system-prompt/assemble', async (_assembly: PromptPresentation, _context, next) => {
+  ctx.on('system-prompt/assemble', async (_assembly: PromptPresentation, context, next) => {
     const resolved = await next()
-    const projected = projectAssemblyTools(resolved, service)
+    const projected = projectMcpInstructions(
+      projectAssemblyTools(resolved, service),
+      ctx.tools.schemas(context.scope),
+      name => service.isDisabledTool(name),
+    )
     const hasOnDemand = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })
       .some(record => service.classifyCapability(record.id, record.kind) === 'on-demand')
     if (!hasOnDemand) return projected
