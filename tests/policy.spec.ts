@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { assembleForStep } from './execute-one.ts'
@@ -131,6 +132,103 @@ describe('wildcard / rule matching', () => {
 })
 
 describe('capability-menu-policy plugin', () => {
+  // Mirrors registerServerContext in the published dsh-mcp-client 0.2.2-rc.1:
+  // instructions are a literal section, independent of the registered tools.
+  function registerMcpInstructions(ctx: Context, server: string): void {
+    ctx.systemPrompt.section({
+      name: `mcp:${server}`,
+      order: ctx.systemPrompt.getSectionOrder('MCP_SERVERS'),
+      interpolate: false,
+      text: () => `### MCP server: ${server}\n\n${server} instructions with literal {{example}}`,
+    })
+  }
+
+  it('removes MCP instructions only when all its tools are Disabled and restores them live', async () => {
+    const ctx = await setup()
+    try {
+      registerMcpInstructions(ctx, 'alpha')
+      registerMcpInstructions(ctx, 'alpha-other')
+      registerTool(ctx, 'mcp__alpha__read', 'ALPHA_READ_DESCRIPTION')
+      registerTool(ctx, 'mcp__alpha__write', 'ALPHA_WRITE_DESCRIPTION')
+      registerTool(ctx, 'mcp__alpha-other__read')
+      ctx.systemPrompt.section({ name: 'custom-guidance', order: 0, text: 'Keep this mention of alpha.' })
+
+      for (const disabled of [[], ['mcp__alpha__read'], ['mcp__alpha__read', 'mcp__alpha__write'], ['mcp__alpha__*'], []]) {
+        await ctx.capabilityPolicy.updateConfig({ tools: { disabled } })
+        const assembly = await assembleForStep(ctx)
+        const allDisabled = disabled.length === 2 || disabled[0] === 'mcp__alpha__*'
+        expect(renderPrompt(assembly).includes('alpha instructions')).toBe(!allDisabled)
+        expect(renderPrompt(assembly)).toContain('alpha-other instructions with literal {{example}}')
+        expect(renderPrompt(assembly)).toContain('Keep this mention of alpha.')
+        expect(assembly.tools.some(tool => tool.description === 'ALPHA_READ_DESCRIPTION')).toBe(disabled.length === 0)
+        expect(assembly.tools.some(tool => tool.description === 'ALPHA_WRITE_DESCRIPTION')).toBe(!allDisabled)
+      }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps MCP instructions for On-demand tools, including a Disabled/On-demand mix', async () => {
+    const ctx = await setup()
+    try {
+      registerMcpInstructions(ctx, 'alpha')
+      registerTool(ctx, 'mcp__alpha__read')
+      registerTool(ctx, 'mcp__alpha__write')
+      for (const disabled of [[], ['mcp__alpha__write']]) {
+        await ctx.capabilityPolicy.updateConfig({ tools: { 'on-demand': ['mcp__alpha__*'], disabled } })
+        const assembly = await assembleForStep(ctx)
+        expect(assembly.tools.filter(tool => tool.name.startsWith('mcp__alpha__'))).toEqual([])
+        expect(renderPrompt(assembly)).toContain('alpha instructions')
+      }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('does not infer Disabled from an empty or disconnected MCP tool inventory', async () => {
+    const ctx = await setup({ tools: { disabled: ['mcp__alpha__*'] } })
+    try {
+      registerMcpInstructions(ctx, 'alpha')
+      expect(renderPrompt(await assembleForStep(ctx))).toContain('alpha instructions')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('uses the current scope instead of the global catalog to decide MCP instruction visibility', async () => {
+    const ctx = await setup({ tools: { disabled: ['mcp__alpha__read'] } })
+    const otherAgent = { id: 'other-agent' } as Parameters<typeof assembleForStep>[1]
+    const scoped = createScope(ctx, otherAgent!)
+    try {
+      registerMcpInstructions(ctx, 'alpha')
+      registerTool(ctx, 'mcp__alpha__read')
+      await scoped.ctx.inject(['tools'], inner => registerTool(inner, 'mcp__alpha__write'))
+      expect(renderPrompt(await assembleForStep(ctx))).not.toContain('alpha instructions')
+      expect(renderPrompt(await assembleForStep(ctx, otherAgent))).toContain('alpha instructions')
+    } finally {
+      await scoped.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('preserves MCP instructions while shared resource access remains enabled', async () => {
+    const ctx = await setup({ tools: { disabled: ['mcp__alpha__*'] } })
+    try {
+      registerMcpInstructions(ctx, 'alpha')
+      registerTool(ctx, 'mcp__alpha__read')
+      const resourceTools = ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']
+      for (const name of resourceTools) registerTool(ctx, name)
+      ctx.systemPrompt.section({ name: 'mcp-resource-servers', order: 0, text: 'Resource access remains available.' })
+      expect(renderPrompt(await assembleForStep(ctx))).toContain('alpha instructions')
+      await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__alpha__*'], 'on-demand': resourceTools } })
+      expect(renderPrompt(await assembleForStep(ctx))).toContain('alpha instructions')
+      await ctx.capabilityPolicy.updateConfig({ tools: { disabled: ['mcp__alpha__*', ...resourceTools] } })
+      expect(renderPrompt(await assembleForStep(ctx))).not.toContain('alpha instructions')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('projects web guidance with the four tool tier combinations', async () => {
     const ctx = await setup({})
     for (const name of ['web_search', 'web_fetch']) registerTool(ctx, name)
