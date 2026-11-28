@@ -22,7 +22,7 @@ interface SessionSource {
   subscribe(listener: () => void): () => void;
 }
 //#endregion
-//#region ../../../../opt/homebrew/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-agent-preset-registry/lib/types/display.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+dsh-agent-preset-registry@0.2.2-rc.5_rj7kiipz5xj5ujhust2idtxere/node_modules/@deepseek-ai/dsh-agent-preset-registry/lib/types/display.d.ts
 /**
  * Display resolution for roster presets, shared by every surface that renders
  * preset names: shipped presets resolve through locale dictionary keys, and
