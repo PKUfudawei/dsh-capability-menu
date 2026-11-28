@@ -2,6 +2,10 @@
 
 Thanks for helping improve `dsh-capability-menu`. Bug reports, documentation fixes, and code contributions are welcome. You can write issues and pull requests in English or Chinese.
 
+If you already have a fix or implementation in mind, we also welcome a pull request linked to the issue. For larger changes, discuss the approach in an issue first to avoid duplicate work. A PR is not required to open an issue: a clear report and reproducible steps are valuable contributions too.
+
+欢迎提交 Issue 报告问题或提出建议。如果你已有修复或实现方案，也欢迎提交 PR，并关联对应 Issue。较大的改动建议先通过 Issue 讨论方向，减少重复工作。暂时无法提供代码也没关系，清晰的问题描述和复现步骤同样是有价值的贡献。
+
 ## Before you start
 
 - Check existing issues and pull requests for related work. An issue is helpful for a large change or a change to the public behavior, but it is not required for a small fix.
@@ -19,6 +23,14 @@ pnpm test
 pnpm build
 npm pack --dry-run
 ```
+
+With a locally installed DSH rc.5 runtime and matching shared host packages, run the real AgentLoop/catalog regression without a network model:
+
+```sh
+DSH_RUNTIME_MODULES="$(npm root -g)/@deepseek-ai/dsh/node_modules" node scripts/check-rc5.mjs
+```
+
+This checks committed first-turn catalogs, the actual model request, subsequent-turn deduplication, `meta_search`, and tier-change updates. It does not replace Web UI or Windows verification.
 
 Run the relevant commands before opening a pull request. If a command fails for a reason unrelated to your change, report the failure and your environment in the PR. CI runs all of these checks on Linux. Its Windows job runs type checking and `tests/self-update.spec.ts`; changes specific to Windows or the DSH desktop app need relevant Windows or desktop verification when possible.
 
