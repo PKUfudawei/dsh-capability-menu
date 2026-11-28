@@ -70,21 +70,22 @@ After installation, open **Settings** and select **Capability Menu** from the se
 
 Capability Menu follows the current main conversation's **mode (Agent preset)**. Each mode saves its own Tool and Skill tiers; new modes start with Resident capabilities. Switching conversations updates the displayed mode. Until the current mode is known, the menu waits and does not save changes.
 
-Click a capability's tier button to cycle through Resident, On-demand, and Disabled. Click a server's tier-count button to change the currently displayed tools in that tier together. Changes save automatically and apply to subsequent requests.
-
 | Task | How to do it |
 | --- | --- |
+| Change a tier | Click a capability's tier button; a server's tier-count button changes the currently displayed tools together. Changes save automatically and apply to subsequent requests. |
 | Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
 | View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
 | Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
 | Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
+| Check and update Skills | Click **Check for updates** to review status and diffs, then update one or several Skills. Actions follow the current search filter. |
+| Associate a Skill source | Link a local Skill directory to a matching GitHub version. You can edit or unlink the source without removing the Skill files. |
 | View rules and on-demand catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
 | Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
 
 - **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
-- **Registration**: Add MCP servers, local Skill directories, or public GitHub Skills. GitHub imports require Git on the machine running dsh. Request headers and other MCP credentials are stored in the patch file; keep it secure.
-- **Skill updates**: Click **Check for updates** to review status and diffs, then update one or several Skills. Checks and updates follow the current search filter; local changes prevent replacement. Locally linked Skills must be updated through their original installation method; Mode Skills do not support automatic updates.
-- **Source association**: Link a local Skill directory to a matching GitHub version. You can edit or unlink the source without removing the Skill files.
+- **GitHub imports**: Git is required on the machine running dsh.
+- **MCP credentials**: Request headers and related settings are stored in the patch file; keep it secure.
+- **Skill update limits**: Local changes prevent replacement. Locally linked Skills must be updated through their original installation method; Mode Skills do not support automatic updates.
 
 ## Policy & catalog
 
