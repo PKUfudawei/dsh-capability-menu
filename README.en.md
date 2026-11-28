@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.1-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.1"/></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.5-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.5"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -92,9 +92,11 @@ Changes apply to subsequent requests after saving, without interrupting running 
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.1` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
+Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.5` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
 
-Plugin `0.1.9` supports DSH `0.2.2-rc.1` with full Tool tiering and `meta_invoke` forwarding.
+The current source supports DSH `0.2.2-rc.5`, including independent capability policies per session preset, Tool tiering, and `meta_invoke` forwarding. It also fixes On-demand skills appearing in the first-turn native skill catalog. Dependency declarations retain the previous DSH version ranges; these source changes become available through npm with the next package release.
+
+Verification scope: implementation-stage checks used the real rc.5 AgentLoop for first-turn catalogs, model requests, On-demand discovery, catalog deduplication, and tier changes. Routine CI still uses rc.1 for most host test dependencies and does not establish full rc.5 compatibility. Manual Windows/Web verification on rc.5 remains outstanding. See [Contributing](./CONTRIBUTING.md) for the reproduction command.
 
 ### Install from npm (recommended)
 

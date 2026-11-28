@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.1-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.1"/></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh"><img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.2--rc.5-4D6BFE.svg?style=flat-square&labelColor=161b22&logo=deepseek&logoColor=white" alt="DeepSeek Harness 0.2.2-rc.5"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/v/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
   <a href="https://github.com/PKUfudawei/dsh-capability-menu/actions"><img src="https://img.shields.io/github/actions/workflow/status/PKUfudawei/dsh-capability-menu/ci.yml?branch=master&label=CI&style=flat-square&labelColor=161b22&logo=github&logoColor=white" alt="CI"/></a>
   <a href="https://www.npmjs.com/package/@daweifu/capability-menu"><img src="https://img.shields.io/npm/d18m/@daweifu/capability-menu.svg?style=flat-square&color=CB3837&labelColor=161b22&logo=npm&logoColor=white" alt="downloads"/></a>
@@ -94,9 +94,11 @@ DSH `0.2.2-rc.5` 的原生技能目录在消息落盘前按当前预设过滤并
 
 ## 安装与卸载
 
-前置：[Node.js](https://nodejs.org/en/download)，以及已安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（确保终端中可运行 `dsh` 命令）。DSH `0.2.2-rc.1` 要求 Node.js `>=24.9.0`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
+前置：[Node.js](https://nodejs.org/en/download)，以及已安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（确保终端中可运行 `dsh` 命令）。DSH `0.2.2-rc.5` 要求 Node.js `>=24.9.0`。从 npm 安装无需单独安装 pnpm；从源码安装需要 pnpm。
 
-插件 `0.1.9` 适配 DSH `0.2.2-rc.1`，支持 Tool 三档分层和 `meta_invoke` 转发。
+当前源码已适配 DSH `0.2.2-rc.5`，支持按会话预设独立管理能力策略、Tool 三档分层和 `meta_invoke` 转发，并修复首轮原生技能目录包含按需技能的问题。依赖声明保留此前的 DSH 版本范围；这些源码改动需随新版 npm 包发布后才能通过 npm 安装获取。
+
+验证范围：实现阶段已使用真实 rc.5 AgentLoop 验证首轮目录、模型请求、按需检索、目录去重和档位变更。常规 CI 的主要宿主测试依赖仍为 rc.1，不能视作完整 rc.5 验证；rc.5 的 Windows/Web 手动验证尚未覆盖。复验命令见 [贡献指南](./CONTRIBUTING.md)。
 
 ### 从 npm 安装（推荐）
 
