@@ -20,16 +20,9 @@
 ## Table of Contents
 
 - [Capability Overview](#capability-overview)
-  - [Capability Model](#capability-model)
-  - [Capability Menu](#capability-menu)
 - [Installation and Uninstallation](#installation-and-uninstallation)
-  - [Install from npm (recommended)](#install-from-npm-recommended)
-  - [Install from source](#install-from-source)
-  - [Verify the install](#verify-the-install)
-  - [Uninstall](#uninstall)
+- [Capability Menu](#capability-menu)
 - [Policy & catalog](#policy--catalog)
-  - [Exposure rules](#exposure-rules)
-  - [On-demand search catalog](#on-demand-search-catalog)
 - [Contributing](#contributing)
 
 ---
@@ -39,50 +32,6 @@
 - Builds a unified capability catalog (`ctx.capability`) for DeepSeek Harness tools (including MCP and built-in tools) and skills.
 - Provides three policy tiers — **Resident / On-demand / Disabled** — to manage capability exposure and invocation.
 - Supplies on-demand capabilities only when needed, reducing the tool definitions sent with each request and saving tokens and context.
-
-### Capability Model
-
-*Capability* is the umbrella concept introduced by this plugin: a Tool and a Skill are different *kinds* of capability.
-
-| kind | provides to the agent | action | notes |
-| --- | --- | --- | --- |
-| `tool` | executes an action (an MCP tool or a harness-native built-in tool) | `execute` | indexed by `ctx.tools` |
-| `skill` | the method / flow / knowledge for a class of tasks | `load` | indexed by `ctx.skills` |
-
-The model gets two meta tools:
-
-| tool | role | corresponding entry |
-| --- | --- | --- |
-| `meta_search` | Search On-demand capabilities available to the current session; list mode reports total, returned, and whether results were truncated; detail returns descriptions and tool schemas | `@daweifu/capability-menu/search` |
-| `meta_invoke` | Unified execution surface for Tools and Skills; pass `force: true` to reload updated Skill instructions | `@daweifu/capability-menu/invoke` |
-
-### Capability Menu
-
-<p align="center">
-  <img src="assets/screenshot-tools_english.png" alt="Capability Menu Tools tab with exposure tiers and search descriptions grouped by server" width="48%"/>
-  <img src="assets/screenshot-skills_english.png" alt="Capability Menu Skills tab with exposure tiers and search descriptions grouped by source" width="48%"/>
-</p>
-
-After installation, open **Settings** and select **Capability Menu** from the settings navigation to manage Tools and Skills.
-
-Capability Menu follows the current main conversation's **mode (Agent preset)**. Each mode saves its own Tool and Skill tiers; new modes start with Resident capabilities. Switching conversations updates the displayed mode. Until the current mode is known, the menu waits and does not save changes.
-
-Click a capability's tier button to cycle through Resident, On-demand, and Disabled. Click a server's tier-count button to change the currently displayed tools in that tier together. Changes save automatically and apply to subsequent requests.
-
-| Task | How to do it |
-| --- | --- |
-| Change a tier | Click the capability's tier button to cycle its tier. The tier-count buttons beside a server cycle the currently displayed tools in the corresponding tier. |
-| Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
-| View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
-| Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
-| Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
-| View rules and on-demand catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
-| Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
-
-- **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
-- **Registration**: Add MCP servers, local Skill directories, or public GitHub Skills. GitHub imports require Git on the machine running dsh. Request headers and other MCP credentials are stored in the patch file; keep it secure.
-- **Skill updates**: Click **Check for updates** to review status and diffs, then update one or several Skills. Checks and updates follow the current search filter; local changes prevent replacement. Locally linked Skills must be updated through their original installation method; Mode Skills do not support automatic updates.
-- **Source association**: Link a local Skill directory to a matching GitHub version. You can edit or unlink the source without removing the Skill files.
 
 ## Installation and Uninstallation
 
@@ -104,17 +53,38 @@ pnpm install
 dsh plugin --profile web add .
 ```
 
-### Verify the install
-
-```sh
-dsh --profile web --dump-config | grep -m1 '== @daweifu/capability-menu'
-```
-
 ### Uninstall
 
 ```sh
 dsh plugin --profile web remove @daweifu/capability-menu
 ```
+
+## Capability Menu
+
+<p align="center">
+  <img src="assets/screenshot-tools_english.png" alt="Capability Menu Tools tab with exposure tiers and search descriptions grouped by server" width="48%"/>
+  <img src="assets/screenshot-skills_english.png" alt="Capability Menu Skills tab with exposure tiers and search descriptions grouped by source" width="48%"/>
+</p>
+
+After installation, open **Settings** and select **Capability Menu** from the settings navigation to manage Tools and Skills.
+
+Capability Menu follows the current main conversation's **mode (Agent preset)**. Each mode saves its own Tool and Skill tiers; new modes start with Resident capabilities. Switching conversations updates the displayed mode. Until the current mode is known, the menu waits and does not save changes.
+
+Click a capability's tier button to cycle through Resident, On-demand, and Disabled. Click a server's tier-count button to change the currently displayed tools in that tier together. Changes save automatically and apply to subsequent requests.
+
+| Task | How to do it |
+| --- | --- |
+| Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
+| View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
+| Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
+| Edit or remove | Click **Edit** on a server group in Tools or a Skill row in Skills. |
+| View rules and on-demand catalog | Click **Policy &amp; catalog** on the right side of the page header. The catalog tab also sets the search description limit. |
+| Edit search description | Set a Tool or Skill to **On-demand**, then click **Search description** beside it to edit a short version of the provider description. |
+
+- **MCP names**: Server groups omit the `mcp__server__` prefix. Hover for the full name; search and invocation still use the full ID.
+- **Registration**: Add MCP servers, local Skill directories, or public GitHub Skills. GitHub imports require Git on the machine running dsh. Request headers and other MCP credentials are stored in the patch file; keep it secure.
+- **Skill updates**: Click **Check for updates** to review status and diffs, then update one or several Skills. Checks and updates follow the current search filter; local changes prevent replacement. Locally linked Skills must be updated through their original installation method; Mode Skills do not support automatic updates.
+- **Source association**: Link a local Skill directory to a matching GitHub version. You can edit or unlink the source without removing the Skill files.
 
 ## Policy & catalog
 
@@ -135,12 +105,11 @@ All capabilities (Tool and Skill) fall into three tiers by their **exposure leve
 
 Scope and exceptions:
 
-- MCP tools and cataloged DSH native tools support all three tiers; native tools appear in the `built-in` group. Do not name an MCP server `built-in`, which would collide with that group.
-- When an MCP server has tools in the current scope and all of them are Disabled, its shared instructions (DSH's `mcp:<server>` section) are no longer injected automatically. Partial disabling removes the disabled tools' definitions but keeps shared instructions; On-demand tools also keep them. Re-enabling restores the instructions without disconnecting the server or deleting chat history. An empty tool inventory is not treated as all Disabled. If the host also contributes an MCP resource catalog and resource tools remain available, server instructions are conservatively retained because the host does not expose per-server resource instruction ownership.
-- `meta_search` and `meta_invoke` remain Resident and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu.
-- Keep frequently used tools Resident; use `meta_search` to find an On-demand tool's ID and inspect its schema before invocation.
+- **Tool scope**: MCP tools and cataloged DSH native tools support all three tiers. Native tools use the `built-in` group, so MCP servers cannot use that name.
+- **Fixed tools**: `meta_search` and `meta_invoke` remain Resident; Code Mode's `run_code` is outside this plugin's catalog and menu.
+- **MCP instructions**: When a server has tools and all are Disabled, its shared instructions are hidden. They remain visible if MCP resources are still available, and return when tools are re-enabled.
 
-#### Rule configuration and persistence
+### Policy storage
 
 The policy dialog lists the current mode's effective tool and skill tiers for inspection, not as a separate editable YAML file.
 
