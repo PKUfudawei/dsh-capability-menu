@@ -15,7 +15,9 @@ function flatListMaskUrl(): string {
 
 function navIconCss(maskUrl: string): string {
   return [
-    `[${NAV_ICON_MARKER}] > svg { display: none; }`,
+    // rc.5 wraps the fallback glyph in an aria-hidden navIcon span;
+    // older shells render the SVG directly inside the button.
+    `[${NAV_ICON_MARKER}] > svg, [${NAV_ICON_MARKER}] > span[aria-hidden="true"] { display: none; }`,
     `[${NAV_ICON_MARKER}]::before {`,
     '  content: "";',
     '  flex: none;',
@@ -33,8 +35,8 @@ export interface NavIconContext {
 }
 
 /**
- * The current settings.section slot has no icon option. Match this plugin's
- * localized nav label and replace only its fallback gear, as dsh-market does.
+ * Keep compatibility with shells predating settings.section.icon. Match this
+ * plugin's localized nav label and replace only its fallback gear.
  */
 export function installSettingsNavIcon(ctx: NavIconContext, resolveLabel: () => string): void {
   if (typeof document === 'undefined') return

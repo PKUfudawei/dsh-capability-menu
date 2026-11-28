@@ -6,6 +6,9 @@ export interface SkillUpdateStatus {
     readonly name: string;
     readonly entryDir: string;
     readonly sourceUrl?: string;
+    readonly latestCommitUrl?: string;
+    readonly latestCommitRevision?: string;
+    readonly latestCommitSubject?: string;
     readonly installedRevision?: string;
     readonly latestRevision?: string;
     readonly changedFiles?: readonly string[];

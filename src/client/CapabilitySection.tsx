@@ -80,8 +80,6 @@ export interface CapabilitySectionInjected {
 export type CapabilitySectionProps = CapabilitySectionInjected
 
 export type CapabilityKey =
-  | 'skillAvailableCount'
-  | 'skillWaiting'
   | 'currentPreset'
   | 'policySourceLabel'
   | 'waitingPreset'
@@ -308,6 +306,8 @@ const CLASS_SHORT_KEYS: Record<CapabilityClass, CapabilityKey> = {
 const CSS_ID = 'capability-menu-section-css'
 const CSS = `
 .mc-section{display:flex;flex-direction:column;gap:12px;color:var(--dsw-alias-label-primary)}
+.mc-policy-control{display:inline-flex;align-items:center;min-width:0;flex-shrink:0}
+@media(max-width:640px){.mc-group-header{flex-wrap:wrap}.mc-group-header .mc-server-meta{flex-wrap:wrap;width:100%;padding-left:22px;box-sizing:border-box}}
 .mc-heading{margin:0;font-size:18px;font-weight:600}
 .mc-heading-row{display:flex;align-items:center;gap:12px;min-width:0;flex-wrap:wrap}
 .mc-heading-meta{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
@@ -378,7 +378,7 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-filter{display:flex;padding-top:0;margin-top:-6px;margin-bottom:-8px}
 .mc-filter input{box-sizing:border-box;width:100%;min-width:0;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px;line-height:18px}
 .mc-filter input:hover{border-color:var(--dsw-alias-border-l3)}
-.mc-filter input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;border-color:transparent}
+.mc-filter input:focus{outline:none;border-color:var(--dsw-alias-label-tertiary);box-shadow:inset 0 0 0 1px var(--dsw-alias-label-tertiary)}
 /* Skills source tabs (global/project/preset): same underline chrome, no right-side summary. */
 .mc-subtabs{border-bottom:1px solid var(--dsw-alias-border-l2);display:flex;align-items:flex-end;gap:22px}
 .mc-tab-group{display:flex;align-items:flex-end;gap:22px}
@@ -400,9 +400,23 @@ body[data-ds-dark-theme] .mc-chip--disabled{color:#b8abad}
 .mc-panel--tight{padding-top:0}
 .mc-panel--tight .mc-subtabs .mc-tab{padding-top:4px}
 .mc-panel-inner{display:flex;flex-direction:column;gap:14px}
-.mc-skill-updates{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
-.mc-skill-update-head,.mc-skill-update-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mc-skill-update-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.mc-skill-update-toolbar .mc-skill-update-head{margin-left:auto;justify-content:flex-end}
+.mc-skill-updates{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--dsw-alias-label-caption)}
+.mc-skill-update-head,.mc-skill-update-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mc-skill-toolbar-action{appearance:none;display:inline-flex;align-items:center;gap:4px;border:0;border-radius:0;box-shadow:none;background:transparent;padding:0;color:var(--dsw-alias-label-secondary);font:inherit;line-height:20px;white-space:nowrap;cursor:pointer}
+.mc-skill-toolbar-action:hover{color:var(--dsw-alias-label-primary);background:transparent}
+.mc-skill-toolbar-action:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:3px}
+.mc-skill-toolbar-action:disabled{opacity:.6;cursor:default}
+.mc-skill-update-status{min-width:0;overflow-wrap:anywhere}
 .mc-skill-update-row{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px;font-size:12px}
+.mc-skill-update-result{display:flex;align-items:center;gap:8px;min-width:0;width:100%}
+.mc-skill-update-result strong{min-width:0;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-skill-update-result>span:not(.mc-skill-commit){flex-shrink:0}
+.mc-skill-update-result a{color:color-mix(in srgb,var(--dsw-alias-label-primary) 45%,#8b9b92);text-decoration:none}
+.mc-skill-update-result a:hover,.mc-skill-update-result a:focus-visible{text-decoration:underline;text-underline-offset:3px}
+.mc-skill-commit-link{flex-shrink:0;font-variant-numeric:tabular-nums}
+.mc-skill-commit{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
 .mc-skill-update-row details{width:100%}
 .mc-skill-update-row li{overflow-wrap:anywhere}
 .mc-group{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}
@@ -1537,7 +1551,7 @@ function ReadyBody(props: {
             <p className="mc-empty">{needle === '' ? t('emptySkills') : t('filterNoMatch')}</p>
           ) : (
             <>
-              <SkillUpdatePanel remote={remote} active={activeTab === 'skills'} t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} />
+              <SkillUpdatePanel remote={remote} filteredSkills={needle === '' ? undefined : skills} t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} tabs={
                 <div className="mc-tab-group" role="tablist" aria-label={t('skillsGroup')}>
                   <button
                     type="button"
@@ -1570,6 +1584,7 @@ function ReadyBody(props: {
                     {t('presetSkills')}
                   </button>
                 </div>
+              } />
               {skillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList

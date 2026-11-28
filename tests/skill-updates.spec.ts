@@ -74,6 +74,60 @@ async function fixture(): Promise<Fixture> {
 }
 
 describe('GitHub Skill updates', () => {
+  it('checks a linked Git checkout without fetching into or modifying its repository', async () => {
+    const f = await fixture()
+    await f.writeSkill('alpha', 'Original')
+    const skillCommit = f.commit('Add alpha')
+    const checkout = join(f.root, 'checkout')
+    git(f.root, 'clone', f.repo, checkout)
+    git(checkout, 'remote', 'set-url', 'origin', 'https://github.com/example-owner/example-skills.git')
+    await f.registry.addSkill(join(checkout, 'skills', 'alpha'))
+    const before = git(checkout, 'rev-parse', 'HEAD')
+    const tracking = git(checkout, 'rev-parse', 'refs/remotes/origin/main')
+    expect((await f.registry.checkSkillUpdate('alpha')).status).toBe('current')
+    await f.writeSkill('beta', 'Unrelated')
+    f.commit('Unrelated change')
+    const unchanged = await f.registry.checkSkillUpdate('alpha')
+    expect(unchanged).toMatchObject({ status: 'current', latestCommitRevision: skillCommit, latestCommitSubject: 'Add alpha' })
+    expect(unchanged.latestCommitUrl).toBe(`https://github.com/example-owner/example-skills/commit/${skillCommit}`)
+    await f.writeSkill('alpha', 'New version')
+    f.commit('Update alpha')
+    expect(await f.registry.checkSkillUpdate('alpha')).toMatchObject({ status: 'available', gitManaged: true, installedRevision: before, latestCommitSubject: 'Update alpha' })
+    expect(git(checkout, 'rev-parse', 'HEAD')).toBe(before)
+    expect(git(checkout, 'rev-parse', 'refs/remotes/origin/main')).toBe(tracking)
+    expect(git(checkout, 'status', '--porcelain')).toBe('')
+    expect((await lstat(join(f.skillsDir, 'alpha'))).isSymbolicLink()).toBe(true)
+    await expect(f.registry.updateSkillFromGitHub('alpha')).rejects.toThrow(/没有可更新/)
+    await writeFile(join(checkout, 'skills', 'alpha', 'local.txt'), 'local edits')
+    expect((await f.registry.checkSkillUpdate('alpha')).status).toBe('modified')
+    expect(await readFile(join(checkout, 'skills', 'alpha', 'local.txt'), 'utf8')).toBe('local edits')
+  })
+
+  it('checks linked installer copies, reports unknown sources, and never guesses a baseline hash', async () => {
+    const f = await fixture()
+    await f.writeSkill('alpha', 'Original')
+    f.commit('Add alpha')
+    const root = join(f.root, '.agents')
+    const target = join(root, 'skills', 'alpha')
+    await mkdir(join(root, 'skills'), { recursive: true })
+    await cp(join(f.repo, 'skills', 'alpha'), target, { recursive: true })
+    await f.registry.addSkill(target)
+    expect((await f.registry.checkSkillUpdate('alpha')).status).toBe('unmanaged')
+    const lock = JSON.stringify({ version: 3, skills: { alpha: {
+      sourceType: 'github', sourceUrl: 'https://github.com/example-owner/example-skills.git',
+      skillPath: 'skills/alpha/SKILL.md', skillFolderHash: 'unknown-installer-algorithm',
+    } } })
+    await writeFile(join(root, '.skill-lock.json'), lock)
+    expect((await f.registry.checkSkillUpdate('alpha')).status).toBe('current')
+    const content = await readFile(join(target, 'SKILL.md'), 'utf8')
+    await f.writeSkill('alpha', 'Upstream changed')
+    f.commit('Update alpha')
+    expect(await f.registry.checkSkillUpdate('alpha')).toMatchObject({ status: 'modified', gitManaged: true, changedFiles: ['SKILL.md'] })
+    expect(await readFile(join(target, 'SKILL.md'), 'utf8')).toBe(content)
+    expect(await readFile(join(root, '.skill-lock.json'), 'utf8')).toBe(lock)
+    expect((await lstat(join(f.skillsDir, 'alpha'))).isSymbolicLink()).toBe(true)
+  })
+
   it('remembers the import source and ignores unrelated repository commits', async () => {
     const f = await fixture()
     await f.writeSkill('alpha', 'First version')
@@ -91,7 +145,10 @@ describe('GitHub Skill updates', () => {
 
     await writeFile(join(f.repo, 'README.md'), 'Unrelated repository change\n')
     f.commit('Edit README')
-    expect((await restarted.checkSkillUpdate('alpha')).status).toBe('current')
+    expect(await restarted.checkSkillUpdate('alpha')).toMatchObject({
+      status: 'current', latestCommitRevision: installedRevision, latestCommitSubject: 'Add alpha',
+      latestCommitUrl: `https://github.com/example-owner/example-skills/commit/${installedRevision}`,
+    })
 
     await f.writeSkill('alpha', 'Second version')
     const latestRevision = f.commit('Update alpha')
