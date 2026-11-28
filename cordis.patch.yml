@@ -15,11 +15,7 @@
 #     name: '@daweifu/capability-menu/invoke'
 #   - id: capability-menu-policy
 #     name: '@daweifu/capability-menu/policy'
-#       config:
-#         # Rule syntax — tier keys `resident` / `on-demand` / `disabled`
-#         # (exact names, `*` globs, or `server:<name>:*`), plus `metaTools` —
-#         # and the priority order are documented in the README「配置」
-#         # section; the shipped defaults live in the insert block below.
+#       config: # shipped defaults live in the insert block below
 #
 # - `capability-menu-registry` (P0): builds/indexes the capability catalog and
 #   exposes the `ctx.capability` service (search/get/getDetail/refresh). It registers
@@ -34,8 +30,8 @@
 #   restrictions; dedups already-loaded skills. Rejects Disabled capabilities.
 # - `capability-menu-policy` (P3): Resident/On-demand/Disabled projection
 #   strategy + 能力菜单 surface. Reads explicit resident/on-demand/disabled
-#   rules (exact name + glob + server:<name>:*) and filters each step's tool
-#   admission on DSH 0.2.2; older hosts use `assembly.tools`. Web guidance
+#   rules (exact name + glob + server:<name>:*) and filters tool
+#   admission through the step or assembly hooks. Web guidance
 #   sections are filtered at `system-prompt/assemble`. On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` to the 能力菜单 tab through
 #   the Typert gateway: the mode tier surface (`classifyAll`/`setPolicyChoices`), the registered-location surface (`listLocations`/`addLocation`/
@@ -47,11 +43,7 @@
 #   that file. Registered MCP servers land in `patchFile`, and skill directories
 #   live under `skillsDir`.
 #
-# New modes start with Resident capabilities. Legacy rules below are copied
-# into existing modes on initial migration, not inherited on later edits.
-# Default (policy present but no config): every capability is Resident — the
-# `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`
-# rules to pull capabilities out of the model surface.
+# New modes start with Resident capabilities. Configure tiers in the menu.
 # The web surface disables the host skill filesystem provider by default, but
 # this plugin's global Skill registration writes to its standard ~/.dsh/skills
 # root. Re-enable the native provider so registered skills are indexed and

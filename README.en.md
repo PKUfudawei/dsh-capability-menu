@@ -69,7 +69,7 @@ Capability Menu follows the main conversation’s actual **mode (Agent preset)**
 
 Click a group's tier-count button to cycle its displayed tools in that tier (for example, Resident to On-demand). With mixed tiers, each button changes only the tools in its own tier. Changes are saved individually in the current mode. It does not establish a server default or affect future tools. Meta tools remain Resident. Disabling tools does not disconnect shared MCP connections. Resource instructions retain the behavior documented below. Source installation, updates, and removal remain shared operations.
 
-Changes apply to subsequent requests after saving, without interrupting running tools or rewriting history. Initial loading upgrades state to v4, copying existing modes' effective policies into independent configurations and preserving search descriptions. Legacy server and wildcard rules remain frozen within each migrated mode; new individual choices take precedence. Later global config edits do not affect mode policies. On DSH `0.2.2-rc.5`, the native skill catalog is projected before session commit and deduplicated against visible history, including policy-only changes. On-demand skills remain searchable through `meta_search`; Disabled policy also filters native `/skill-name` instruction injections.
+Changes apply to subsequent requests after saving, without interrupting running tools or rewriting conversation history. Each mode's policy is saved independently, and menu tier choices apply directly to the current mode. The native skill catalog is filtered before session commit and deduplicated against visible history, including policy-only changes. On-demand skills remain searchable through `meta_search`; Disabled policy also filters native `/skill-name` instruction injections.
 
 | Task | How to do it |
 | --- | --- |
@@ -88,15 +88,11 @@ Changes apply to subsequent requests after saving, without interrupting running 
 - **GitHub Skills**: Public repositories support a default-branch root (with `SKILL.md`), a branch root `.../tree/{branch}`, or a Skill directory `.../tree/{branch}/{skill-directory}`. Local paths also work. Git is required on the machine running dsh; the plugin validates `SKILL.md` and copies only the selected directory.
 - **Skill updates:** Checks run only when you click **Check for updates** in Skills or retry a failed check. Opening the page, switching tabs, and leaving it open do not trigger checks. Checks run with up to three concurrent requests; one failure does not block other items. Details show per-item state and completed-count progress. Installation updates remain sequential. Checks respect the current search, including regular expressions, across global and project source tabs. With no filter, all manageable skills are checked. Details and batch updates use the same filter; other results are retained. After checking, you can view diffs and update one or several supported Skills. Checks cover only the Skill directory; commits elsewhere do not affect update status, and local edits prevent replacement. Skill names are plain text; commit hashes link to the latest GitHub commit affecting that directory. Up-to-date results show the last commit subject for that directory on one truncated line, with the full text on hover. If history is unavailable or exceeds the lookup depth, the subject is omitted rather than replaced with an unrelated repository commit. Local links can be checked read-only using the target Git repository or installer GitHub source records; unknown sources are reported explicitly. Ambiguous differences appear as “Content differs” without requiring a confirmation action. Update links through their original installation method. Mode-provided Skills do not support automatic updates.
 
-- Older copied directories can link to a matching current or historical GitHub snapshot. History searches inspect up to 200 distinct directory versions within 60 seconds (excluding the initial checkout); reaching a limit is reported without saving a source. Sources can be edited or unlinked: failed validation preserves the old source, and unlinking preserves Skill files. Directories containing `.git` support linking and checking but must be updated using Git; menu and batch updates exclude them. Content comparison excludes only root-level `.git` metadata, not other local files.
+- Skill directories can link to a matching GitHub version. Searches inspect up to 200 distinct directory versions within 60 seconds (excluding the initial checkout); reaching a limit is reported without saving a source. Sources can be edited or unlinked: failed validation preserves the existing source, and unlinking preserves Skill files. Directories containing `.git` support linking and checking but must be updated using Git; menu and batch updates exclude them. Content comparison excludes only root-level `.git` metadata.
 
 ## Installation and Uninstallation
 
-Prerequisites: [Node.js](https://nodejs.org/en/download) and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. DSH `0.2.2-rc.5` requires Node.js `>=24.9.0`. Installing from npm needs no separate pnpm install; installing from source requires pnpm.
-
-The current source supports DSH `0.2.2-rc.5`, including independent capability policies per session preset, Tool tiering, and `meta_invoke` forwarding. It also fixes On-demand skills appearing in the first-turn native skill catalog. Dependency declarations retain the previous DSH version ranges; these source changes become available through npm with the next package release.
-
-Verification scope: implementation-stage checks used the real rc.5 AgentLoop for first-turn catalogs, model requests, On-demand discovery, catalog deduplication, and tier changes. Routine CI still uses rc.1 for most host test dependencies and does not establish full rc.5 compatibility. Manual Windows/Web verification on rc.5 remains outstanding. See [Contributing](./CONTRIBUTING.md) for the reproduction command.
+Prerequisites: [Node.js](https://nodejs.org/en/download) `>=24.9.0` and an installed [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the `dsh` command available in your terminal. Installing from source also requires pnpm.
 
 ### Install from npm (recommended)
 
@@ -117,7 +113,7 @@ dsh plugin --profile web add .
 ### Verify the install
 
 ```sh
-cd "${DSH_HOME:-$HOME/.dsh}/profiles/web" && pnpm list @daweifu/capability-menu && dsh --profile web --dump-config | grep -m1 '== @daweifu/capability-menu'
+dsh --profile web --dump-config | grep -m1 '== @daweifu/capability-menu'
 ```
 
 ### Uninstall
@@ -147,7 +143,7 @@ Scope and exceptions:
 
 - MCP tools and cataloged DSH native tools support all three tiers; native tools appear in the `built-in` group. Do not name an MCP server `built-in`, which would collide with that group.
 - When an MCP server has tools in the current scope and all of them are Disabled, its shared instructions (DSH's `mcp:<server>` section) are no longer injected automatically. Partial disabling removes the disabled tools' definitions but keeps shared instructions; On-demand tools also keep them. Re-enabling restores the instructions without disconnecting the server or deleting chat history. An empty tool inventory is not treated as all Disabled. If the host also contributes an MCP resource catalog and resource tools remain available, server instructions are conservatively retained because the host does not expose per-server resource instruction ownership.
-- `meta_search` and `meta_invoke` are Resident by default and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu; handwritten wildcard rules can still match it, so do not set it to On-demand or Disabled.
+- `meta_search` and `meta_invoke` remain Resident and cannot be disabled in the menu. Code Mode's entry tool `run_code` does not appear in this plugin's catalog or menu.
 - Keep frequently used tools Resident; use `meta_search` to find an On-demand tool's ID and inspect its schema before invocation.
 
 #### Rule configuration and persistence
@@ -156,36 +152,7 @@ The policy dialog lists the current mode's effective tool and skill tiers for in
 
 - Menu choices and search metadata are saved in `stateFile` without reloading DSH configuration.
 - The default is `${DSH_HOME:-~/.dsh}/capability-menu-policy.json`, shared across profiles. Set the same custom `stateFile` on policy and registry entries to isolate a profile.
-- Use the menu for routine changes. Handwritten rules below support legacy callers and initial migration; existing modes do not keep reading them. Deleting state discards all mode policies and search descriptions, then repeats migration on restart. It does not reset just one mode.
-
-Legacy configuration example:
-
-```yaml
-config:
-  tools:
-    on-demand: # On-demand
-      - 'mcp__example__*'    # tools from one MCP server
-    disabled: # Disabled
-      - 'mcp__secret__*'
-  skills:
-    on-demand: # On-demand
-      - example_skill        # unlisted capabilities default to Resident
-```
-
-Optional file paths and debounce settings can keep their defaults. For every parameter, see the [policy config](./src/policy.ts) and [registry config](./src/registry.ts).
-
-**Legacy rule priority:** Rules are checked in order; Disabled takes precedence. Between Resident and On-demand, exact rules beat wildcards; at the same specificity, Resident wins. Capabilities matching no rule are Resident.
-
-| priority | rule | example |
-| --- | --- | --- |
-| 1 | `disabled` exact or wildcard | `disabled: [forbidden_skill, 'mcp__secret__*']` |
-| 2 | `resident` exact | `resident: [bash]` |
-| 3 | `on-demand` exact | `on-demand: [example_skill]` |
-| 4 | `resident` wildcard | `resident: ['mcp__gongfeng__*']` |
-| 5 | `on-demand` wildcard | `on-demand: ['mcp__*']` |
-| default | no rule matched | — |
-
-The rule order above applies to legacy configuration and migration. Menu choices directly set the current mode tier without global fallback; meta tools remain Resident.
+- Use the menu for routine changes. Deleting the state file discards every mode's policy and search descriptions.
 
 ### On-demand search catalog
 
