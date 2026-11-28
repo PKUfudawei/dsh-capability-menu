@@ -128,13 +128,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         scope,
       }
       const allowedIds = new Set<string>()
-      for (const schema of ctx.tools.schemas(scope)) allowedIds.add(schema.name)
-      for (const skill of await ctx.skills.list({ scope, cwd: context.cwd })) allowedIds.add(skill.name)
+      const scopedDescriptions = new Map<string, string>()
+      for (const schema of ctx.tools.schemas(scope)) { allowedIds.add(`tool:${schema.name}`); scopedDescriptions.set(`tool:${schema.name}`, schema.description) }
+      for (const skill of await ctx.skills.list({ scope, cwd: context.cwd })) { allowedIds.add(`skill:${skill.name}`); scopedDescriptions.set(`skill:${skill.name}`, skill.description) }
       // The registry keeps every tier for management. Model search exposes
       // only On-demand capabilities in the current session.
       const policy = ctx.get('capabilityPolicy')
       const isOnDemand = (capId: string, capKind: 'tool' | 'skill'): boolean =>
-        policy?.classifyCapability(capId, capKind) === 'on-demand'
+        policy?.classifyCapability(capId, capKind, exec.agent) === 'on-demand'
       // The kind filter doubles as a disambiguator for exact-id lookups.
       const kindArg = kind === 'all' || kind === undefined ? undefined : kind
 
@@ -143,7 +144,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (resolved === undefined) {
           throw new Error(`meta_search: capability "${id}" is unknown, unavailable, or ambiguous — pass kind: "tool" | "skill" when both exist`)
         }
-        if (!allowedIds.has(id)) throw new Error(`meta_search: capability "${id}" is not available in the current session scope`)
+        if (!allowedIds.has(`${resolved.kind}:${id}`)) throw new Error(`meta_search: capability "${id}" is not available in the current session scope`)
         if (!isOnDemand(id, resolved.kind)) {
           throw new Error(`meta_search: capability "${id}" is not On-demand and cannot be inspected`)
         }
@@ -158,19 +159,25 @@ export function apply(ctx: Context, config: Config = {}): void {
       // The registry ranks the whole index and imposes no upper bound.
       const limit = requestedMax ?? maxResults
       const matches = ctx.capability.search({
-        query,
+        query: '',
         kind,
         server,
         tag,
         maxResults: Number.MAX_SAFE_INTEGER,
         scope,
       })
-        .filter(result => allowedIds.has(result.id) && isOnDemand(result.id, result.kind))
-      const results = matches.slice(0, limit)
-      const truncated = results.length < matches.length
+        .filter(result => allowedIds.has(`${result.kind}:${result.id}`) && isOnDemand(result.id, result.kind))
+      const scopedMatches = matches.map(result => {
+        const description = scopedDescriptions.get(`${result.kind}:${result.id}`)
+        const record = ctx.capability.get(result.id, result.kind)
+        const custom = record?.description === description ? ctx.capability.getSearchMetadata(result.id, result.kind)?.description : undefined
+        return description === undefined ? result : { ...result, summary: custom ?? description.slice(0, ctx.capability.summaryMaxChars()) }
+      }).filter(result => !query || query.toLowerCase().split(/\s+/).every(word => [result.id, result.summary, result.server ?? '', ...result.tags].join(' ').toLowerCase().includes(word)))
+      const results = scopedMatches.slice(0, limit)
+      const truncated = results.length < scopedMatches.length
       return {
         mode: 'list' as const,
-        total: matches.length,
+        total: scopedMatches.length,
         returned: results.length,
         truncated,
         results: results as unknown as JsonValue[],

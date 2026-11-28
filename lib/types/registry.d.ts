@@ -90,6 +90,23 @@ export interface CapabilityRecord {
     /** Token-trimmed short description used by `meta_search` list mode. */
     readonly summary: string;
 }
+/** Agent-preset scope API in DSH 0.2. */
+interface AgentPresetScopes {
+    list(): Promise<Array<{
+        id: string;
+        broken?: string;
+    }>>;
+    /** The scope must stay retained during enumeration. */
+    acquireScope(id?: string): Promise<{
+        key: ScopeKey;
+        [key: symbol]: unknown;
+    }>;
+}
+/**
+ * Keep a preset lease until its scoped capabilities have been read, so a hot
+ * replacement cannot dispose the scope during enumeration.
+ */
+export declare function withAgentPresetScope<T>(agentPresets: AgentPresetScopes, id: string, read: (scope: ScopeKey) => Promise<T> | T): Promise<T>;
 /** Lightweight list-mode projection of one capability (no full schema). */
 export interface CapabilitySummary {
     readonly id: string;

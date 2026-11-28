@@ -24,6 +24,7 @@ export default defineConfig([{
   // The dsh client module system injects these via the factory `require`:
   // never bundle them, keep them as external `require("...")` calls.
   deps: {
+    alwaysBundle: ['@deepseek-ai/dsh-agent-preset-registry/display'],
     neverBundle: [
       'react',
       'react/jsx-runtime',
@@ -34,7 +35,7 @@ export default defineConfig([{
       // It also has to stay in `devDependencies`: tsdown externalizes
       // `dependencies` by default, and moving it there silently turns this into
       // `require("zod")` in the browser bundle (verified — it breaks at runtime).
-      /^@deepseek-ai\//,
+      /^@deepseek-ai\/(?!dsh-agent-preset-registry\/display$)/,
     ],
   },
   // The dsh ModuleLoader invokes the factory with only `require` — the bundle

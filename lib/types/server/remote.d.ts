@@ -4,12 +4,11 @@
  * `lib/server/remote.js` and mounted by the package root entry (`src/index.ts`).
  *
  * Consumed by the browser bundle under `src/client` via
- * `ctx.remote.capabilityPolicy.classifyAll()` / `getConfig()` /
- * `updateConfig()`.
+ * `ctx.remote.capabilityPolicy.classifyAll()` and `setPolicyChoices()`.
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
-import type { CapabilityClassification, CapabilityPolicyService, Config as CapabilityPolicyConfig } from '../policy.ts';
+import type { CapabilityClassification, CapabilityPolicyService } from '../policy.ts';
 import type { CapabilityDetail, SkillDirEntry, CapabilityService, CapabilityDiagnostics, SearchMetadata, SearchMetadataUpdate } from '../registry.ts';
 import type { McpInput, McpLocation, McpUpdateInput, SkillLocation, SkillUpdateStatus } from '../locations.ts';
 import { type SelfUpdateStatus } from './self-update.ts';
@@ -21,7 +20,7 @@ declare module '@deepseek-ai/cordis' {
 }
 /** Effective exposure rules and the current on-demand search summaries. */
 export interface CatalogDocs {
-    /** Effective rules (`getConfig()` + `metaTools()`), rendered as YAML. */
+    /** Current mode effective tiers and mandatory tools, rendered as YAML. */
     readonly policyYaml: string;
     readonly summaryMaxChars: number;
     readonly searchSettingsEnabled: boolean;
@@ -49,12 +48,13 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     checkSelfUpdate(): Promise<SelfUpdateStatus>;
     installSelfUpdate(version: string): Promise<void>;
     switchSelfToNpm(version: string): Promise<void>;
-    /** Current (resolved) policy config. */
-    getConfig(): CapabilityPolicyConfig;
-    /** Replace a subset of the policy config (recompile rules + rewrite catalog). */
-    updateConfig(partial: Partial<CapabilityPolicyConfig>): Promise<void>;
     /** Classify every capability currently indexed by `ctx.capability`. */
-    classifyAll(): CapabilityClassification[];
+    classifyAll(preset?: string): Promise<CapabilityClassification[]>;
+    setPolicyChoices(preset: string, changes: {
+        kind: 'tools' | 'skills' | 'servers';
+        id: string;
+        tier: import('../policy.ts').CapabilityClass | null;
+    }[]): Promise<void>;
     /** Explain filtered, overridden, broken, empty, and unbrowseable inventory states. */
     getDiagnostics(): CapabilityDiagnostics;
     /**
@@ -65,7 +65,7 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
      */
     refresh(): Promise<void>;
     /** Resolve one capability's full detail (schema, description; skill body optional). */
-    getDetail(id: string): Promise<CapabilityDetail | undefined>;
+    getDetail(id: string, preset?: string): Promise<CapabilityDetail | undefined>;
     getSearchMetadata(id: string, kind: 'tool' | 'skill'): SearchMetadata | undefined;
     updateSearchMetadata(input: SearchMetadataUpdate): Promise<void>;
     updateSummaryMaxChars(value: number): Promise<void>;
@@ -74,7 +74,7 @@ export declare class CapabilityPolicyGateway extends TypertRemoteService {
     /** Read a text file inside a skill's directory. */
     readSkillFile(id: string, relPath: string): Promise<string | undefined>;
     /** Return the effective rules and summaries from the same index as meta_search. */
-    getCatalogDocs(): Promise<CatalogDocs>;
+    getCatalogDocs(preset?: string): Promise<CatalogDocs>;
     /** MCP servers declared in the patch file. */
     listLocations(): Promise<McpLocation[]>;
     /** Declare a new MCP server. */

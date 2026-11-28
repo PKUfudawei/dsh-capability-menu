@@ -50,20 +50,19 @@ export interface CapabilityPolicyRemote {
   checkSelfUpdate(): Promise<{ ok: true; value: import('./remote.ts').SelfUpdateStatus } | { ok: false; error: { code: string; message: string } }>
   installSelfUpdate(version: string): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   switchSelfToNpm(version: string): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
-  getConfig(): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }>
-  updateConfig(partial: Record<string, unknown>): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
-  classifyAll(): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>
+  setPolicyChoices?(preset: string, changes: import('./remote.ts').PolicyChoice[]): Promise<import('@deepseek-ai/dsh-typert-protocol').RemoteResult<void>>
+  classifyAll(preset?: string): Promise<{ ok: true; value: CapabilityRow[] } | { ok: false; error: { code: string; message: string } }>
   getDiagnostics?(): Promise<{ ok: true; value: CapabilityDiagnostics } | { ok: false; error: { code: string; message: string } }>
   refresh(): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   /** One number naming the host's current catalog state; see the registry's `version()`. */
   catalogVersion(): Promise<{ ok: true; value: number } | { ok: false; error: { code: string; message: string } }>
   listSkillDir(id: string, relPath?: string): Promise<{ ok: true; value: SkillFileEntry[] | undefined } | { ok: false; error: { code: string; message: string } }>
   readSkillFile(id: string, relPath: string): Promise<{ ok: true; value: string | undefined } | { ok: false; error: { code: string; message: string } }>
-  getDetail(id: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
+  getDetail(id: string, preset?: string): Promise<{ ok: true; value: ToolDetail | undefined } | { ok: false; error: { code: string; message: string } }>
   getSearchMetadata(id: string, kind: 'tool' | 'skill'): Promise<{ ok: true; value: SearchMetadata | undefined } | { ok: false; error: { code: string; message: string } }>
   updateSearchMetadata(input: SearchMetadataUpdate): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
   updateSummaryMaxChars(value: number): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }>
-  getCatalogDocs(): Promise<{ ok: true; value: CatalogDocs } | { ok: false; error: { code: string; message: string } }>
+  getCatalogDocs(preset?: string): Promise<{ ok: true; value: CatalogDocs } | { ok: false; error: { code: string; message: string } }>
   listLocations(): Promise<{ ok: true; value: McpLocation[] } | { ok: false; error: { code: string; message: string } }>
   addLocation(input: McpInput): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }>
   removeLocation(id: string): Promise<{ ok: true; value: boolean } | { ok: false; error: { code: string; message: string } }>

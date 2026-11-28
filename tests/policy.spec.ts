@@ -12,18 +12,111 @@ import * as registry from '../src/registry.ts'
 import * as policy from '../src/policy.ts'
 import { readTierState } from '../src/policy-state.ts'
 
-async function setup(config: policy.Config = {}, registryConfig: registry.Config = {}): Promise<Context> {
+async function setup(config: policy.Config = {}, registryConfig: registry.Config = {}, modeIds: string[] = []): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(registry, { stateFile: '', ...registryConfig })
+  if (modeIds.length) ctx.provide('agentPresets', { list: async () => modeIds.map(id => ({ id })) } as never)
   await ctx.plugin(policy, config.patchFile === undefined && config.stateFile === undefined
     ? { ...config, stateFile: '' }
     : config)
   return ctx
 }
+
+describe('preset policy isolation', () => {
+  it('mounts before a host roster waiting on loader startup, then migrates before writes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(SkillRegistry)
+    ctx.provide('capability', { refresh: async () => undefined, search: () => [] } as never)
+    let release!: (rows: { id: string }[]) => void
+    const roster = new Promise<{ id: string }[]>(resolve => { release = resolve })
+    let loaded!: () => void
+    const startup = new Promise<void>(resolve => { loaded = resolve })
+    ctx.provide('loader', { await: () => startup } as never)
+    await ctx.plugin(policy, { stateFile: '', skills: { 'on-demand': ['slides'] } })
+    const p = ctx.capabilityPolicy
+    expect(p.classifySkill('slides', 'standard')).toBe('on-demand')
+    const save = p.setOverrides('standard', [{ kind: 'skills', id: 'slides', tier: 'disabled' }])
+    ctx.provide('agentPresets', { list: () => roster } as never)
+    loaded()
+    release([{ id: 'standard' }, { id: 'minimal' }])
+    await save
+    expect(p.classifySkill('slides', 'standard')).toBe('disabled')
+    expect(p.classifySkill('slides', 'minimal')).toBe('on-demand')
+    expect(p.classifySkill('slides', 'new-mode')).toBe('resident')
+    await ctx.fiber.dispose()
+  })
+  it('keeps mode choices independent and rejects inheritance and server defaults', async () => {
+    const ctx = await setup({ tools: { disabled: ['mcp__secret__*'] } })
+    const p = ctx.capabilityPolicy
+    await p.setOverrides('', [{ kind: 'skills', id: 'slides', tier: 'on-demand' }])
+    await Promise.all([
+      p.setOverrides('coding', [{ kind: 'skills', id: 'slides', tier: 'disabled' }, { kind: 'tools', id: 'mcp__github__read', tier: 'on-demand' }]),
+      p.setOverrides('writing', [{ kind: 'skills', id: 'slides', tier: 'resident' }]),
+    ])
+    expect(p.classifySkill('slides', 'coding')).toBe('disabled')
+    expect(p.classifySkill('slides', 'writing')).toBe('resident')
+    expect(p.classifySkill('slides', 'new-mode')).toBe('resident')
+    expect(p.classifyTool('mcp__github__read', 'coding')).toBe('on-demand')
+    expect(p.classifyTool('mcp__github__read', 'writing')).toBe('resident')
+    expect(p.classifyTool('mcp__github__future_tool', 'coding')).toBe('resident')
+    await p.updateConfig({ skills: { disabled: ['*'] } })
+    expect(p.classifySkill('slides', 'writing')).toBe('resident')
+    await expect(p.setOverrides('coding', [{ kind: 'skills', id: 'slides', tier: null }])).rejects.toThrow()
+    await expect(p.setOverrides('coding', [{ kind: 'servers', id: 'github', tier: 'disabled' }])).rejects.toThrow()
+    await p.setOverrides('coding', [{ kind: 'tools', id: 'mcp__secret__read', tier: 'resident' }])
+    expect(p.classifyTool('mcp__secret__read', 'coding')).toBe('resident')
+    await expect(p.setOverrides('coding', [{ kind: 'tools', id: 'meta_search', tier: 'disabled' }])).rejects.toThrow()
+    await ctx.fiber.dispose()
+  })
+  it('migrates legacy effective tiers once and preserves them across restart and base edits', async () => {
+    const fs = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const dir = await fs.mkdtemp(join(tmpdir(), 'mode-migration-'))
+    const stateFile = join(dir, 'state.json')
+    try {
+      await fs.writeFile(stateFile, JSON.stringify({ version: 3, tools: { mcp__github__read: 'resident' }, skills: { slides: 'on-demand' }, overrides: {
+        '': { servers: { github: 'disabled' } },
+        coding: { servers: { github: 'on-demand' }, skills: { slides: 'disabled' } },
+        writing: {},
+      }, search: { descriptions: { 'skill:slides': 'Slides' } } }))
+      const ctx = await setup({ stateFile, tools: { disabled: ['mcp__secret__*'] }, skills: { 'on-demand': ['legacy-*'] } }, {}, ['standard'])
+      const p = ctx.capabilityPolicy
+      expect(p.classifyTool('mcp__github__read', 'coding')).toBe('on-demand')
+      expect(p.classifyTool('mcp__github__read', 'writing')).toBe('resident')
+      expect(p.classifySkill('slides', 'coding')).toBe('disabled')
+      expect(p.classifySkill('slides', 'writing')).toBe('on-demand')
+      expect(p.classifySkill('slides', 'standard')).toBe('on-demand')
+      expect(p.classifySkill('legacy-skill', 'writing')).toBe('on-demand')
+      expect(p.classifyTool('mcp__secret__read', 'coding')).toBe('disabled')
+      await p.setOverrides('coding', [{ kind: 'tools', id: 'mcp__secret__read', tier: 'resident' }])
+      await ctx.fiber.dispose()
+      const restarted = await setup({ stateFile, skills: { disabled: ['*'] } })
+      expect(restarted.capabilityPolicy.classifyTool('mcp__secret__read', 'coding')).toBe('resident')
+      expect(restarted.capabilityPolicy.classifySkill('slides', 'writing')).toBe('on-demand')
+      expect(restarted.capabilityPolicy.classifySkill('legacy-skill', 'writing')).toBe('on-demand')
+      expect(restarted.capabilityPolicy.classifySkill('slides', 'new-mode')).toBe('resident')
+      const disk = JSON.parse(await fs.readFile(stateFile, 'utf8'))
+      expect(disk.version).toBe(4)
+      expect(disk.search.descriptions['skill:slides']).toBe('Slides')
+      await restarted.fiber.dispose()
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
+  it('resolves the committed session preset instead of a global selected preset', async () => {
+    const ctx = await setup()
+    ctx.provide('agentPresets', { presetForSession: (s: { selected: string }) => s.selected } as never)
+    await ctx.capabilityPolicy.setOverrides('a', [{ kind: 'tools', id: 'bash', tier: 'disabled' }])
+    expect(ctx.capabilityPolicy.classifyTool('bash', { session: { selected: 'a' } } as never)).toBe('disabled')
+    expect(ctx.capabilityPolicy.classifyTool('bash', { session: { selected: 'b' } } as never)).toBe('resident')
+  })
+})
 
 function registerTool(ctx: Context, name: string, description = 'A tool'): void {
   ctx.tools.register(defineTool({

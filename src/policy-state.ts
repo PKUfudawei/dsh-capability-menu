@@ -2,7 +2,15 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { CapabilityClass } from './policy.ts'
+import { emptyOverrides, validateOverrides, type PolicyOverrides } from './preset-policy.ts'
+import type { CapabilityClass, CapabilitySetConfig } from './policy.ts'
+
+/** Independent mode policy. Rules are a frozen legacy migration snapshot. */
+export interface ModePolicy {
+  tools?: CapabilitySetConfig
+  skills?: CapabilitySetConfig
+  choices: PolicyOverrides
+}
 
 export interface TierState {
   readonly tool: Map<string, CapabilityClass>
@@ -17,6 +25,8 @@ export interface SearchState {
 export interface MenuState {
   readonly tiers: TierState
   readonly search: SearchState
+  readonly overrides?: Record<string, PolicyOverrides>
+  readonly modes?: Record<string, ModePolicy>
 }
 
 function emptyState(): MenuState {
@@ -65,13 +75,25 @@ function parseSearch(value: unknown): SearchState {
 
 function parseMenuState(source: string): MenuState {
   const record = object(JSON.parse(source) as unknown, 'menu state')
-  if (record['version'] !== 1 && record['version'] !== 2) throw new Error('unsupported menu state version')
+  if (![1, 2, 3, 4].includes(record['version'] as number)) throw new Error('unsupported menu state version')
+  const modes = record['version'] === 4 ? Object.fromEntries(Object.entries(object(record['modes'] ?? {}, 'modes')).map(([id, raw]) => {
+    const row = object(raw, 'mode policy')
+    for (const kind of ['tools', 'skills']) {
+      if (row[kind] === undefined) continue
+      for (const [tier, rules] of Object.entries(object(row[kind], kind))) {
+        if (!['resident', 'on-demand', 'disabled'].includes(tier) || !Array.isArray(rules) || rules.some(rule => typeof rule !== 'string')) throw new Error('Invalid mode rules')
+      }
+    }
+    return [id, { tools: row['tools'], skills: row['skills'], choices: validateOverrides(row['choices']) } as ModePolicy]
+  })) : undefined
   return {
+    modes,
+    overrides: Object.fromEntries(Object.entries(object(record['overrides'] ?? {}, 'overrides')).map(([key, value]) => [key, validateOverrides(value)])),
     tiers: {
       tool: parseTierMap(record['tools'], 'tools'),
       skill: parseTierMap(record['skills'], 'skills'),
     },
-    search: record['version'] === 2 ? parseSearch(record['search']) : { descriptions: new Map() },
+    search: record['version'] !== 1 ? parseSearch(record['search']) : { descriptions: new Map() },
   }
 }
 
@@ -135,7 +157,9 @@ async function withStateLock<T>(file: string, action: () => Promise<T>): Promise
 
 async function replaceState(file: string, state: MenuState): Promise<void> {
   const content = JSON.stringify({
-    version: 2,
+    version: state.modes ? 4 : 3,
+    ...(state.modes ? { modes: state.modes } : {}),
+    overrides: state.overrides ?? {},
     tools: Object.fromEntries(state.tiers.tool),
     skills: Object.fromEntries(state.tiers.skill),
     search: {
@@ -151,6 +175,29 @@ async function replaceState(file: string, state: MenuState): Promise<void> {
     await unlink(temporary).catch(() => undefined)
     throw error
   }
+}
+
+/** Migrate once under the same lock used for menu writes. */
+export async function initializeModePolicies(file: string, modes: Record<string, ModePolicy>): Promise<Record<string, ModePolicy>> {
+  return withStateLock(file, async () => {
+    const state = await readMenuState(file)
+    if (state.modes) return state.modes
+    await replaceState(file, { ...state, modes })
+    return modes
+  })
+}
+
+export async function writeModeChoices(file: string, preset: string, changes: { kind: 'tools' | 'skills'; id: string; tier: CapabilityClass }[]): Promise<ModePolicy> {
+  return withStateLock(file, async () => {
+    const state = await readMenuState(file)
+    const modes = { ...state.modes }
+    const mode = Object.hasOwn(modes, preset) ? modes[preset]! : { choices: emptyOverrides() }
+    const next = { ...mode, choices: validateOverrides(mode.choices) }
+    for (const { kind, id, tier } of changes) Object.defineProperty(next.choices[kind], id, { value: tier, enumerable: true, writable: true, configurable: true })
+    Object.defineProperty(modes, preset, { value: next, enumerable: true, writable: true, configurable: true })
+    await replaceState(file, { ...state, modes })
+    return next
+  })
 }
 
 /** Merge the old search file once, then move it aside as a backup. */
@@ -223,5 +270,21 @@ export async function writeSearchState(
       throw new Error(`检索描述不能超过 ${search.summaryMaxChars} 个字符`)
     }
     await replaceState(file, { ...state, search })
+  })
+}
+
+/** Compatibility writes for callers without a mode; never used by the menu. */
+export async function writeLegacyGlobalChoices(file: string, changes: { kind: 'tools' | 'skills' | 'servers'; id: string; tier: CapabilityClass | null }[]): Promise<void> {
+  await withStateLock(file, async () => {
+    const state = await readMenuState(file)
+    const overrides = { ...state.overrides }
+    const current = validateOverrides(overrides[''] ?? emptyOverrides())
+    for (const change of changes) {
+      if (change.kind !== 'servers') state.tiers[change.kind === 'tools' ? 'tool' : 'skill'].delete(change.id)
+      if (change.tier === null) delete current[change.kind][change.id]
+      else Object.defineProperty(current[change.kind], change.id, { value: change.tier, enumerable: true, configurable: true, writable: true })
+    }
+    Object.defineProperty(overrides, '', { value: current, enumerable: true, configurable: true, writable: true })
+    await replaceState(file, { ...state, overrides })
   })
 }

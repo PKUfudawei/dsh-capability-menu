@@ -31,7 +31,7 @@ function entry() {
     effect,
     locale: { register: vi.fn(() => () => {}), bind: () => (key: string) => key },
     remote: { $mount: vi.fn(() => pending.promise) },
-    get: () => remote,
+    get: (key: string) => key === 'sessions' ? { list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } } : remote,
     slots: {
       inject: (_: string, callback: () => void) => effect(callback),
       register: (spec: typeof section) => { section = spec; return () => {} },

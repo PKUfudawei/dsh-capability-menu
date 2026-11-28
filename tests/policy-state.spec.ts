@@ -2,9 +2,29 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { migrateLegacySearchState, readMenuState, writeSearchState, writeTierState } from '../src/policy-state.ts'
+import { migrateLegacySearchState, readMenuState, initializeModePolicies, writeModeChoices, writeSearchState, writeTierState } from '../src/policy-state.ts'
 
 describe('unified menu state', () => {
+  it('merges concurrent mode choices without clobbering other modes or search', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-menu-modes-'))
+    const file = join(dir, 'state.json')
+    await writeFile(file, JSON.stringify({ version: 2, tools: { bash: 'disabled' }, skills: {}, search: { descriptions: { 'tool:bash': 'Shell' } } }))
+    await initializeModePolicies(file, {})
+    await Promise.all([
+      writeModeChoices(file, 'coding', [{ kind: 'tools', id: 'bash', tier: 'resident' }]),
+      writeModeChoices(file, 'coding', [{ kind: 'skills', id: 'slides', tier: 'disabled' }]),
+      writeModeChoices(file, 'writing', [{ kind: 'tools', id: 'bash', tier: 'on-demand' }]),
+      writeSearchState(file, { summaryMaxChars: 200 }),
+    ])
+    // Another process attempting migration must not replace committed modes.
+    await initializeModePolicies(file, {})
+    const state = await readMenuState(file)
+    expect(state.modes?.coding.choices.tools.bash).toBe('resident')
+    expect(state.modes?.coding.choices.skills.slides).toBe('disabled')
+    expect(state.modes?.writing.choices.tools.bash).toBe('on-demand')
+    expect(state.search.descriptions.get('tool:bash')).toBe('Shell')
+    expect(state.search.summaryMaxChars).toBe(200)
+  })
   it('migrates legacy search choices without losing tier choices', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-menu-state-'))
     const stateFile = join(dir, 'capability-menu-policy.json')
@@ -21,7 +41,7 @@ describe('unified menu state', () => {
     expect(state.tiers.skill.get('slides')).toBe('on-demand')
     expect(state.search.summaryMaxChars).toBe(180)
     expect(state.search.descriptions.get('skill:slides')).toBe('Make presentation slides')
-    expect(JSON.parse(await readFile(stateFile, 'utf8')).version).toBe(2)
+    expect(JSON.parse(await readFile(stateFile, 'utf8')).version).toBe(3)
     const backup = (await readdir(dir)).find(name => name.startsWith('capability-menu-search-metadata.json.migrated-'))
     expect(backup).toBeDefined()
     expect(await readFile(join(dir, backup!), 'utf8')).toContain('Make presentation slides')

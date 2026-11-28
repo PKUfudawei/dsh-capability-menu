@@ -22,8 +22,10 @@ function strictCodec(typeSymbol: string, schema: { parse(value: unknown): unknow
   return { mode: 'strict' as const, typeSymbol, create: () => schema }
 }
 
-/** Read-only row: one capability's Resident/On-demand/Disabled classification. */
+/** Explicit tier edit within one mode. */
+export interface PolicyChoice { kind: 'tools' | 'skills'; id: string; tier: 'resident' | 'on-demand' | 'disabled' }
 export interface CapabilityRow {
+  readonly policySource?: string
   readonly id: string
   readonly kind: 'tool' | 'skill'
   readonly name: string
@@ -238,6 +240,7 @@ const mcpUpdateInput$schema = z.object({
 })
 
 const capabilityRow$schema = z.object({
+  policySource: z.string().optional(),
   id: z.string().readonly(),
   kind: z.union([z.literal('tool'), z.literal('skill')]).readonly(),
   name: z.string().readonly(),
@@ -308,24 +311,26 @@ const searchMetadataUpdate$schema = z.object({
   description: z.string(),
 })
 
+
+const choiceSchema = z.object({ kind: z.enum(['tools','skills']), id: z.string().min(1), tier: z.enum(['resident','on-demand','disabled']) })
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6361706162696c697479506f6c696379 {
     checkSelfUpdate: () => Promise<RemoteResult<SelfUpdateStatus>>
     installSelfUpdate: (version: string) => Promise<RemoteResult<void>>
     switchSelfToNpm: (version: string) => Promise<RemoteResult<void>>
-    getConfig: () => Promise<RemoteResult<Record<string, unknown>>>
-    updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
-    classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>
+    setPolicyChoices: (preset: string, changes: PolicyChoice[]) => Promise<RemoteResult<void>>
+    classifyAll: (preset?: string) => Promise<RemoteResult<CapabilityRow[]>>
     getDiagnostics: () => Promise<RemoteResult<CapabilityDiagnostics>>
     refresh: () => Promise<RemoteResult<void>>
     catalogVersion: () => Promise<RemoteResult<number>>
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
-    getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    getDetail: (id: string, preset?: string) => Promise<RemoteResult<ToolDetail | undefined>>
     getSearchMetadata: (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>
     updateSearchMetadata: (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>
     updateSummaryMaxChars: (value: number) => Promise<RemoteResult<void>>
-    getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>
+    getCatalogDocs: (preset?: string) => Promise<RemoteResult<CatalogDocs>>
     listLocations: () => Promise<RemoteResult<McpLocation[]>>
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>
     removeLocation: (id: string) => Promise<RemoteResult<boolean>>
@@ -345,19 +350,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/checkSelfUpdate': () => Promise<RemoteResult<SelfUpdateStatus>>
     'capabilityPolicy/installSelfUpdate': (version: string) => Promise<RemoteResult<void>>
     'capabilityPolicy/switchSelfToNpm': (version: string) => Promise<RemoteResult<void>>
-    'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>
-    'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>
-    'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>
+    'capabilityPolicy/setPolicyChoices': (preset: string, changes: PolicyChoice[]) => Promise<RemoteResult<void>>
+    'capabilityPolicy/classifyAll': (preset?: string) => Promise<RemoteResult<CapabilityRow[]>>
     'capabilityPolicy/getDiagnostics': () => Promise<RemoteResult<CapabilityDiagnostics>>
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>
     'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>
-    'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>
+    'capabilityPolicy/getDetail': (id: string, preset?: string) => Promise<RemoteResult<ToolDetail | undefined>>
     'capabilityPolicy/getSearchMetadata': (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>
     'capabilityPolicy/updateSearchMetadata': (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>
     'capabilityPolicy/updateSummaryMaxChars': (value: number) => Promise<RemoteResult<void>>
-    'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>
+    'capabilityPolicy/getCatalogDocs': (preset?: string) => Promise<RemoteResult<CatalogDocs>>
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>
     'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>
@@ -381,6 +385,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 export const TYPERT_REMOTE: TypertRemoteContribution = {
   package: '@daweifu/capability-menu',
   descriptors: [
+    { id: '@daweifu/capability-menu#capabilityPolicy/setPolicyChoices', service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'setPolicyChoices', invocation: { kind: 'direct' }, parameters: [{name: 'preset', wire: 'preset', source: 'json', codec: strictCodec('preset', z.string())},{name: 'changes', wire: 'changes', source: 'json', codec: strictCodec('changes', z.array(choiceSchema))}], result: strictCodec('setPolicyChoices', z.void()) },
     {
       id: '@daweifu/capability-menu#capabilityPolicy/checkSelfUpdate',
       service: 'capabilityPolicy', namespace: 'capabilityPolicy', method: 'checkSelfUpdate',
@@ -402,34 +407,12 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       result: strictCodec('void', z.undefined()),
     },
     {
-      id: '@daweifu/capability-menu#capabilityPolicy/getConfig',
-      service: 'capabilityPolicy',
-      namespace: 'capabilityPolicy',
-      method: 'getConfig',
-      invocation: { kind: 'direct' },
-      parameters: [],
-      result: strictCodec('Record<string, unknown>', z.record(z.string(), z.unknown())),
-      sourceLocation: { file: 'src/server/remote.ts', line: 61, column: 3 },
-    },
-    {
-      id: '@daweifu/capability-menu#capabilityPolicy/updateConfig',
-      service: 'capabilityPolicy',
-      namespace: 'capabilityPolicy',
-      method: 'updateConfig',
-      invocation: { kind: 'direct' },
-      parameters: [
-        { name: 'partial', wire: 'partial', source: 'json', codec: strictCodec('Record<string, unknown>', z.record(z.string(), z.unknown())) },
-      ],
-      result: strictCodec('void', z.undefined()),
-      sourceLocation: { file: 'src/server/remote.ts', line: 67, column: 3 },
-    },
-    {
       id: '@daweifu/capability-menu#capabilityPolicy/classifyAll',
       service: 'capabilityPolicy',
       namespace: 'capabilityPolicy',
       method: 'classifyAll',
       invocation: { kind: 'direct' },
-      parameters: [],
+      parameters: [{ name: 'preset', wire: 'preset', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) }],
       result: strictCodec('@daweifu/capability-menu#CapabilityRow', z.array(capabilityRow$schema)),
       sourceLocation: { file: 'src/server/remote.ts', line: 73, column: 3 },
     },
@@ -487,6 +470,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       invocation: { kind: 'direct' },
       parameters: [
         { name: 'id', wire: 'id', source: 'json', codec: strictCodec('string', z.string()) },
+        { name: 'preset', wire: 'preset', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) },
       ],
       result: strictCodec('@daweifu/capability-menu#ToolDetail', toolDetail$schema.optional()),
       sourceLocation: { file: 'src/server/remote.ts', line: 79, column: 3 },
@@ -534,7 +518,7 @@ export const TYPERT_REMOTE: TypertRemoteContribution = {
       namespace: 'capabilityPolicy',
       method: 'getCatalogDocs',
       invocation: { kind: 'direct' },
-      parameters: [],
+      parameters: [{ name: 'preset', wire: 'preset', source: 'json', acceptsUndefined: true, codec: strictCodec('string', z.string().optional()) }],
       result: strictCodec('@daweifu/capability-menu#CatalogDocs', catalogDocs$schema),
       sourceLocation: { file: 'src/server/remote.ts', line: 104, column: 3 },
     },

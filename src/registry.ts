@@ -122,7 +122,7 @@ const ASYNC_DISPOSE =
  * Keep a preset lease until its scoped capabilities have been read, so a hot
  * replacement cannot dispose the scope during enumeration.
  */
-async function withAgentPresetScope<T>(
+export async function withAgentPresetScope<T>(
   agentPresets: AgentPresetScopes,
   id: string,
   read: (scope: ScopeKey) => Promise<T> | T,
@@ -1117,10 +1117,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         kind: 'skill',
         actions: record.actions,
         name: record.name,
-        description: record.description,
+        description: skill?.description ?? record.description,
         ...record.whenToUse !== undefined ? { whenToUse: record.whenToUse } : {},
         parameters: record.parameters,
-        origin: record.origin,
+        origin: skill ? { provider: skill.provider, source: skill.source, ...(skill.resourceBase?.kind === 'directory' ? { path: skill.resourceBase.path } : {}) } : record.origin,
         tags: record.tags,
         stats: statsOf(record),
       }

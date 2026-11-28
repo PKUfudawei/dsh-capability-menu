@@ -13,6 +13,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createRemoteMount } from './remote-mount.ts'
+import { PresetPolicySaves } from './preset-policy-saves.ts'
+import { ModeNames } from './mode-names.ts'
+import { unwrap } from './store.ts'
+import type { SessionSource } from './current-preset.ts'
 import { installSettingsNavIcon } from './settings-nav-icon.ts'
 import { TYPERT_REMOTE } from './remote.ts'
 import { CapabilitySection, type CapabilitySectionInjected, type CapabilityKey } from './CapabilitySection.tsx'
@@ -35,11 +39,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *  injected: we mount it in `apply`, so declaring it would deadlock the boot
  *  ("waiting for service"). Access it via `ctx.get('remote.capabilityPolicy')`,
  *  which resolves the mounted namespace service without the inject gate. */
-export const inject = ['slots', 'locale', 'remote']
+export const inject = ['slots', 'locale', 'remote', 'sessions', 'remote.agentPresets']
 
 /** Register the 能力菜单 section once `settings.section` is on the ledger. */
 export function apply(ctx: ClientContext): void {
   const zh = {
+    currentPreset: '当前模式：{preset}',
+    waitingPreset: '等待会话模式，请先打开一个会话。',
+    policySourceLabel: '策略来源：{source}',
+    presetSaveFailed: '「{preset}」的档位未保存，请重试。',
+    policySavePending: '正在保存档位…',
+    skillCheckAllHint: '只检查匹配当前搜索的全局或项目技能，不限来源标签',
+    skillNoMatchingLocations: '筛选结果中没有可检查的技能',
+    groupCycleHint: '将本组当前显示的「{from}」工具切换为「{to}」，仅影响当前模式；必需工具保持常驻。',
     nav: '能力菜单',
     title: '能力菜单',
     feedback: '反馈 ↗',
@@ -73,12 +85,12 @@ export function apply(ctx: ClientContext): void {
     builtInGroup: '系统内置',
     globalSkills: '全局技能',
     projectSkills: '项目技能',
-    presetSkills: '预设技能',
+    presetSkills: '模式技能',
     emptyGlobalSkills: '暂无全局技能',
     emptyProjectSkills: '暂无项目技能',
-    emptyPresetSkills: '暂无预设技能',
+    emptyPresetSkills: '暂无模式技能',
     filterByName: '按名字、分组或正则过滤…',
-    filterHint: '忽略大小写。匹配工具/技能名、MCP server、技能来源标签与预设 id；也可以直接写正则，例如 cordis|ptc 或 /^mcp__dbx/。',
+    filterHint: '忽略大小写。匹配工具/技能名、MCP server、技能来源标签与模式名称或 ID；也可以直接写正则，例如 cordis|ptc 或 /^mcp__dbx/。',
     filterNoMatch: '没有匹配的能力（清空过滤框可恢复完整列表）',
     emptyTools: '暂无工具',
     emptySkills: '暂无 Skill',
@@ -120,7 +132,8 @@ export function apply(ctx: ClientContext): void {
     mcpServers: 'MCP 服务器',
     skillDirs: 'Skill 目录',
     skillUpdates: 'Skill 更新',
-    skillCheckProgress: '正在检查 {name}，{done}/{total}',
+    skillCheckProgress: '已检查 {done}/{total}',
+    skillCheckQueued: '等待检查',
     skillCheckComplete: '已检查 {total} 个：{available} 个可更新、{unmanaged} 个未关联、{failed} 个失败',
     skillUpdatingItem: '正在更新 {name}，{done}/{total}',
     skillUpdateComplete: '更新完成：成功 {succeeded} 个，失败 {failed} 个',
@@ -129,13 +142,23 @@ export function apply(ctx: ClientContext): void {
     skillUnlinked: '已解除来源关联，技能文件保留',
     skillAssociated: '来源关联成功',
     skillSourceFailed: '来源操作失败，详情见对应技能',
-    skillAvailableCount: '可更新：{count}',
-    skillWaiting: '已等待 {seconds} 秒，请稍候…',
     skillGitManaged: '由 Git 管理，请通过 Git 更新',
     skillEditSource: '修改来源',
     skillUnlinkSource: '解除关联',
     skillErrorDetails: '查看技术详情',
     skillCheckUpdates: '检查更新',
+    skillSkippedInvalid: '已跳过 {invalid} 个无效目录',
+    skillSkippedHint: '仅跳过无效技能目录；本地链接技能会尝试识别 Git 或安装来源记录。',
+    skillLinkedDifferent: '与来源内容不同，可能有更新或本地修改',
+    skillLinkedReadOnly: '本地链接，仅检查；请通过原安装方式更新',
+    skillSourceUnknown: '来源未知，无法判断更新',
+    skillSourceUnknownShort: '本地目录 · 未关联来源',
+    skillDifferentShort: '内容有差异',
+    skillModifiedShort: '本地有修改',
+    skillNoLocations: '暂无可检查项',
+    skillNoLocationsHint: '未找到可管理的全局或项目技能；模式内置技能不参与更新检查',
+    skillUpdateDetails: '更新详情',
+    skillHideDetails: '收起详情',
     skillUpdateAll: '全部更新（{count}）',
     skillChecking: '正在检查…',
     skillUpdating: '正在更新…',
@@ -164,14 +187,15 @@ export function apply(ctx: ClientContext): void {
     skillRepointed: '已改为指向 {dir}',
     skillAdopted: '已纳入管理：{path}',
     skillSource: '来源：{source}',
-    skillSourceHint: '该技能由 dsh 从其它根发现，不在本插件管理的技能目录里，因此没有「编辑」。',
-    skillFromPreset: '来自预设 {preset}',
-    skillFromPresetHint: '该技能随 agent preset 分发，只对挂载了该预设的会话可见；不能纳入管理（那会把它软链进全局技能根，对所有会话生效）。',
+    skillSourceHint: '该技能的源目录不由能力菜单管理，可调整档位，不能在此编辑来源。',
+    skillFromPreset: '来源：{preset}',
+    skillFromPresetHint: '由「{preset}」提供的技能。此处可调整档位，源文件由该模式管理。',
+    sourceBundledHint: '该技能由 DSH 或其插件内置提供，未标记为某个模式专属。此处可调整档位，不能编辑来源。',
     githubImporting: '正在从 GitHub 获取并校验 Skill，完成后会自动注册…',
     importing: '导入中…',
     skillUnmanaged: '未纳入管理',
     sourceCustom: '自定义技能目录',
-    sourceBundled: '随 dsh 预置',
+    sourceBundled: '内置技能',
     adoptSkill: '纳入管理',
     adoptSkillHint: '仅 user-agents 与 custom 来源可纳入管理；会把它软链进 dsh 的技能根目录（默认 ~/.dsh/skills），内容不动。',
     adoptSkillTitle: '纳入管理「{name}」？',
@@ -214,13 +238,23 @@ export function apply(ctx: ClientContext): void {
     diagnosticTitle: '能力诊断：{count} 项',
     diagnosticUnavailable: '不可调用：{name}（来源 {source}{preset}）',
     diagnosticShadowed: '同名覆盖：{name} 保留 {winner}，隐藏 {hidden}',
-    diagnosticBroken: '损坏的 preset：{id}（{reason}；受影响技能数量由 DSH 未提供）',
+    diagnosticBroken: '模式加载失败：{id}（{reason}；受影响技能数量由 DSH 未提供）',
     diagnosticUnbrowseable: '不可浏览：{name}（{reason}）',
     diagnosticUndocumented: '描述待补：{name}；摘要回退为「{summary}」',
     projectRootLabel: '项目根：{path}',
     skillBrowseUnavailable: '该技能没有可浏览的目录根，可能是非目录型技能来源。',
+    skillAvailableCount: '可更新：{count}',
+    skillWaiting: '已等待 {seconds} 秒，请稍候…',
   } satisfies Record<CapabilityKey, string>
   const en = {
+    currentPreset: 'Current mode: {preset}',
+    policySourceLabel: 'Policy source: {source}',
+    waitingPreset: 'Waiting for the session mode. Open a conversation first.',
+    presetSaveFailed: 'Tier changes for “{preset}” have not been saved. Please retry.',
+    policySavePending: 'Saving tiers…',
+    skillCheckAllHint: 'Check global or project skills matching the current search, across source tabs',
+    skillNoMatchingLocations: 'No checkable skills match this search',
+    groupCycleHint: 'Switch the displayed {from} tools in this group to {to}, in the current mode only. Mandatory tools stay Resident.',
     nav: 'Capability Menu',
     title: 'Capability Menu',
     feedback: 'Feedback ↗',
@@ -254,12 +288,12 @@ export function apply(ctx: ClientContext): void {
     builtInGroup: 'System built-in',
     globalSkills: 'Global skills',
     projectSkills: 'Project skills',
-    presetSkills: 'Preset skills',
+    presetSkills: 'Mode skills',
     emptyGlobalSkills: 'No global skills',
     emptyProjectSkills: 'No project skills',
-    emptyPresetSkills: 'No preset skills',
+    emptyPresetSkills: 'No mode skills',
     filterByName: 'Filter by name, group, or regex…',
-    filterHint: 'Case-insensitive. Matches tool/skill names, MCP servers, skill source labels and preset ids; a regular expression works too, e.g. cordis|ptc or /^mcp__dbx/.',
+    filterHint: 'Case-insensitive. Matches tool/skill names, MCP servers, skill source labels and mode names or IDs; a regular expression works too, e.g. cordis|ptc or /^mcp__dbx/.',
     filterNoMatch: 'No capability matches (clear the filter to see the full list)',
     emptyTools: 'No tools',
     emptySkills: 'No skills',
@@ -301,7 +335,8 @@ export function apply(ctx: ClientContext): void {
     mcpServers: 'MCP servers',
     skillDirs: 'Skill directories',
     skillUpdates: 'Skill updates',
-    skillCheckProgress: 'Checking {name}, {done}/{total}',
+    skillCheckProgress: 'Checked {done}/{total}',
+    skillCheckQueued: 'Queued',
     skillCheckComplete: 'Checked {total}: {available} updates, {unmanaged} unlinked, {failed} failed',
     skillUpdatingItem: 'Updating {name}, {done}/{total}',
     skillUpdateComplete: 'Update complete: {succeeded} succeeded, {failed} failed',
@@ -310,13 +345,23 @@ export function apply(ctx: ClientContext): void {
     skillUnlinked: 'Source unlinked; Skill files preserved',
     skillAssociated: 'Source linked successfully',
     skillSourceFailed: 'Source operation failed; see the Skill for details',
-    skillAvailableCount: 'Updates available: {count}',
-    skillWaiting: 'Elapsed: {seconds} seconds. Please wait…',
     skillGitManaged: 'Managed by Git; update using Git',
     skillEditSource: 'Edit source',
     skillUnlinkSource: 'Unlink source',
     skillErrorDetails: 'Technical details',
     skillCheckUpdates: 'Check updates',
+    skillSkippedInvalid: 'Skipped {invalid} invalid directories',
+    skillSkippedHint: 'Only invalid directories are skipped; local links are checked using Git or installer source records when available.',
+    skillLinkedDifferent: 'Differs from source: updates or local edits may exist',
+    skillLinkedReadOnly: 'Local link, check only; update using the original installer',
+    skillSourceUnknown: 'Unknown source; update status unavailable',
+    skillSourceUnknownShort: 'Local directory · No source',
+    skillDifferentShort: 'Content differs',
+    skillModifiedShort: 'Local changes',
+    skillNoLocations: 'Nothing to check',
+    skillNoLocationsHint: 'No manageable global or project skills found; mode-provided skills are excluded from update checks',
+    skillUpdateDetails: 'Update details',
+    skillHideDetails: 'Hide details',
     skillUpdateAll: 'Update all ({count})',
     skillChecking: 'Checking…',
     skillUpdating: 'Updating…',
@@ -345,14 +390,15 @@ export function apply(ctx: ClientContext): void {
     skillRepointed: 'Repointed to {dir}',
     skillAdopted: 'Adopted: {path}',
     skillSource: 'Source: {source}',
-    skillSourceHint: 'dsh found this skill in another root, not in a skill directory this plugin manages, so there is no Edit button.',
-    skillFromPreset: 'From preset {preset}',
-    skillFromPresetHint: 'This skill ships with an agent preset and is visible only to sessions that mount it. It cannot be adopted (adopting would link it into the global skill root, making it apply to every session).',
+    skillSourceHint: 'Capability Menu does not manage this skill’s source directory. You can change its tier but cannot edit its source here.',
+    skillFromPreset: 'Source: {preset}',
+    skillFromPresetHint: 'Provided by “{preset}”. You can change its tier here; the mode manages its source files.',
+    sourceBundledHint: 'Bundled by DSH or a plugin, with no specific mode attribution. You can change its tier but cannot edit its source here.',
     githubImporting: 'Fetching and validating the Skill from GitHub… It will register automatically when complete.',
     importing: 'Importing…',
     skillUnmanaged: 'Not managed here',
     sourceCustom: 'custom skill dirs',
-    sourceBundled: 'bundled with dsh',
+    sourceBundled: 'bundled skill',
     adoptSkill: 'Adopt',
     adoptSkillHint: "Only user-agents and custom sources can be adopted. This links it into dsh's skill root (default ~/.dsh/skills); the content is untouched.",
     adoptSkillTitle: 'Adopt "{name}"?',
@@ -395,11 +441,13 @@ export function apply(ctx: ClientContext): void {
     diagnosticTitle: 'Capability diagnostics: {count} items',
     diagnosticUnavailable: 'Not invocable: {name} (source {source}{preset})',
     diagnosticShadowed: 'Name collision: {name} keeps {winner}; hidden from {hidden}',
-    diagnosticBroken: 'Broken preset: {id} ({reason}; DSH does not provide the affected skill count)',
+    diagnosticBroken: 'Mode failed to load: {id} ({reason}; DSH does not provide the affected skill count)',
     diagnosticUnbrowseable: 'Cannot browse: {name} ({reason})',
     diagnosticUndocumented: 'Description needed: {name}; search summary falls back to “{summary}”.',
     projectRootLabel: 'Project root: {path}',
     skillBrowseUnavailable: 'This Skill has no browsable directory root; its provider may be non-filesystem based.',
+    skillAvailableCount: 'Updates available: {count}',
+    skillWaiting: 'Elapsed: {seconds} seconds. Please wait…',
   } satisfies Record<CapabilityKey, string>
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'capability-menu: dictionaries')
@@ -412,7 +460,32 @@ export function apply(ctx: ClientContext): void {
     () => (ctx.get as (key: string) => unknown)('remote.capabilityPolicy') as import('./store.ts').CapabilityPolicyRemote,
   )
   ctx.effect(() => remoteMount.dispose, 'capability-menu: remote mount')
+  const sessions = (ctx.get('sessions') as unknown as { list: SessionSource }).list
+  const policySaves = new PresetPolicySaves(() => {
+    const state = remoteMount.getSnapshot()
+    if (state.status !== 'ready') throw new Error('Capability policy connection is not ready')
+    return state.remote
+  })
+  ctx.effect(() => {
+    const leave = (event: BeforeUnloadEvent) => {
+      if (!policySaves.dirty) return
+      void policySaves.flush()
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    if (typeof window !== 'undefined') window.addEventListener('beforeunload', leave)
+    return async () => {
+      if (typeof window !== 'undefined') window.removeEventListener('beforeunload', leave)
+      await policySaves.flush()
+    }
+  }, 'capability-menu: pending policy saves')
   const t = ctx.locale.bind(NS) as CapabilitySectionInjected['t']
+  const modeNames = new ModeNames(async () => {
+    const remote = ctx.get('remote.agentPresets') as unknown as {
+      list(): Promise<import('@deepseek-ai/dsh-typert-protocol').RemoteResult<{ presets: import('@deepseek-ai/dsh-agent-preset-registry/display').PresetDisplaySource[] }>>
+    }
+    return unwrap(await remote.list(), 'agentPresets.list').presets
+  }, (ctx.locale.bind as (namespace: string) => (key: import('@deepseek-ai/dsh-agent-preset-registry/display').BuiltInPresetCopyKey) => string)('settings.agentPreset'))
   installSettingsNavIcon(ctx, () => t('nav'))
   /**
    * The two signals that say "the host catalog may have moved, and this page did
@@ -461,6 +534,9 @@ export function apply(ctx: ClientContext): void {
   const injected = (): CapabilitySectionInjected => {
     return {
       remoteMount,
+      sessions,
+      policySaves,
+      modeNames,
       t,
       subscribeSignals,
     }

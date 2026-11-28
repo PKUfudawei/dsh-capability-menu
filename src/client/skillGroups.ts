@@ -85,6 +85,7 @@ export interface FilterLabels {
   readonly builtIn?: string
   /** How a skill's source root is drawn on its row, e.g. `~/.dsh/skills`. */
   readonly source?: (source: string) => string | undefined
+  readonly preset?: (id: string) => string
 }
 
 /**
@@ -106,6 +107,7 @@ export function searchableText(row: CapabilityRow, labels: FilterLabels = {}): s
     values.push(row.source, labels.source?.(row.source))
   }
   values.push(row.preset)
+  if (row.preset !== undefined) values.push(labels.preset?.(row.preset))
   return values.filter((v): v is string => v !== undefined && v !== '')
 }
 
