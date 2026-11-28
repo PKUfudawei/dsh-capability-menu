@@ -191,7 +191,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // registry keeps them indexed so the management UI can list them, but the
       // model can never reach a disabled capability through meta_invoke.
       const policy = ctx.get('capabilityPolicy')
-      if (policy?.isDisabledCapability(id, kind)) {
+      if (policy?.isDisabledCapability(id, kind, exec.agent)) {
         throw new Error(`meta_invoke: ${kind} capability "${id}" is disabled and cannot be invoked`)
       }
 

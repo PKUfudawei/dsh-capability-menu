@@ -65,9 +65,15 @@ The model gets two meta tools:
 
 After installation, open **Settings** and select **Capability Menu** from the settings navigation to manage Tools and Skills.
 
+Capability Menu follows the main conversation’s actual **mode (Agent preset)**, displaying a read-only current-mode label with DSH’s localized display name rather than an independent selector. Navigating to another conversation updates the panel; changing the new-session default does not change existing sessions. Until the session preset resolves, the panel waits and never writes global policy. Each mode saves its own Tools and Skills policy without inheriting global or other-mode settings. New modes start with Resident capabilities. Tools and Skills share tier buttons with immediate feedback and a 1.5-second debounced save. Pending changes remain bound to their original preset and flush on navigation; failures identify that preset and retain a retry action. Skill source tabs remain Global / Project / Mode skills, with skill update checks described below.
+
+Click a group's tier-count button to cycle its displayed tools in that tier (for example, Resident to On-demand). With mixed tiers, each button changes only the tools in its own tier. Changes are saved individually in the current mode. It does not establish a server default or affect future tools. Meta tools remain Resident. Disabling tools does not disconnect shared MCP connections. Resource instructions retain the behavior documented below. Source installation, updates, and removal remain shared operations.
+
+Changes apply to subsequent requests after saving, without interrupting running tools or rewriting history. Initial loading upgrades state to v4, copying existing modes' effective policies into independent configurations and preserving search descriptions. Legacy server and wildcard rules remain frozen within each migrated mode; new individual choices take precedence. Later global config edits do not affect mode policies. On DSH `0.2.2-rc.5`, the native skill catalog is projected before session commit and deduplicated against visible history, including policy-only changes. On-demand skills remain searchable through `meta_search`; Disabled policy also filters native `/skill-name` instruction injections.
+
 | Task | How to do it |
 | --- | --- |
-| Change a tier | Click the dot beside a capability. Click a tier count at the top to change the whole group. |
+| Change a tier | Click the capability's tier button to cycle its tier. The tier-count buttons beside a server cycle the currently displayed tools in the corresponding tier. |
 | Find a capability | Use the filter below the tabs to search by name or group. Regex is supported and matching is case-insensitive. |
 | View details | Click a Tool to see its definition. Click a Skill to expand its files and preview them; content is rendered as Markdown. |
 | Register a capability | Click **Register** in the top right to add an MCP server or Skill directory; Skills accept local paths or public GitHub URLs. |
@@ -144,11 +150,13 @@ Scope and exceptions:
 
 #### Rule configuration and persistence
 
-The dialog shows effective rules composed from hand-written rules and menu choices; it is not another YAML file. Hand-written rules belong under `config` in the `capability-menu-policy` entry. This is a config fragment; see [cordis.patch.yml](./cordis.patch.yml) for the complete installation patch.
+The policy dialog lists the current mode's effective tool and skill tiers for inspection, not as a separate editable YAML file.
 
-- The default patch is `${DSH_HOME:-~/.dsh}/cordis.patch.yml`. A profile can override the entry in its own patch.
-- Tier changes in Capability Menu apply immediately and are written to `stateFile` about 1.5 seconds after input stops; search descriptions and their length limit are stored there too. These writes do not trigger DSH config reloads. Patch rules remain the base; UI choices override exact rules for the same capability, while Disabled wildcards still take priority.
-- `stateFile` defaults to `${DSH_HOME:-~/.dsh}/capability-menu-policy.json` (beside the default patch), so profiles share UI choices. To isolate profiles, set the same custom `stateFile` in both the policy and registry entries. To clear UI choices, stop DSH and delete the state file; patch rules remain in effect.
+- Menu choices and search metadata are saved in `stateFile` without reloading DSH configuration.
+- The default is `${DSH_HOME:-~/.dsh}/capability-menu-policy.json`, shared across profiles. Set the same custom `stateFile` on policy and registry entries to isolate a profile.
+- Use the menu for routine changes. Handwritten rules below support legacy callers and initial migration; existing modes do not keep reading them. Deleting state discards all mode policies and search descriptions, then repeats migration on restart. It does not reset just one mode.
+
+Legacy configuration example:
 
 ```yaml
 config:
@@ -162,9 +170,9 @@ config:
       - example_skill        # unlisted capabilities default to Resident
 ```
 
-Usually, you only need `tools` and `skills`. The optional file paths and debounce settings can keep their defaults. For every parameter, see the [policy config](./src/policy.ts) and [registry config](./src/registry.ts).
+Optional file paths and debounce settings can keep their defaults. For every parameter, see the [policy config](./src/policy.ts) and [registry config](./src/registry.ts).
 
-**Rule priority:** Rules are checked in order; Disabled takes precedence. Between Resident and On-demand, exact rules beat wildcards; at the same specificity, Resident wins. Capabilities matching no rule are Resident.
+**Legacy rule priority:** Rules are checked in order; Disabled takes precedence. Between Resident and On-demand, exact rules beat wildcards; at the same specificity, Resident wins. Capabilities matching no rule are Resident.
 
 | priority | rule | example |
 | --- | --- | --- |
@@ -175,7 +183,7 @@ Usually, you only need `tools` and `skills`. The optional file paths and debounc
 | 5 | `on-demand` wildcard | `on-demand: ['mcp__*']` |
 | default | no rule matched | — |
 
-Selecting a tier in Capability Menu writes an exact rule. If a higher-priority rule overrides the selected tier, the UI reports that the classification did not apply.
+The rule order above applies to legacy configuration and migration. Menu choices directly set the current mode tier without global fallback; meta tools remain Resident.
 
 ### On-demand search catalog
 

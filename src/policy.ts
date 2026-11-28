@@ -9,9 +9,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { PromptAssembly, PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 import { dirname, join } from 'node:path'
-import { escapeText } from '@deepseek-ai/dsh-skill'
+import { installSkillCatalog } from './skill-catalog.ts'
+import { emptyOverrides, presetOf, validateOverrides, type PolicyContext, type PolicyOverrides } from './preset-policy.ts'
 import { serverNameOf, type CapabilityKind } from './registry.ts'
-import { readTierState, writeTierState, type TierState } from './policy-state.ts'
+import { initializeModePolicies, readMenuState, writeModeChoices, writeLegacyGlobalChoices, writeTierState, type ModePolicy, type TierState } from './policy-state.ts'
 import { installToolAdmission } from './tool-admission.ts'
 import { projectMcpInstructions } from './mcp-instructions.ts'
 import {
@@ -281,6 +282,7 @@ export interface CapabilityClassification {
   /** Human-friendly display label for the classification. */
   readonly classLabel: string
   /** True when this capability is a mandatory meta tool (always Resident). */
+  readonly policySource?: string
   readonly mandatory: boolean
 }
 
@@ -294,33 +296,37 @@ const CLASS_LABELS: Record<CapabilityClass, string> = {
  * The `ctx.capabilityPolicy` service surface.
  */
 export interface CapabilityPolicyService {
+  /** Wait for one-time migration before management reads or writes. */
+  ready(): Promise<void>
   /** Classify a tool by its public name (`mcp__<server>__<raw>` or meta tool). */
-  classifyTool(name: string): CapabilityClass
+  classifyTool(name: string, context?: PolicyContext): CapabilityClass
   /** Classify a skill by its bare name. */
-  classifySkill(name: string): CapabilityClass
+  classifySkill(name: string, context?: PolicyContext): CapabilityClass
   /** True when a tool is Resident (or a mandatory meta tool). */
-  isResidentTool(name: string): boolean
+  isResidentTool(name: string, context?: PolicyContext): boolean
   /** True when a skill is Resident. */
-  isResidentSkill(name: string): boolean
+  isResidentSkill(name: string, context?: PolicyContext): boolean
   /** True when a tool is Disabled. */
-  isDisabledTool(name: string): boolean
+  isDisabledTool(name: string, context?: PolicyContext): boolean
   /** True when a skill is Disabled. */
-  isDisabledSkill(name: string): boolean
+  isDisabledSkill(name: string, context?: PolicyContext): boolean
   /**
    * True when a capability (by id and `kind`) is Disabled. `kind` disambiguates
    * a bare name shared by a tool and a skill.
    */
-  isDisabledCapability(id: string, kind?: CapabilityKind): boolean
+  isDisabledCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): boolean
   /** Tool names that are always kept Resident. */
   metaTools(): readonly string[]
   /** Resolve a capability's id to a class; pass `kind` to disambiguate a bare name. */
-  classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass
+  classifyCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): CapabilityClass
   /** Rules resident for the registry/other consumers. */
   toolRules(): CompiledCapabilityRules
   skillRules(): CompiledCapabilityRules
 
   // — management surface (能力菜单) —
   /** Current (resolved) policy config. */
+  getOverrides(preset: string): PolicyOverrides
+  setOverrides(preset: string, changes: { kind: 'tools' | 'skills' | 'servers'; id: string; tier: CapabilityClass | null }[]): Promise<void>
   getConfig(): Config
   /** Replace a subset of the policy config and recompile rules immediately. */
   updateConfig(partial: Partial<Config>): Promise<void>
@@ -328,7 +334,7 @@ export interface CapabilityPolicyService {
    * Classify every capability currently indexed by `ctx.capability` (the
    * registry sibling). Returns an empty array when the registry is not mounted.
    */
-  classifyAll(): readonly CapabilityClassification[]
+  classifyAll(context?: PolicyContext): readonly CapabilityClassification[]
 
   // — location registry (能力菜单 · 注册能力) —
   /** MCP servers declared in the patch file, in file order. */
@@ -410,7 +416,7 @@ export function projectAssemblyTools<T extends PromptPresentation & { tools?: Pr
 
 /** Build the policy plugin. */
 export const name = 'capability-menu-policy'
-// The policy needs `capability` (the registry sibling) for classifyAll(). New
+// The policy needs `capability` (the registry sibling) for classifyAll(context?: PolicyContext). New
 // hosts use the step-owned tool set; older hosts use the assembly waterfall.
 // The bundle mounts registry before policy, so `capability` is available.
 export const inject = ['capability', 'tools', 'skills']
@@ -430,10 +436,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const defaults = defaultLocationConfig()
   const patchFile = (config.patchFile ?? defaults.patchFile).trim()
   const stateFile = (config.stateFile ?? (patchFile.length > 0 ? join(dirname(patchFile), 'capability-menu-policy.json') : '')).trim()
+  let overrides: Record<string, PolicyOverrides> = {}
+  let modes: Record<string, ModePolicy> | undefined
   let savedTiers: TierState = { tool: new Map(), skill: new Map() }
   if (stateFile.length > 0) {
     try {
-      savedTiers = await readTierState(stateFile)
+      const saved = await readMenuState(stateFile)
+      savedTiers = saved.tiers
+      overrides = saved.overrides ?? {}
+      modes = saved.modes
     } catch (error) {
       throw new Error(`cannot load capability tier state from ${stateFile}: ${String(error)}`)
     }
@@ -605,32 +616,110 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
   applyConfig(effective, [...(config.metaTools ?? DEFAULT_META_TOOLS)])
 
-  const service: CapabilityPolicyService = {
-    classifyTool(name: string): CapabilityClass {
+  // Copy legacy effective rules once for existing modes. Subsequent config
+  // edits and newly created modes never inherit this snapshot.
+  const initializeModes = async (): Promise<void> => {
+    if (modes) return
+    // Definitions may register after this plugin. Snapshot the complete roster,
+    // including modes with no prior menu edits, once host startup settles.
+    const loader = ctx.get('loader') as { await?: () => Promise<unknown> } | undefined
+    await loader?.await?.()
+    const registry = ctx.get('agentPresets') as { list?: () => Promise<{ id: string }[]> } | undefined
+    const ids = new Set([...(await registry?.list?.() ?? []).map(row => row.id), ...Object.keys(overrides).filter(Boolean)])
+    const legacyGlobal = validateOverrides(overrides[''] ?? emptyOverrides())
+    const global = { ...legacyGlobal, tools: { ...Object.fromEntries(savedTiers.tool), ...legacyGlobal.tools }, skills: { ...Object.fromEntries(savedTiers.skill), ...legacyGlobal.skills } }
+    modes = Object.fromEntries([...ids].map(id => {
+      const own = validateOverrides(overrides[id] ?? emptyOverrides())
+      const choices = validateOverrides(global)
+      // A mode server rule used to outrank global exact choices.
+      for (const name of Object.keys(choices.tools)) if (Object.hasOwn(own.servers, serverNameOf(name))) delete choices.tools[name]
+      Object.assign(choices.tools, own.tools)
+      Object.assign(choices.skills, own.skills)
+      Object.assign(choices.servers, own.servers)
+      for (const kind of ['tools', 'skills'] as const) {
+        const base = compileSet(config[kind])
+        for (const name of Object.keys(choices[kind])) {
+          const target = { id: name, name, server: kind === 'tools' ? serverNameOf(name) : undefined, kind: kind === 'tools' ? 'tool' as const : 'skill' as const, ruleKind: kind === 'tools' ? 'tool' as const : 'skill' as const }
+          if (base.disabled.some(rule => rule.wildcard && ruleMatches(rule, target))) choices[kind][name] = 'disabled'
+        }
+      }
+      return [id, { tools: structuredClone(effective.tools), skills: structuredClone(effective.skills), choices }]
+    }))
+    if (stateFile) modes = await initializeModePolicies(stateFile, modes)
+  }
+
+  let migrationReady: Promise<void> = Promise.resolve()
+  let migrationError: unknown
+  const selection = (name: string, kind: CapabilityKind, context?: PolicyContext): { tier?: CapabilityClass; source: string } => {
+    const preset = presetOf(ctx, context)
+    if (preset && modes) {
+      const row = Object.hasOwn(modes!, preset) ? modes![preset]!.choices : emptyOverrides()
+      const exact = row[kind === 'tool' ? 'tools' : 'skills']
+      if (Object.hasOwn(exact, name)) return { tier: exact[name], source: preset }
+      const mode = Object.hasOwn(modes!, preset) ? modes![preset] : undefined
+      const target = { id: name, name, server: kind === 'tool' ? serverNameOf(name) : undefined, kind, ruleKind: kind }
+      if (compileSet(mode?.[kind === 'tool' ? 'tools' : 'skills']).disabled.some(rule => rule.wildcard && ruleMatches(rule, target))) return { tier: 'disabled', source: preset }
       const server = serverNameOf(name)
-      return classify(toolCompiled, { id: name, name, server, kind: 'tool', ruleKind: 'tool' }, metaToolSet)
+      if (kind === 'tool' && Object.hasOwn(row.servers, server)) return { tier: row.servers[server], source: preset }
+      return { source: preset }
+    }
+    if (migrationError) throw migrationError
+    // Before migration completes, preserve the exact legacy effective policy.
+    if (preset && !modes && Object.hasOwn(overrides, preset)) {
+      const row = overrides[preset]!
+      const exact = row[kind === 'tool' ? 'tools' : 'skills']
+      if (Object.hasOwn(exact, name)) return { tier: exact[name], source: preset }
+      const server = serverNameOf(name)
+      if (kind === 'tool' && Object.hasOwn(row.servers, server)) return { tier: row.servers[server], source: preset }
+    }
+    // Compatibility for callers without a mode, isolated from migrated modes.
+    const row = service.getOverrides('')
+    const exact = row[kind === 'tool' ? 'tools' : 'skills']
+    if (Object.hasOwn(exact, name)) return { tier: exact[name], source: 'global' }
+    const server = serverNameOf(name)
+    if (kind === 'tool' && Object.hasOwn(row.servers, server)) return { tier: row.servers[server], source: 'global:server' }
+    return { source: 'global' }
+  }
+  const resolveTier = (name: string, kind: CapabilityKind, context?: PolicyContext): CapabilityClass => {
+    if (kind === 'tool' && metaToolSet.has(name)) return 'resident'
+    const target = { id: name, name, server: kind === 'tool' ? serverNameOf(name) : undefined, kind, ruleKind: kind }
+    const preset = presetOf(ctx, context)
+    if (preset && modes) {
+      const mode = Object.hasOwn(modes!, preset) ? modes![preset] : undefined
+      return selection(name, kind, context).tier ?? classify(compileSet(mode?.[kind === 'tool' ? 'tools' : 'skills']), target, kind === 'tool' ? metaToolSet : new Set())
+    }
+    // Preserve legacy behavior only for callers without a mode.
+    const base = compileSet(kind === 'tool' ? config.tools : config.skills)
+    if (base.disabled.some(rule => rule.wildcard && ruleMatches(rule, target))) return 'disabled'
+    return selection(name, kind, context).tier ?? classify(kind === 'tool' ? toolCompiled : skillCompiled, target, kind === 'tool' ? metaToolSet : new Set())
+  }
+  let overrideWrite: Promise<void> = Promise.resolve()
+  const service: CapabilityPolicyService = {
+    ready: () => migrationReady,
+    classifyTool(name: string, context?: PolicyContext): CapabilityClass {
+      return resolveTier(name, 'tool', context)
     },
-    classifySkill(name: string): CapabilityClass {
-      return classify(skillCompiled, { id: name, name, kind: 'skill', ruleKind: 'skill' }, new Set())
+    classifySkill(name: string, context?: PolicyContext): CapabilityClass {
+      return resolveTier(name, 'skill', context)
     },
-    classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass {
+    classifyCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): CapabilityClass {
       // `kind` disambiguates a bare name shared by a tool and a skill.
-      return kind === 'skill' ? service.classifySkill(id) : service.classifyTool(id)
+      return kind === 'skill' ? service.classifySkill(id, context) : service.classifyTool(id, context)
     },
-    isResidentTool(name: string): boolean {
-      return service.classifyTool(name) === 'resident'
+    isResidentTool(name: string, context?: PolicyContext): boolean {
+      return service.classifyTool(name, context) === 'resident'
     },
-    isResidentSkill(name: string): boolean {
-      return service.classifySkill(name) === 'resident'
+    isResidentSkill(name: string, context?: PolicyContext): boolean {
+      return service.classifySkill(name, context) === 'resident'
     },
-    isDisabledTool(name: string): boolean {
-      return service.classifyTool(name) === 'disabled'
+    isDisabledTool(name: string, context?: PolicyContext): boolean {
+      return service.classifyTool(name, context) === 'disabled'
     },
-    isDisabledSkill(name: string): boolean {
-      return service.classifySkill(name) === 'disabled'
+    isDisabledSkill(name: string, context?: PolicyContext): boolean {
+      return service.classifySkill(name, context) === 'disabled'
     },
-    isDisabledCapability(id: string, kind?: CapabilityKind): boolean {
-      return service.classifyCapability(id, kind) === 'disabled'
+    isDisabledCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): boolean {
+      return service.classifyCapability(id, kind, context) === 'disabled'
     },
     metaTools(): readonly string[] {
       return metaTools
@@ -640,6 +729,48 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
     skillRules(): CompiledCapabilityRules {
       return skillCompiled
+    },
+    getOverrides(preset) {
+      if (preset && modes) return validateOverrides(Object.hasOwn(modes!, preset) ? modes![preset]!.choices : emptyOverrides())
+      const value = validateOverrides(Object.hasOwn(overrides, preset) ? overrides[preset] : emptyOverrides())
+      return preset ? value : { ...value, tools: { ...Object.fromEntries(savedTiers.tool), ...value.tools }, skills: { ...Object.fromEntries(savedTiers.skill), ...value.skills } }
+    },
+    async setOverrides(preset, changes) {
+      await migrationReady
+      if (typeof preset !== 'string' || !Array.isArray(changes)) throw new Error('Invalid policy scope')
+      for (const change of changes) {
+        if (preset && (change.tier === null || change.kind === 'servers')) throw new Error('Mode policies require an explicit tool or skill tier')
+        if (!['tools', 'skills', 'servers'].includes(change.kind) || typeof change.id !== 'string' || !change.id.trim()
+          || (change.tier !== null && !['resident', 'on-demand', 'disabled'].includes(change.tier))) throw new Error('Invalid policy change')
+        if (change.kind === 'tools' && metaToolSet.has(change.id)) throw new Error('Meta tools must remain resident')
+      }
+      const write = overrideWrite.then(async () => {
+        if (preset) {
+          const edits = changes as { kind: 'tools' | 'skills'; id: string; tier: CapabilityClass }[]
+          let next: ModePolicy
+          if (stateFile) next = await writeModeChoices(stateFile, preset, edits)
+          else {
+            const mode = Object.hasOwn(modes!, preset) ? modes![preset]! : { choices: emptyOverrides() }
+            next = { ...mode, choices: validateOverrides(mode.choices) }
+            for (const { kind, id, tier } of edits) Object.defineProperty(next.choices[kind], id, { value: tier, enumerable: true, configurable: true, writable: true })
+          }
+          Object.defineProperty(modes!, preset, { value: next, enumerable: true, configurable: true, writable: true })
+          return
+        }
+        const next = service.getOverrides(preset)
+        for (const change of changes) {
+          if (change.tier === null) delete next[change.kind][change.id]
+          else Object.defineProperty(next[change.kind], change.id, { value: change.tier, enumerable: true, configurable: true, writable: true })
+        }
+        if (stateFile) await writeLegacyGlobalChoices(stateFile, changes)
+        if (!preset) {
+          for (const change of changes) if (change.kind !== 'servers') savedTiers[change.kind === 'tools' ? 'tool' : 'skill'].delete(change.id)
+          applyConfig({ ...current, tools: replayMoves(config.tools, savedTiers.tool), skills: replayMoves(config.skills, savedTiers.skill) }, metaTools)
+        }
+        Object.defineProperty(overrides, preset, { value: next, enumerable: true, configurable: true, writable: true })
+      })
+      overrideWrite = write.catch(() => undefined)
+      await write
     },
     getConfig(): Config {
       return { ...current }
@@ -662,11 +793,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       recordMoves(previousSkills, merged.skills, movedTiers.skill)
       schedulePersistTiers()
     },
-    classifyAll(): readonly CapabilityClassification[] {
+    classifyAll(context?: PolicyContext): readonly CapabilityClassification[] {
       // The registry default maxResults (20) would truncate the management
       // surface: enumerate every indexed capability, not just the top-20.
       return ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER }).map(summary => {
-        const cls = service.classifyCapability(summary.id, summary.kind)
+        const cls = service.classifyCapability(summary.id, summary.kind, context)
         const mandatory = summary.kind === 'tool' && metaToolSet.has(summary.id)
         // Summaries carry no directory, so a skill's own is resolved from its
         // record — the same lookup 纳入管理 itself uses to decide what to link.
@@ -681,6 +812,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           ...summary.source !== undefined ? { source: summary.source } : {},
           ...summary.preset !== undefined ? { preset: summary.preset } : {},
           ...skillPath !== undefined ? { path: skillPath } : {},
+          policySource: selection(summary.id, summary.kind, context).source,
           class: cls,
           classLabel: CLASS_LABELS[cls],
           mandatory,
@@ -732,7 +864,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   // Newer hosts build tool declarations from a step-owned admission set after
   // the prompt waterfall. Keep the legacy assembly projection for older hosts.
-  installToolAdmission(ctx, name => service.isResidentTool(name))
+  installToolAdmission(ctx, (name, agent) => service.isResidentTool(name, agent))
 
   // Disabled capabilities are a hard deny at the execution surface, not just a
   // projection concern: a hallucinated direct call to a disabled tool (or to the
@@ -740,67 +872,32 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // On-demand tools stay executable — meta_invoke forwards through this same
   // pipeline, so only Disabled is rejected here.
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (service.isDisabledTool(exec.name)) {
+    if (service.isDisabledTool(exec.name, exec.agent)) {
       return { kind: 'deny', reason: `capability "${exec.name}" is disabled and cannot be executed` }
     }
     if (exec.name === 'skill') {
       const args = exec.arguments as { name?: unknown } | null | undefined
       const name = typeof args?.name === 'string' ? args.name : ''
-      if (name.length > 0 && service.isDisabledSkill(name)) {
+      if (name.length > 0 && service.isDisabledSkill(name, exec.agent)) {
         return { kind: 'deny', reason: `skill "${name}" is disabled and cannot be loaded` }
       }
     }
     return next()
   })
 
-  // On-demand/Disabled skills must not appear in the model-facing
-  // `<available_skills>` catalog injected by `dsh-tool-skill`. The catalog is a
-  // user-role message whose `source.kind === 'skill-catalog'`; rewrite it every
-  // pre-step to keep only Resident skills. dsh-tool-skill republishes the full
-  // catalog earlier on the same chain, so this filter is idempotent: whatever
-  // it publishes, only the Resident subset reaches the model.
-  ctx.on('agent/pre-step', async (_payload, next) => {
-    const decision = await next()
-    if (decision.kind !== 'enter') return decision
-    let changed = false
-    const messages = decision.messages.map(message => {
-      const source = message.source as { kind?: unknown; entries?: unknown } | undefined
-      if (source?.kind !== 'skill-catalog') return message
-      if (!Array.isArray(source.entries)) {
-        // Cannot tell which skills the message lists, so it stays untouched —
-        // but say so: silently skipping the filter would leak Disabled skills
-        // into the model surface with no trace.
-        ctx.logger.warn('capability-policy: skill-catalog message has no entries array; leaving it unfiltered')
-        return message
-      }
-      const entries = source.entries.filter((entry): entry is { name: string; description?: string } =>
-        typeof entry === 'object' && entry !== null && typeof (entry as { name?: unknown }).name === 'string')
-      const kept = entries
-        .filter(entry => service.isResidentSkill(entry.name))
-        .map(entry => ({ name: entry.name, description: entry.description ?? '' }))
-      if (kept.length === entries.length) return message
-      changed = true
-      return {
-        ...message,
-        content: [{ type: 'text' as const, text: renderSkillCatalog(kept) }],
-        source: { ...message.source, entries: kept } as unknown as typeof message.source,
-      }
-    })
-    if (!changed) return decision
-    return { ...decision, messages }
-  })
+  installSkillCatalog(ctx, (name, agent) => service.isResidentSkill(name, agent), (name, agent) => service.isDisabledSkill(name, agent))
 
   // Point the model to the sole discovery entry when On-demand capabilities
   // exist. Skills keep the dsh-native catalog, filtered to Resident above.
   ctx.on('system-prompt/assemble', async (_assembly: PromptPresentation, context, next) => {
     const resolved = await next()
     const projected = projectMcpInstructions(
-      projectAssemblyTools(resolved, service),
+      projectAssemblyTools(resolved, { ...service, isResidentTool: name => service.isResidentTool(name, context.agent) }),
       ctx.tools.schemas(context.scope),
-      name => service.isDisabledTool(name),
+      name => service.isDisabledTool(name, context.agent),
     )
     const hasOnDemand = ctx.capability.search({ maxResults: Number.MAX_SAFE_INTEGER })
-      .some(record => service.classifyCapability(record.id, record.kind) === 'on-demand')
+      .some(record => service.classifyCapability(record.id, record.kind, context.agent) === 'on-demand')
     if (!hasOnDemand) return projected
     const pointer = {
       name: 'capability-menu-catalog',
@@ -810,6 +907,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
 
   ctx.provide('capabilityPolicy', service)
+
+  // Host list() can await loader startup. Do not make plugin mounting await
+  // migration: that would create a loader -> policy -> roster -> loader cycle.
+  migrationReady = initializeModes().catch(error => { migrationError = error; throw error })
+  void migrationReady.catch(error => ctx.logger.warn(`capability-policy: mode migration failed: ${String(error)}`))
+  ctx.effect(() => async () => { await migrationReady }, 'capability-menu-policy: finish mode migration')
 
   // Complete the initial tool and skill scan before the first menu snapshot.
   // A pending preset scope must not hold this fiber in loading forever.
@@ -828,28 +931,4 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   } finally {
     if (refreshTimer !== undefined) clearTimeout(refreshTimer)
   }
-}
-
-/**
- * Rebuild the text body of a skill-catalog user message from a filtered entry
- * list. Mirrors the `<available_skills>` format emitted by `dsh-tool-skill` so
- * the model sees a consistent, complete replacement catalog.
- */
-function renderSkillCatalog(entries: ReadonlyArray<{ name: string; description?: string }>): string {
-  const guidance = entries.length === 0
-    ? ['No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.']
-    : [
-        'If the user names a skill, or the task clearly matches a skill\u2019s description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill\u2019s instructions until it has been loaded.',
-      ]
-  return [
-    '<system-reminder>',
-    'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
-    '',
-    '<available_skills>',
-    ...entries.map(entry => `- \`${escapeText(entry.name)}\`: ${escapeText(entry.description ?? '')}`),
-    '</available_skills>',
-    '',
-    ...guidance,
-    '</system-reminder>',
-  ].join('\n')
 }

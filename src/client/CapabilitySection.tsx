@@ -6,15 +6,18 @@
  *   - tier counts     → counts for the active Tools or Skills source tab
  *   - tabs            → Tools | Skills (plugins-tab chrome)
  *   - Tools tab       → grouped by server, collapsible disclosure rows; the
- *                       per-class count chip and each tool's class chip are
- *                       clickable to cycle Resident → On-demand → Disabled.
+ *                       tier-count buttons cycle the displayed tools in that
+ *                       tier within the current mode.
  *                       Harness-native tools (no real MCP server) share the
  *                       reserved `built-in` group, shown as 「系统内置」.
- *   - Skills tab      → sub-tabs 全局技能 / 项目技能 / 预设技能, each
+ *   - Skills tab      → sub-tabs 全局技能 / 项目技能 / 模式技能, each
  *                       with flat skill rows carrying the same clickable class
  *                       chip plus a directory tree / file preview
  */
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
+import { currentPresetKey, type SessionSource } from './current-preset.ts'
+import type { ModeNames } from './mode-names.ts'
+import type { PresetPolicySaves } from './preset-policy-saves.ts'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore, useMemo, createContext, useContext } from 'react'
 import type { RemoteMount } from './remote-mount.ts'
 import type { KeyboardEvent, ReactElement } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -30,7 +33,7 @@ import type {
   ToolDetail,
   SearchMetadata,
 } from './store.ts'
-import { cachedSnapshot, loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools, withTransientRetry } from './store.ts'
+import { loadSnapshot, rememberSnapshot, unwrap, waitForMcpTools, withTransientRetry } from './store.ts'
 
 type ChevronIcon = (props: { size?: number; className?: string }) => ReactElement
 const chevronIcons = ClientUiPrimitives as unknown as {
@@ -61,6 +64,9 @@ import {
 /** Props injected by the settings.section registration (see index.ts). */
 export interface CapabilitySectionInjected {
   remoteMount: RemoteMount<CapabilityPolicyRemote>
+  sessions: SessionSource
+  policySaves: PresetPolicySaves
+  modeNames: ModeNames
   t(key: CapabilityKey, params?: Record<string, unknown>): string
   /**
    * Subscribe to signals that the host catalog may have moved without this page
@@ -74,6 +80,13 @@ export interface CapabilitySectionInjected {
 export type CapabilitySectionProps = CapabilitySectionInjected
 
 export type CapabilityKey =
+  | 'skillAvailableCount'
+  | 'skillWaiting'
+  | 'currentPreset'
+  | 'policySourceLabel'
+  | 'waitingPreset'
+  | 'presetSaveFailed'
+  | 'groupCycleHint'
   | 'nav'
   | 'title'
   | 'desc'
@@ -136,7 +149,22 @@ export type CapabilityKey =
   | 'mcpServers'
   | 'skillDirs'
   | 'skillUpdates'
+  | 'policySavePending'
+  | 'skillNoLocations'
+  | 'skillNoLocationsHint'
+  | 'skillCheckAllHint'
+  | 'skillNoMatchingLocations'
   | 'skillCheckUpdates'
+  | 'skillSkippedInvalid'
+  | 'skillSkippedHint'
+  | 'skillLinkedDifferent'
+  | 'skillLinkedReadOnly'
+  | 'skillSourceUnknown'
+  | 'skillSourceUnknownShort'
+  | 'skillDifferentShort'
+  | 'skillModifiedShort'
+  | 'skillUpdateDetails'
+  | 'skillHideDetails'
   | 'skillUpdateAll'
   | 'skillChecking'
   | 'skillUpdating'
@@ -150,6 +178,7 @@ export type CapabilityKey =
   | 'skillUpdateOne'
   | 'skillUpdateProgress'
   | 'skillCheckProgress'
+  | 'skillCheckQueued'
   | 'skillCheckComplete'
   | 'skillUpdatingItem'
   | 'skillUpdateComplete'
@@ -158,8 +187,6 @@ export type CapabilityKey =
   | 'skillUnlinked'
   | 'skillAssociated'
   | 'skillSourceFailed'
-  | 'skillAvailableCount'
-  | 'skillWaiting'
   | 'skillGitManaged'
   | 'skillEditSource'
   | 'skillUnlinkSource'
@@ -182,6 +209,7 @@ export type CapabilityKey =
   | 'skillAdopted'
   | 'skillSource'
   | 'skillSourceHint'
+  | 'sourceBundledHint'
   | 'skillFromPreset'
   | 'skillFromPresetHint'
   | 'githubImporting'
@@ -613,44 +641,136 @@ function useDocumentVisible(): boolean {
 export function CapabilitySection(props: CapabilitySectionProps): JSX.Element {
   const { remoteMount, t } = props
   const state = useSyncExternalStore(remoteMount.subscribe, remoteMount.getSnapshot, remoteMount.getSnapshot)
-  if (state.status === 'ready') return <MountedCapabilitySection remote={state.remote} t={t} subscribeSignals={props.subscribeSignals} />
+  if (state.status === 'ready') return <FollowingCapabilitySection {...props} remote={state.remote} />
   return <section className="mc-section">
     {state.status === 'loading' ? <p className="mc-empty">{t('desc')}…</p> : <div className="mc-error"><p>{state.error}</p></div>}
   </section>
 }
 
+interface ScopeView {
+  preset: string
+  modeName(id: string): string
+  revision: number
+  t: CapabilitySectionInjected['t']
+}
+const ScopeContext = createContext<ScopeView | null>(null)
+
+function PolicyChoiceControl({ disabled, tier, onCycle }: { disabled?: boolean; tier: CapabilityClass; onCycle?(): void }): JSX.Element | null {
+  const scope = useContext(ScopeContext)
+  if (!scope) return null
+  if (tier) {
+    return <span className="mc-policy-control" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+      <button type="button" className={`mc-count mc-count--${tier}`}
+        disabled={disabled} title={scope.t('cycleHint')} aria-label={`${scope.t(CLASS_SHORT_KEYS[tier])} · ${scope.t('cycleHint')}`}
+        onClick={onCycle}>
+        <span className={`mc-dot mc-dot--${tier}`} aria-hidden="true" />
+        {scope.t(CLASS_SHORT_KEYS[tier])}
+      </button>
+
+    </span>
+  }
+  return null
+}
+
+function FollowingCapabilitySection(props: CapabilitySectionProps & { remote: CapabilityPolicyRemote }): JSX.Element {
+  useSyncExternalStore(props.modeNames.subscribe, props.modeNames.getSnapshot, props.modeNames.getSnapshot)
+  useEffect(() => {
+    void props.modeNames.load()
+    return props.subscribeSignals(() => { void props.modeNames.load() })
+  }, [props.modeNames, props.subscribeSignals])
+  const binding = useSyncExternalStore(
+    useCallback(listener => props.sessions.subscribe(listener), [props.sessions]),
+    useCallback(() => currentPresetKey(props.sessions), [props.sessions]),
+    () => null,
+  )
+  useSyncExternalStore(props.policySaves.subscribe, props.policySaves.getSnapshot, props.policySaves.getSnapshot)
+  const preset = binding ? (JSON.parse(binding) as [string, string])[1] : null
+  return <>
+    {props.policySaves.failures.map(([id, queue]) => <div className="mc-notice" role="alert" key={id}>
+      <span>{props.t('presetSaveFailed', { preset: props.modeNames.name(id) })}</span>
+      <button type="button" className="mc-catalog-btn" onClick={() => void queue.flush()}>{props.t('retry')}</button>
+      <details><summary>{props.t('skillErrorDetails')}</summary>{String(queue.error)}</details>
+    </div>)}
+    {preset === null ? <p className="mc-empty">{props.t('waitingPreset')}</p>
+      : <ScopedCapabilitySection key={binding!} {...props} preset={preset} />}
+  </>
+}
+
+function ScopedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMount'> & { remote: CapabilityPolicyRemote; preset: string }): JSX.Element {
+  const { preset, policySaves } = props
+  const revision = useSyncExternalStore(policySaves.subscribe, policySaves.getSnapshot, policySaves.getSnapshot)
+  const remote = useMemo<CapabilityPolicyRemote>(() => {
+    const overrides: Partial<CapabilityPolicyRemote> = {
+      classifyAll: () => props.remote.classifyAll(preset),
+      getCatalogDocs: () => props.remote.getCatalogDocs(preset),
+      getDetail: id => props.remote.getDetail(id, preset),
+    }
+    return new Proxy(props.remote, { get(target, key) { return key in overrides ? overrides[key as keyof CapabilityPolicyRemote] : Reflect.get(target, key) } })
+  }, [props.remote, preset])
+  return <ScopeContext.Provider value={{ preset, modeName: props.modeNames.name, revision,
+    t: props.t,
+  }}>
+    <MountedCapabilitySection {...props} remote={remote} />
+  </ScopeContext.Provider>
+}
+
 function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMount'> & { remote: CapabilityPolicyRemote }): JSX.Element {
   const { remote, t, subscribeSignals } = props
+  const scopeView = useContext(ScopeContext)
   // Paint a previous snapshot immediately when this page session has one; the
   // mount effect below still revalidates.
   const [state, setState] = useState<ViewState>(() => {
-    const cached = cachedSnapshot()
-    return cached === undefined ? { status: 'loading' } : { status: 'ready', snapshot: cached }
+    return { status: 'loading' }
   })
-  const [busy, setBusy] = useState(false)
+  const stateRef = useRef(state)
+  const expectedTiers = useRef(new Map<string, CapabilityClass>())
+  stateRef.current = state
+  const alive = useRef(true)
+  const saveQueue = props.policySaves.forPreset(scopeView!.preset)
+  useSyncExternalStore(props.policySaves.subscribe, props.policySaves.getSnapshot, props.policySaves.getSnapshot)
+  const busy = saveQueue.dirty
   const [notice, setNotice] = useState<string | null>(null)
   const [diagnostics, setDiagnostics] = useState<import('./store.ts').CapabilityDiagnostics | null>(null)
   const [retryMcp, setRetryMcp] = useState<string | null>(null)
   const queuedMcpRefresh = useRef<string | null>(null)
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'tools' | 'skills'>('tools')
+  const readGeneration = useRef(0)
 
   const reload = useCallback(async () => {
+    const generation = ++readGeneration.current
+    const saveVersion = props.policySaves.getSnapshot()
     try {
-      setState(await loadSnapshot(remote).then(snapshot => ({ status: 'ready' as const, snapshot })))
+      const revision = saveQueue.revision
+      const snapshot = await loadSnapshot(remote)
+      if (!alive.current || generation !== readGeneration.current || saveVersion !== props.policySaves.getSnapshot() || revision !== saveQueue.revision) return
+      if (saveQueue.dirty) {
+        const pending = new Map(saveQueue.choices.map(choice => [choice.id, choice.tier!]))
+        stateRef.current = { status: 'ready', snapshot: { ...snapshot, rows: snapshot.rows.map(row => pending.has(row.id) ? { ...row, class: pending.get(row.id)!, classLabel: undefined } : row) } }
+        setState(stateRef.current)
+        return
+      }
+      const overridden = snapshot.rows.filter(row => expectedTiers.current.has(row.id) && expectedTiers.current.get(row.id) !== row.class)
+      if (expectedTiers.current.size) {
+        setNotice(overridden.length ? t('cycleOverridden', { count: overridden.length }) : null)
+        expectedTiers.current.clear()
+      }
+      stateRef.current = { status: 'ready', snapshot }
+      setState(stateRef.current)
     } catch (e) {
       // A stale list beats a blank panel: if rows are already on screen, keep
       // them and report the failed revalidate instead of replacing everything
       // with an error (the most common cause is the carrier dying, which the
       // reconnect signal and the version poll both recover from).
+      if (!alive.current || generation !== readGeneration.current || saveVersion !== props.policySaves.getSnapshot()) return
       setState(prev => prev.status === 'ready' ? prev : { status: 'error', message: String(e) })
       setNotice(String(e))
     }
-  }, [remote])
+  }, [remote, saveQueue, t, props.policySaves])
 
   useEffect(() => {
     void reload()
-  }, [reload])
+  }, [reload, scopeView?.revision])
 
   useEffect(() => {
     if (remote.getDiagnostics === undefined) return
@@ -671,7 +791,7 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
    * scheduler's debounce window.
    */
   const refreshCatalog = useCallback(async () => {
-    if (refreshing) return
+    if (refreshing || saveQueue.dirty) return
     setRefreshing(true)
     setRetryMcp(null)
     try {
@@ -688,7 +808,7 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
     } finally {
       setRefreshing(false)
     }
-  }, [refreshing, remote, reload, t])
+  }, [refreshing, remote, reload, t, saveQueue])
 
   /**
    * A new MCP row is persisted before dsh applies it and registers its tools.
@@ -707,7 +827,7 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
       await withTransientRetry(async () => unwrap(await remote.refresh(), 'capabilityPolicy.refresh'))
       const delays = [250, 500, 750, 1_000, 1_000, 1_000, 1_000, 1_000, 1_000]
       const snapshot = await waitForMcpTools(remote, serverName, delays)
-      if (snapshot !== undefined) {
+      if (snapshot !== undefined && !saveQueue.dirty) {
         setState({ status: 'ready', snapshot: rememberSnapshot(snapshot) })
         setNotice(null)
         setRetryMcp(null)
@@ -724,7 +844,7 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
     } finally {
       setRefreshing(false)
     }
-  }, [refreshing, remote, t])
+  }, [refreshing, remote, t, saveQueue])
 
   useEffect(() => {
     if (refreshing || queuedMcpRefresh.current === null) return
@@ -821,69 +941,39 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
     }
   }, [visible, state.status, busy, refreshing, remote, reload])
 
-  /** Move one or more capability ids to the next class in the click cycle. */
-  const cycleClass = useCallback(async (ids: readonly string[], kind: 'tool' | 'skill') => {
-    if (ids.length === 0 || busy) return
-    setBusy(true)
-    // The move is decided from the rows already on screen, so the dot flips on
-    // the click frame rather than after a round trip: how fast this feels must
-    // not depend on how busy the server happens to be. The round trips below
-    // only reconcile.
-    const first = ids.map(id => state.status === 'ready' ? state.snapshot.rows.find(r => r.id === id)?.class : undefined)
-      .find((c): c is CapabilityClass => c !== undefined)
-    const from: CapabilityClass = first ?? 'on-demand'
-    const to = NEXT_CLASS[from]
-    const moved = new Set(ids)
-    setState(prev => prev.status === 'ready'
-      ? {
-          status: 'ready',
-          snapshot: {
-            rows: prev.snapshot.rows.map(row => moved.has(row.id)
-              ? { ...row, class: to, classLabel: undefined }
-              : row),
-          },
-        }
-      : prev)
-    try {
-      const config = await withTransientRetry(async () => unwrap(await remote.getConfig(), 'capabilityPolicy.getConfig'))
-      const key = kind === 'skill' ? 'skills' : 'tools'
-      const set = config[key]
-      const lists: Record<CapabilityClass, string[]> = {
-        resident: [],
-        'on-demand': [],
-        disabled: [],
-      }
-      for (const cls of CLASS_KEYS) {
-        const raw = set && typeof set === 'object' && !Array.isArray(set) ? (set as Record<string, unknown>)[cls] : undefined
-        lists[cls] = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
-      }
-      // Remove moved ids from every list, then append to the destination list.
-      for (const cls of CLASS_KEYS) {
-        lists[cls] = lists[cls].filter(id => !ids.includes(id))
-      }
-      lists[to] = [...lists[to], ...ids]
-      const nextLists: Record<string, string[]> = {}
-      for (const cls of CLASS_KEYS) nextLists[cls] = lists[cls]
-      // Unwrap like every other remote call: a rejected write (e.g. the
-      // server's meta-tool fail-loud check) must surface as an error, not be
-      // misread below as "overridden by a higher-priority rule".
-      unwrap(await remote.updateConfig({ [key]: nextLists }), 'capabilityPolicy.updateConfig')
-      const next = await loadSnapshot(remote)
-      setState({ status: 'ready', snapshot: next })
-      // Detect silently-overridden changes: a broader wildcard rule (or a hard
-      // disabled rule) still wins over the exact id just pinned, so the class
-      // did not move to `to`. Surface that instead of failing silently.
-      const overridden = ids.filter(id => next.rows.find(r => r.id === id)?.class !== to)
-      setNotice(overridden.length > 0 ? t('cycleOverridden', { count: overridden.length }) : null)
-    } catch (e) {
-      setState({ status: 'error', message: String(e) })
-    } finally {
-      setBusy(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      void saveQueue.flush()
     }
-  }, [remote, busy, state, t])
+  }, [saveQueue])
+
+  useEffect(() => {
+    if (!busy && saveQueue.revision > 0) void reload()
+  }, [busy, saveQueue, reload])
+
+  const cycleClass = useCallback((ids: readonly string[], kind: 'tool' | 'skill') => {
+    const current = stateRef.current
+    if (!ids.length || current.status !== 'ready') return
+    const changes = ids.flatMap(id => {
+      const row = current.snapshot.rows.find(row => row.id === id)
+      return row && !row.mandatory ? [{ kind: kind === 'skill' ? 'skills' as const : 'tools' as const,
+        id, tier: NEXT_CLASS[row.class as CapabilityClass] }] : []
+    })
+    if (!changes.length) return
+    const tiers = new Map(changes.map(change => [change.id, change.tier]))
+    for (const change of changes) expectedTiers.current.set(change.id, change.tier)
+    stateRef.current = { status: 'ready', snapshot: { ...current.snapshot,
+      rows: current.snapshot.rows.map(row => tiers.has(row.id) ? { ...row, class: tiers.get(row.id)!, classLabel: undefined } : row),
+    } }
+    setState(stateRef.current)
+    saveQueue.enqueue(changes)
+  }, [saveQueue])
 
   return (
     <section className="mc-section">
+      {busy && !saveQueue.error && <span className="mc-source" role="status">{t('policySavePending')}</span>}
       {state.status === 'loading' && <p className="mc-empty">{t('desc')}…</p>}
       {state.status === 'error' && (
         <div className="mc-error">
@@ -916,7 +1006,7 @@ function MountedCapabilitySection(props: Omit<CapabilitySectionProps, 'remoteMou
         snapshot={state.snapshot}
         diagnostics={diagnostics}
         openServers={openServers}
-        busy={busy}
+        busy={refreshing}
         activeTab={activeTab}
         t={t}
         onTabChange={setActiveTab}
@@ -949,6 +1039,8 @@ function ReadyBody(props: {
   onNotice: (message: string | null) => void
 }): JSX.Element {
   const { remote, snapshot, diagnostics, openServers, busy, activeTab, t, onTabChange, onToggleServer, onCycle, onRefresh, onRefreshMcp, onNotice } = props
+  const currentPreset = useContext(ScopeContext)?.preset ?? ''
+  const modeName = useContext(ScopeContext)!.modeName
   const [updateStatus, setUpdateStatus] = useState<import('./store.ts').SelfUpdateStatus | null>(null)
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'installing' | 'done' | 'error'>('idle')
   const [updateError, setUpdateError] = useState('')
@@ -1010,6 +1102,7 @@ function ReadyBody(props: {
   const shownRows = filterRows(snapshot.rows, nameFilter, {
     builtIn: t('builtInGroup'),
     source: source => sourceLabel(source, t),
+    preset: modeName,
   })
   const { servers, skills } = groupRows(shownRows)
   // Grouping rules live in `skillGroups.ts` so they are testable; see that
@@ -1225,6 +1318,7 @@ function ReadyBody(props: {
         <div className="mc-heading-meta">
           <h2 className="mc-heading">{t('title')}</h2>
           <span className="mc-version" title={PLUGIN_TITLE}>v{PLUGIN_VERSION}</span>
+          <span className="mc-source" title={currentPreset}>{t('currentPreset', { preset: modeName(currentPreset) })}</span>
           {updateStatus?.updateAvailable && (updateStatus.updatable || updateStatus.reason === 'local') && updatePhase !== 'done' && (
             <ClientUiPrimitives.Button type="button" variant="primary" size="sm" className="mc-update-check" title={t('updateAvailable', { version: updateStatus.latest })} disabled={updatePhase === 'installing'} onClick={() => setUpdateDialogOpen(true)}>
               {t('newVersion')}
@@ -1265,9 +1359,9 @@ function ReadyBody(props: {
           <summary>
             {t('diagnosticTitle', { count: skillDiagnosticCount })}
           </summary>
-          {diagnostics.unavailableSkills.map((item, index) => <div key={`unavailable-${item.name}-${item.preset ?? ''}-${index}`}>{t('diagnosticUnavailable', { name: item.name, source: item.source, preset: item.preset ?? '' })}</div>)}
+          {diagnostics.unavailableSkills.map((item, index) => <div key={`unavailable-${item.name}-${item.preset ?? ''}-${index}`}>{t('diagnosticUnavailable', { name: item.name, source: item.source, preset: item.preset ? ` / ${modeName(item.preset)}` : '' })}</div>)}
           {diagnostics.shadowedSkills.map((item, index) => <div key={`shadowed-${item.name}-${item.shadowedFrom}-${index}`}>{t('diagnosticShadowed', { name: item.name, winner: item.selectedFrom, hidden: item.shadowedFrom })}</div>)}
-          {diagnostics.brokenPresets.map(item => <div key={`broken-${item.id}`}>{t('diagnosticBroken', { id: item.id, reason: item.reason })}</div>)}
+          {diagnostics.brokenPresets.map(item => <div key={`broken-${item.id}`}>{t('diagnosticBroken', { id: modeName(item.id), reason: item.reason })}</div>)}
           {diagnostics.unbrowseableSkills.map(item => <div key={`browse-${item.name}`}>{t('diagnosticUnbrowseable', { name: item.name, reason: item.reason })}</div>)}
           {diagnostics.undocumentedSkills.map(item => <div key={`undocumented-${item.name}`}>{t('diagnosticUndocumented', { name: item.name, summary: item.summary })}</div>)}
         </details>
@@ -1360,11 +1454,13 @@ function ReadyBody(props: {
                               key={cls}
                               type="button"
                               className={`mc-count mc-count--${cls}`}
-                              disabled={busy}
-                              title={t('cycleHint')}
-                              onClick={(e: { stopPropagation(): void }) => {
-                                e.stopPropagation()
-                                onCycle(tools.filter(t => t.class === cls).map(t => t.id), 'tool')
+                              disabled={busy || !tools.some(tool => tool.class === cls && !tool.mandatory)}
+                              title={t('groupCycleHint', { from: t(CLASS_SHORT_KEYS[cls]), to: t(CLASS_SHORT_KEYS[NEXT_CLASS[cls]]) })}
+                              aria-label={t('groupCycleHint', { from: t(CLASS_SHORT_KEYS[cls]), to: t(CLASS_SHORT_KEYS[NEXT_CLASS[cls]]) })}
+                              onKeyDown={event => event.stopPropagation()}
+                              onClick={event => {
+                                event.stopPropagation()
+                                onCycle(tools.filter(tool => tool.class === cls && !tool.mandatory).map(tool => tool.id), 'tool')
                               }}
                             >
                               <span className={`mc-dot mc-dot--${cls}`} aria-hidden="true" />
@@ -1395,7 +1491,7 @@ function ReadyBody(props: {
                           <div
                             key={tool.id}
                             className="mc-tool"
-                            title={tool.classLabel}
+                            title={`${tool.classLabel ?? tool.class} · ${tool.policySource ?? 'global'}`}
                             role="button"
                             tabIndex={0}
                             aria-label={tool.name}
@@ -1417,19 +1513,7 @@ function ReadyBody(props: {
                               {tool.class === 'on-demand' && (
                                 <button type="button" className="mc-count mc-count--action" title={t('editSearchMetadata')} onClick={(e: { stopPropagation(): void }) => { e.stopPropagation(); void openSearchEdit(tool.id, 'tool') }}>{t('searchMetadataButton')}</button>
                               )}
-                              <button
-                                type="button"
-                                className={`mc-dot-btn mc-count--${tool.class}`}
-                                disabled={busy || tool.mandatory}
-                                title={tool.classLabel}
-                                aria-label={tool.classLabel}
-                                onClick={(e: { stopPropagation(): void }) => {
-                                  e.stopPropagation()
-                                  onCycle([tool.id], 'tool')
-                                }}
-                              >
-                                <span className={`mc-dot mc-dot--${tool.class}`} aria-hidden="true" />
-                              </button>
+                              <PolicyChoiceControl tier={tool.class as CapabilityClass} disabled={busy || tool.mandatory} onCycle={() => onCycle([tool.id], 'tool')} />
                             </span>
                           </div>
                         ))}
@@ -1449,11 +1533,11 @@ function ReadyBody(props: {
         className={`mc-panel${skills.length > 0 ? ' mc-panel--tight' : ''}`}
       >
         <div className="mc-panel-inner">
-          {skills.length === 0 ? (
+          {!snapshot.rows.some(row => row.kind === 'skill') ? (
             <p className="mc-empty">{needle === '' ? t('emptySkills') : t('filterNoMatch')}</p>
           ) : (
             <>
-              <div className="mc-subtabs">
+              <SkillUpdatePanel remote={remote} active={activeTab === 'skills'} t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} />
                 <div className="mc-tab-group" role="tablist" aria-label={t('skillsGroup')}>
                   <button
                     type="button"
@@ -1486,8 +1570,6 @@ function ReadyBody(props: {
                     {t('presetSkills')}
                   </button>
                 </div>
-              </div>
-              <SkillUpdatePanel remote={remote} active t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} />
               {skillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList
@@ -1502,7 +1584,7 @@ function ReadyBody(props: {
                     onEditSearch={id => void openSearchEdit(id, 'skill')}
                   />
                 ) : (
-                  <p className="mc-empty">{t('emptyGlobalSkills')}</p>
+                  <p className="mc-empty">{t(needle === '' ? 'emptyGlobalSkills' : 'filterNoMatch')}</p>
                 )
               ) : skillTab === 'project' ? (
                 projectSkills.length > 0 ? (
@@ -1518,14 +1600,14 @@ function ReadyBody(props: {
                     onEditSearch={id => void openSearchEdit(id, 'skill')}
                   />
                 ) : (
-                  <p className="mc-empty">{t('emptyProjectSkills')}</p>
+                  <p className="mc-empty">{t(needle === '' ? 'emptyProjectSkills' : 'filterNoMatch')}</p>
                 )
               ) : (
                 /* One section per preset (preset id as a heading) rather than a
                    fourth level of tabs: the id is provenance, not navigation. */
                 presetGroups.length > 0 ? presetGroups.map(([preset, group]) => (
                   <div key={preset} className="mc-skill-group">
-                    <div className="mc-skill-group-title">{preset}</div>
+                    <div className="mc-skill-group-title" title={preset}>{modeName(preset)}</div>
                     <SkillList
                       skills={group}
                       remote={remote}
@@ -1538,7 +1620,7 @@ function ReadyBody(props: {
                       onEditSearch={id => void openSearchEdit(id, 'skill')}
                     />
                   </div>
-                )) : <p className="mc-empty">{t('emptyPresetSkills')}</p>
+                )) : <p className="mc-empty">{t(needle === '' ? 'emptyPresetSkills' : 'filterNoMatch')}</p>
               )}
             </>
           )}
@@ -1780,6 +1862,7 @@ function SkillList(props: {
   onEditSearch: (id: string) => void
 }): JSX.Element {
   const { skills, remote, busy, t, onCycle, editableSkills, onEditSkill, onAdoptSkill, onEditSearch } = props
+  const modeName = useContext(ScopeContext)!.modeName
   /** Skill id whose 纳入管理 is waiting for a confirmation click. */
   const [confirmAdopt, setConfirmAdopt] = useState<string | null>(null)
   const [openSkill, setOpenSkill] = useState<string | null>(null)
@@ -1923,7 +2006,7 @@ function SkillList(props: {
               }}
             >
               <IconTriangleRightFill size={12} className={`mc-chevron${open ? ' mc-chevron--open' : ''}`} />
-              <span className="mc-skill-name">{skill.name}</span>
+              <span className="mc-skill-name" title={t('policySourceLabel', { source: skill.policySource ?? 'global' })}>{skill.name}</span>
               {PROJECT_SKILL_SOURCES.has(skill.source ?? '') && skill.path !== undefined && (
                 <span className="mc-source" title={skill.path}>{t('projectRootLabel', { path: projectRootForSkill(skill.path) })}</span>
               )}
@@ -1932,19 +2015,7 @@ function SkillList(props: {
                 {skill.class === 'on-demand' && (
                   <button type="button" className="mc-count mc-count--action" title={t('editSearchMetadata')} onClick={(e: { stopPropagation(): void }) => { e.stopPropagation(); onEditSearch(skill.id) }}>{t('searchMetadataButton')}</button>
                 )}
-                <button
-                  type="button"
-                  className={`mc-count mc-count--${skill.class}`}
-                  disabled={busy || skill.mandatory}
-                  title={skill.classLabel}
-                  onClick={(e: { stopPropagation(): void }) => {
-                    e.stopPropagation()
-                    onCycle([skill.id], 'skill')
-                  }}
-                >
-                  <span className={`mc-dot mc-dot--${skill.class}`} aria-hidden="true" />
-                  {t(CLASS_SHORT_KEYS[skill.class as CapabilityClass])}
-                </button>
+                <PolicyChoiceControl tier={skill.class as CapabilityClass} disabled={busy || skill.mandatory} onCycle={() => onCycle([skill.id], 'skill')} />
                 {/* A skill with no manageable entry cannot be repointed, so it
                     gets no 编辑 button. Each such row shows either the action it
                     can take (adopt) or the reason it has none (where it came
@@ -1955,8 +2026,8 @@ function SkillList(props: {
                     (it is visible only to sessions that mount that preset). */}
                 {!editableSkills.has(skill.id) && (skill.preset !== undefined
                   ? (
-                    <span className="mc-source" title={t('skillFromPresetHint')}>
-                      {t('skillFromPreset', { preset: skill.preset })}
+                    <span className="mc-source" title={t('skillFromPresetHint', { preset: modeName(skill.preset) })}>
+                      {t('skillFromPreset', { preset: modeName(skill.preset) })}
                     </span>
                   )
                   : ADOPTABLE_SKILL_SOURCES.has(skill.source ?? '')
@@ -1978,7 +2049,7 @@ function SkillList(props: {
                       </button>
                     )
                     : (
-                      <span className="mc-source" title={t('skillSourceHint')}>
+                      <span className="mc-source" title={t(skill.source === 'bundled' ? 'sourceBundledHint' : 'skillSourceHint')}>
                         {t('skillSource', { source: sourceLabel(skill.source, t) })}
                       </span>
                     ))}

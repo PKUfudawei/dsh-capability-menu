@@ -38,16 +38,17 @@
 #   admission on DSH 0.2.2; older hosts use `assembly.tools`. Web guidance
 #   sections are filtered at `system-prompt/assemble`. On-demand capabilities remain executable
 #   via `meta_invoke`. Exposes `ctx.capabilityPolicy` to the 能力菜单 tab through
-#   the Typert gateway: the tier surface (`classifyAll`/`getConfig`/
-#   `updateConfig`), the registered-location surface (`listLocations`/`addLocation`/
+#   the Typert gateway: the mode tier surface (`classifyAll`/`setPolicyChoices`), the registered-location surface (`listLocations`/`addLocation`/
 #   `updateLocation`/`removeLocation` and `listSkillLocations`/`addSkillLocation`/
 #   `updateSkillLocation`/`removeSkillLocation`/`adoptSkillLocation`), the
 #   read-only rules and search summaries (`getCatalogDocs`), a rebuild trigger (`refresh`), and
 #   skill browsing (`getDetail`/`listSkillDir`/`readSkillFile`). Tier clicks land
-#   in the plugin's state file after `persistDebounceMs`; search settings share
+#   in the plugin's state file per mode after the UI debounce; search settings share
 #   that file. Registered MCP servers land in `patchFile`, and skill directories
 #   live under `skillsDir`.
 #
+# New modes start with Resident capabilities. Legacy rules below are copied
+# into existing modes on initial migration, not inherited on later edits.
 # Default (policy present but no config): every capability is Resident — the
 # `classify` fallback, nothing is hidden. Add explicit `on-demand`/`disabled`
 # rules to pull capabilities out of the model surface.

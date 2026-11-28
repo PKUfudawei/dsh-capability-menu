@@ -51,6 +51,44 @@ function gateway(
 }
 
 describe('server gateway · @Remote wiring', () => {
+  it('queries preset inventory through a mounted gateway with enforced injection', async () => {
+    const ctx = new Context()
+    const scope = {} as never
+    let released = 0
+    const rows = [
+      { id: 'bash', kind: 'tool', name: 'bash', class: 'resident', mandatory: false },
+      { id: 'writing', kind: 'skill', name: 'writing', class: 'on-demand', mandatory: false },
+      { id: 'other-preset', kind: 'skill', name: 'other-preset', class: 'resident', mandatory: false },
+    ]
+    // Sibling fibers match the host topology. Root provisions would be
+    // inherited and would conceal a missing static inject declaration.
+    await ctx.plugin({ apply(ctx: Context) {
+    ctx.provide('capabilityPolicy', { classifyAll: () => rows } as never)
+    ctx.provide('capability', {} as never)
+    ctx.provide('tools', { schemas: (view: unknown) => { expect(view).toBe(scope); return [{ name: 'bash' }] } } as never)
+    ctx.provide('skills', { list: async (options: { scope: unknown }) => {
+      expect(options.scope).toBe(scope)
+      return [{ name: 'writing', source: 'bundled', resourceBase: { kind: 'directory', path: '/preset/writing' } }]
+    } } as never)
+    ctx.provide('agentPresets', { acquireScope: async (id: string) => {
+      expect(id).toBe('cordis')
+      return { key: scope, [Symbol.asyncDispose]: async () => { released++ } }
+    } } as never)
+    } })
+    await ctx.plugin(CapabilityPolicyGateway)
+    let result: Awaited<ReturnType<CapabilityPolicyGateway['classifyAll']>> = []
+    await ctx.plugin({
+      inject: ['capabilityPolicyGateway'],
+      async apply(consumer: Context) {
+        const mounted = consumer.get('capabilityPolicyGateway') as CapabilityPolicyGateway
+        result = await mounted.classifyAll('cordis')
+      },
+    })
+    expect(result.map(row => row.id)).toEqual(['bash', 'writing'])
+    expect(result[1].path).toBe('/preset/writing')
+    expect(released).toBe(1)
+  })
+
   it('registers one Remote method per decorated method in the source', async () => {
     // Guards the transform itself. The class constructs either way, so if the
     // test pipeline ever stopped applying the standard (TC39) decorators
@@ -102,7 +140,7 @@ describe('server gateway · on-demand search view', () => {
       searchSettingsEnabled: () => true,
     } as unknown as CapabilityService)
     ctx.provide('capabilityPolicy', {
-      getConfig: () => ({}),
+      classifyAll: () => rows.map(row => ({ ...row, class: row.id === 'mcp__km__search' ? 'on-demand' : row.id === 'hidden-skill' ? 'disabled' : 'resident' })),
       metaTools: () => new Set(['meta_search', 'meta_invoke']),
       classifyCapability: (id: string) => id === 'mcp__km__search' ? 'on-demand'
         : id === 'hidden-skill' ? 'disabled' : 'resident',
@@ -111,6 +149,8 @@ describe('server gateway · on-demand search view', () => {
     const docs = await new CapabilityPolicyGateway(ctx).getCatalogDocs()
     expect(docs.onDemand).toEqual([rows[0]])
     expect(docs.summaryMaxChars).toBe(320)
+    expect(docs.policyYaml).toContain('mcp__km__search: on-demand')
+    expect(docs.policyYaml).not.toContain('overrides:')
   })
 })
 
@@ -142,7 +182,7 @@ describe('server gateway · adoptSkillLocation', () => {
       origin: { provider: 'filesystem', source: 'custom', preset: 'cordis', path: '/presets/cordis/skills/preset-skill' },
     })
 
-    await expect(gateway.adoptSkillLocation('preset-skill')).rejects.toThrow(/随预设 cordis 分发/)
+    await expect(gateway.adoptSkillLocation('preset-skill')).rejects.toThrow(/由模式 cordis 提供/)
   })
 
   it('returns an existing user-root link when an adopt click is repeated', async () => {

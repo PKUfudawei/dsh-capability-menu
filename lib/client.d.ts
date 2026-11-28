@@ -7,21 +7,56 @@ import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
 import "@deepseek-ai/schemastery";
 import { ScopeKey } from "@deepseek-ai/dsh-scope";
 import { JsonSchemaNode } from "@deepseek-ai/dsh-tools";
-//#region src/client/remote-mount.d.ts
-type RemoteMountState<T> = {
-  status: 'loading';
-} | {
-  status: 'ready';
-  remote: T;
-} | {
-  status: 'error';
-  error: string;
-};
-interface RemoteMount<T> {
-  start(): void;
-  dispose(): void;
-  getSnapshot(): RemoteMountState<T>;
+//#region src/client/current-preset.d.ts
+/** Narrow rc.5 sessions.list contract; mainView excludes background/subagent sessions. */
+interface SessionSource {
+  getSnapshot(): {
+    byId: Record<string, {
+      id: string;
+      retainedBy: {
+        mainView?: number;
+      };
+      projectionValues?: Record<string, unknown>;
+    }>;
+  };
   subscribe(listener: () => void): () => void;
+}
+//#endregion
+//#region ../../../../../../../../opt/homebrew/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-agent-preset-registry/lib/types/display.d.ts
+/**
+ * Display resolution for roster presets, shared by every surface that renders
+ * preset names: shipped presets resolve through locale dictionary keys, and
+ * user-authored metadata is never translated. A pure fold with no imports, so
+ * browser bundles inline it and the Host uses the same single home for which
+ * shipped id carries which copy key.
+ * @module @deepseek-ai/dsh-agent-preset-registry/display
+ */
+/** Dictionary keys carrying one shipped preset's display copy. */
+type BuiltInPresetCopyKey = 'presetStandardName' | 'presetStandardDescription' | 'presetPtcName' | 'presetPtcDescription' | 'presetMinimalName' | 'presetMinimalDescription' | 'presetCordisName' | 'presetCordisDescription';
+/** Preset roster fields needed to resolve display copy. */
+interface PresetDisplaySource {
+  /** Stable preset id. */
+  readonly id: string;
+  /** Unlocalized name published by the preset. */
+  readonly name?: string;
+  /** Unlocalized description published by the preset. */
+  readonly description?: string;
+}
+//#endregion
+//#region src/client/mode-names.d.ts
+/** Read-only host names. Policy identity always remains the original preset id. */
+declare class ModeNames {
+  private read;
+  private t;
+  private rows;
+  private listeners;
+  private version;
+  private loading;
+  constructor(read: () => Promise<readonly PresetDisplaySource[]>, t: (key: BuiltInPresetCopyKey) => string);
+  getSnapshot: () => number;
+  subscribe: (listener: () => void) => (() => void);
+  name: (id: string) => string;
+  load: () => Promise<void>;
 }
 //#endregion
 //#region src/registry.d.ts
@@ -275,8 +310,14 @@ declare module '@deepseek-ai/cordis' {
 }
 //#endregion
 //#region src/client/remote.d.ts
-/** Read-only row: one capability's Resident/On-demand/Disabled classification. */
+/** Explicit tier edit within one mode. */
+interface PolicyChoice {
+  kind: 'tools' | 'skills';
+  id: string;
+  tier: 'resident' | 'on-demand' | 'disabled';
+}
 interface CapabilityRow {
+  readonly policySource?: string;
   readonly id: string;
   readonly kind: 'tool' | 'skill';
   readonly name: string;
@@ -408,19 +449,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     checkSelfUpdate: () => Promise<RemoteResult<SelfUpdateStatus>>;
     installSelfUpdate: (version: string) => Promise<RemoteResult<void>>;
     switchSelfToNpm: (version: string) => Promise<RemoteResult<void>>;
-    getConfig: () => Promise<RemoteResult<Record<string, unknown>>>;
-    updateConfig: (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
-    classifyAll: () => Promise<RemoteResult<CapabilityRow[]>>;
+    setPolicyChoices: (preset: string, changes: PolicyChoice[]) => Promise<RemoteResult<void>>;
+    classifyAll: (preset?: string) => Promise<RemoteResult<CapabilityRow[]>>;
     getDiagnostics: () => Promise<RemoteResult<CapabilityDiagnostics>>;
     refresh: () => Promise<RemoteResult<void>>;
     catalogVersion: () => Promise<RemoteResult<number>>;
     listSkillDir: (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     readSkillFile: (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
-    getDetail: (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    getDetail: (id: string, preset?: string) => Promise<RemoteResult<ToolDetail | undefined>>;
     getSearchMetadata: (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>;
     updateSearchMetadata: (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>;
     updateSummaryMaxChars: (value: number) => Promise<RemoteResult<void>>;
-    getCatalogDocs: () => Promise<RemoteResult<CatalogDocs>>;
+    getCatalogDocs: (preset?: string) => Promise<RemoteResult<CatalogDocs>>;
     listLocations: () => Promise<RemoteResult<McpLocation[]>>;
     addLocation: (input: McpInput) => Promise<RemoteResult<string>>;
     removeLocation: (id: string) => Promise<RemoteResult<boolean>>;
@@ -442,19 +482,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'capabilityPolicy/checkSelfUpdate': () => Promise<RemoteResult<SelfUpdateStatus>>;
     'capabilityPolicy/installSelfUpdate': (version: string) => Promise<RemoteResult<void>>;
     'capabilityPolicy/switchSelfToNpm': (version: string) => Promise<RemoteResult<void>>;
-    'capabilityPolicy/getConfig': () => Promise<RemoteResult<Record<string, unknown>>>;
-    'capabilityPolicy/updateConfig': (partial: Record<string, unknown>) => Promise<RemoteResult<void>>;
-    'capabilityPolicy/classifyAll': () => Promise<RemoteResult<CapabilityRow[]>>;
+    'capabilityPolicy/setPolicyChoices': (preset: string, changes: PolicyChoice[]) => Promise<RemoteResult<void>>;
+    'capabilityPolicy/classifyAll': (preset?: string) => Promise<RemoteResult<CapabilityRow[]>>;
     'capabilityPolicy/getDiagnostics': () => Promise<RemoteResult<CapabilityDiagnostics>>;
     'capabilityPolicy/refresh': () => Promise<RemoteResult<void>>;
     'capabilityPolicy/catalogVersion': () => Promise<RemoteResult<number>>;
     'capabilityPolicy/listSkillDir': (id: string, relPath?: string) => Promise<RemoteResult<SkillFileEntry[] | undefined>>;
     'capabilityPolicy/readSkillFile': (id: string, relPath: string) => Promise<RemoteResult<string | undefined>>;
-    'capabilityPolicy/getDetail': (id: string) => Promise<RemoteResult<ToolDetail | undefined>>;
+    'capabilityPolicy/getDetail': (id: string, preset?: string) => Promise<RemoteResult<ToolDetail | undefined>>;
     'capabilityPolicy/getSearchMetadata': (id: string, kind: 'tool' | 'skill') => Promise<RemoteResult<SearchMetadata | undefined>>;
     'capabilityPolicy/updateSearchMetadata': (input: SearchMetadataUpdate) => Promise<RemoteResult<void>>;
     'capabilityPolicy/updateSummaryMaxChars': (value: number) => Promise<RemoteResult<void>>;
-    'capabilityPolicy/getCatalogDocs': () => Promise<RemoteResult<CatalogDocs>>;
+    'capabilityPolicy/getCatalogDocs': (preset?: string) => Promise<RemoteResult<CatalogDocs>>;
     'capabilityPolicy/listLocations': () => Promise<RemoteResult<McpLocation[]>>;
     'capabilityPolicy/addLocation': (input: McpInput) => Promise<RemoteResult<string>>;
     'capabilityPolicy/removeLocation': (id: string) => Promise<RemoteResult<boolean>>;
@@ -475,6 +514,25 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap {
     'capabilityPolicy': TypertRemoteNamespace$6361706162696c697479506f6c696379;
   }
+}
+//#endregion
+//#region src/client/policy-save-queue.d.ts
+/** Coalesce clicks, serialize writes, and retain failed changes for explicit retry. */
+declare class PolicySaveQueue {
+  private save;
+  private changed;
+  private delay;
+  private pending;
+  private timer;
+  private writing;
+  private inFlight;
+  revision: number;
+  error: unknown;
+  constructor(save: (changes: PolicyChoice[]) => Promise<void>, changed: () => void, delay?: number);
+  get dirty(): boolean;
+  get choices(): PolicyChoice[];
+  enqueue(changes: PolicyChoice[]): void;
+  flush(): Promise<void>;
 }
 //#endregion
 //#region src/client/store.d.ts
@@ -515,27 +573,8 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
-  getConfig(): Promise<{
-    ok: true;
-    value: Record<string, unknown>;
-  } | {
-    ok: false;
-    error: {
-      code: string;
-      message: string;
-    };
-  }>;
-  updateConfig(partial: Record<string, unknown>): Promise<{
-    ok: true;
-    value: void;
-  } | {
-    ok: false;
-    error: {
-      code: string;
-      message: string;
-    };
-  }>;
-  classifyAll(): Promise<{
+  setPolicyChoices?(preset: string, changes: PolicyChoice[]): Promise<import('@deepseek-ai/dsh-typert-protocol').RemoteResult<void>>;
+  classifyAll(preset?: string): Promise<{
     ok: true;
     value: CapabilityRow[];
   } | {
@@ -596,7 +635,7 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
-  getDetail(id: string): Promise<{
+  getDetail(id: string, preset?: string): Promise<{
     ok: true;
     value: ToolDetail | undefined;
   } | {
@@ -636,7 +675,7 @@ interface CapabilityPolicyRemote {
       message: string;
     };
   }>;
-  getCatalogDocs(): Promise<{
+  getCatalogDocs(preset?: string): Promise<{
     ok: true;
     value: CatalogDocs;
   } | {
@@ -790,10 +829,46 @@ interface CapabilityPolicyRemote {
   }>;
 }
 //#endregion
+//#region src/client/preset-policy-saves.d.ts
+/** Plugin-owned queues outlive panels and navigation. Every write captures its preset. */
+declare class PresetPolicySaves {
+  private remote;
+  private queues;
+  private listeners;
+  private version;
+  constructor(remote: () => CapabilityPolicyRemote);
+  getSnapshot: () => number;
+  subscribe: (listener: () => void) => (() => void);
+  forPreset(preset: string): PolicySaveQueue;
+  get failures(): [string, PolicySaveQueue][];
+  get dirty(): boolean;
+  flush(): Promise<void>;
+}
+//#endregion
+//#region src/client/remote-mount.d.ts
+type RemoteMountState<T> = {
+  status: 'loading';
+} | {
+  status: 'ready';
+  remote: T;
+} | {
+  status: 'error';
+  error: string;
+};
+interface RemoteMount<T> {
+  start(): void;
+  dispose(): void;
+  getSnapshot(): RemoteMountState<T>;
+  subscribe(listener: () => void): () => void;
+}
+//#endregion
 //#region src/client/CapabilitySection.d.ts
 /** Props injected by the settings.section registration (see index.ts). */
 interface CapabilitySectionInjected {
   remoteMount: RemoteMount<CapabilityPolicyRemote>;
+  sessions: SessionSource;
+  policySaves: PresetPolicySaves;
+  modeNames: ModeNames;
   t(key: CapabilityKey, params?: Record<string, unknown>): string;
   /**
    * Subscribe to signals that the host catalog may have moved without this page
@@ -804,7 +879,7 @@ interface CapabilitySectionInjected {
   subscribeSignals: (listener: () => void) => () => void;
 }
 type CapabilitySectionProps = CapabilitySectionInjected;
-type CapabilityKey = 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillUpdates' | 'skillCheckUpdates' | 'skillUpdateAll' | 'skillChecking' | 'skillUpdating' | 'skillInstalledRevision' | 'skillLatestRevision' | 'skillUpToDate' | 'skillLocalModified' | 'skillUpdateAvailable' | 'skillChangedFiles' | 'skillViewChanges' | 'skillUpdateOne' | 'skillUpdateProgress' | 'skillCheckProgress' | 'skillCheckComplete' | 'skillUpdatingItem' | 'skillUpdateComplete' | 'skillAssociatingItem' | 'skillUnlinking' | 'skillUnlinked' | 'skillAssociated' | 'skillSourceFailed' | 'skillAvailableCount' | 'skillWaiting' | 'skillGitManaged' | 'skillEditSource' | 'skillUnlinkSource' | 'skillErrorDetails' | 'skillAssociating' | 'skillSourceUrl' | 'skillAssociateSource' | 'skillAssociateHint' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogSearchNote' | 'catalogEmpty' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
+type CapabilityKey = 'skillAvailableCount' | 'skillWaiting' | 'currentPreset' | 'policySourceLabel' | 'waitingPreset' | 'presetSaveFailed' | 'groupCycleHint' | 'nav' | 'title' | 'desc' | 'resident' | 'on-demand' | 'disabled' | 'tool' | 'skill' | 'mandatory' | 'toolsGroup' | 'skillsGroup' | 'builtInGroup' | 'globalSkills' | 'projectSkills' | 'presetSkills' | 'emptyTools' | 'emptySkills' | 'emptyGlobalSkills' | 'emptyProjectSkills' | 'emptyPresetSkills' | 'filterByName' | 'filterHint' | 'filterNoMatch' | 'toolCount' | 'residentShort' | 'onDemandShort' | 'disabledShort' | 'cycleHint' | 'notPreviewable' | 'previewClose' | 'markdownCode' | 'markdownWrap' | 'markdownUnwrap' | 'markdownCopy' | 'markdownCopied' | 'markdownFootnotes' | 'detailNotFound' | 'cycleOverridden' | 'refreshFailed' | 'mcpToolsPending' | 'feedback' | 'retry' | 'carrierFailureHint' | 'registerCapability' | 'editMcp' | 'editSkillNamed' | 'edit' | 'save' | 'remove' | 'cancel' | 'confirmRemove' | 'confirmRemoveMcp' | 'confirmRemoveSkillLink' | 'confirmRemoveSkillDir' | 'confirmSaveAnyway' | 'saveConfirmRealDir' | 'register' | 'notEditable' | 'entryNotFound' | 'mcpServers' | 'skillDirs' | 'skillUpdates' | 'policySavePending' | 'skillNoLocations' | 'skillNoLocationsHint' | 'skillCheckAllHint' | 'skillNoMatchingLocations' | 'skillCheckUpdates' | 'skillSkippedInvalid' | 'skillSkippedHint' | 'skillLinkedDifferent' | 'skillLinkedReadOnly' | 'skillSourceUnknown' | 'skillSourceUnknownShort' | 'skillDifferentShort' | 'skillModifiedShort' | 'skillUpdateDetails' | 'skillHideDetails' | 'skillUpdateAll' | 'skillChecking' | 'skillUpdating' | 'skillInstalledRevision' | 'skillLatestRevision' | 'skillUpToDate' | 'skillLocalModified' | 'skillUpdateAvailable' | 'skillChangedFiles' | 'skillViewChanges' | 'skillUpdateOne' | 'skillUpdateProgress' | 'skillCheckProgress' | 'skillCheckQueued' | 'skillCheckComplete' | 'skillUpdatingItem' | 'skillUpdateComplete' | 'skillAssociatingItem' | 'skillUnlinking' | 'skillUnlinked' | 'skillAssociated' | 'skillSourceFailed' | 'skillGitManaged' | 'skillEditSource' | 'skillUnlinkSource' | 'skillErrorDetails' | 'skillAssociating' | 'skillSourceUrl' | 'skillAssociateSource' | 'skillAssociateHint' | 'skillDirPath' | 'skillDirHint' | 'skillRoot' | 'skillRootUser' | 'skillRootProject' | 'skillRootHintUser' | 'skillRootHintProject' | 'skillProjectPath' | 'skillProjectPathHint' | 'skillRegisteredAt' | 'skillRepointed' | 'skillAdopted' | 'skillSource' | 'skillSourceHint' | 'sourceBundledHint' | 'skillFromPreset' | 'skillFromPresetHint' | 'githubImporting' | 'importing' | 'skillUnmanaged' | 'adoptSkill' | 'adoptSkillHint' | 'adoptSkillTitle' | 'sourceCustom' | 'sourceBundled' | 'serverName' | 'serverNameImmutable' | 'transport' | 'transportStdio' | 'transportHttp' | 'transportHintStdio' | 'transportHintHttp' | 'command' | 'args' | 'cwd' | 'env' | 'url' | 'headers' | 'headersHint' | 'timeout' | 'timeoutInvalid' | 'viewCatalog' | 'catalogPolicy' | 'catalogOnDemand' | 'catalogPolicyNote' | 'catalogSearchNote' | 'catalogEmpty' | 'diagnosticTitle' | 'diagnosticUnavailable' | 'diagnosticShadowed' | 'diagnosticBroken' | 'diagnosticUnbrowseable' | 'diagnosticUndocumented' | 'editSearchMetadata' | 'searchMetadataButton' | 'searchDescription' | 'searchMetadataNote' | 'searchMetadataSave' | 'searchMetadataRestore' | 'searchMetadataRestoreHint' | 'searchMetadataSaved' | 'summaryLimit' | 'summaryLimitUnit' | 'summaryLimitInvalid' | 'summaryLimitDisabled' | 'summaryLimitSaved' | 'projectRootLabel' | 'skillBrowseUnavailable' | 'updateAvailable' | 'newVersion' | 'updateDialogTitle' | 'updateVersionComparison' | 'updateNpmNote' | 'updateLocalNote' | 'updateSourceSteps' | 'updateSourceStepsHide' | 'updateSourceStepsIntro' | 'updateSourceStepsRestart' | 'installUpdate' | 'switchAndInstall' | 'updatingPlugin' | 'pluginUpdated' | 'pluginSwitched' | 'pluginNonRegistrySource' | 'pluginProfileUnavailable' | 'pluginUpdateFailed';
 //#endregion
 //#region src/client/index.d.ts
 declare module '@deepseek-ai/dsh-client-ui-slots' {

@@ -11,7 +11,7 @@ type ResolvableTools = { resolve?: Resolve }
  * A nested meta_invoke call uses the same host executor without a step tool
  * set and can still reach an On-demand registration through normal policy.
  */
-export function installToolAdmission(ctx: Context, isResident: (name: string) => boolean): boolean {
+export function installToolAdmission(ctx: Context, isResident: (name: string, agent: ToolActivationContext['agent']) => boolean): boolean {
   const proxy = ctx.tools as unknown as ResolvableTools & { [symbols.original]?: ResolvableTools }
   const tools = proxy[symbols.original] ?? proxy
   const original = tools.resolve
@@ -23,7 +23,7 @@ export function installToolAdmission(ctx: Context, isResident: (name: string) =>
     if (!active) return resolved
     let blocked: Set<string>
     try {
-      blocked = new Set([...resolved.view(context.agent).keys()].filter(name => !isResident(name)))
+      blocked = new Set([...resolved.view(context.agent).keys()].filter(name => !isResident(name, context.agent)))
     } catch (error) {
       ctx.logger.warn(`capability-policy: tool admission failed; retaining host selection: ${String(error)}`)
       return resolved

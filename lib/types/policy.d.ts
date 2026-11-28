@@ -7,6 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import type { PromptAssembly, PromptPresentation } from '@deepseek-ai/dsh-system-prompt';
+import { type PolicyContext, type PolicyOverrides } from './preset-policy.ts';
 import { type CapabilityKind } from './registry.ts';
 import { type McpInput, type McpLocation, type McpUpdateInput, type SkillLocation, type SkillUpdateStatus } from './locations.ts';
 /**
@@ -149,37 +150,46 @@ export interface CapabilityClassification {
     /** Human-friendly display label for the classification. */
     readonly classLabel: string;
     /** True when this capability is a mandatory meta tool (always Resident). */
+    readonly policySource?: string;
     readonly mandatory: boolean;
 }
 /**
  * The `ctx.capabilityPolicy` service surface.
  */
 export interface CapabilityPolicyService {
+    /** Wait for one-time migration before management reads or writes. */
+    ready(): Promise<void>;
     /** Classify a tool by its public name (`mcp__<server>__<raw>` or meta tool). */
-    classifyTool(name: string): CapabilityClass;
+    classifyTool(name: string, context?: PolicyContext): CapabilityClass;
     /** Classify a skill by its bare name. */
-    classifySkill(name: string): CapabilityClass;
+    classifySkill(name: string, context?: PolicyContext): CapabilityClass;
     /** True when a tool is Resident (or a mandatory meta tool). */
-    isResidentTool(name: string): boolean;
+    isResidentTool(name: string, context?: PolicyContext): boolean;
     /** True when a skill is Resident. */
-    isResidentSkill(name: string): boolean;
+    isResidentSkill(name: string, context?: PolicyContext): boolean;
     /** True when a tool is Disabled. */
-    isDisabledTool(name: string): boolean;
+    isDisabledTool(name: string, context?: PolicyContext): boolean;
     /** True when a skill is Disabled. */
-    isDisabledSkill(name: string): boolean;
+    isDisabledSkill(name: string, context?: PolicyContext): boolean;
     /**
      * True when a capability (by id and `kind`) is Disabled. `kind` disambiguates
      * a bare name shared by a tool and a skill.
      */
-    isDisabledCapability(id: string, kind?: CapabilityKind): boolean;
+    isDisabledCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): boolean;
     /** Tool names that are always kept Resident. */
     metaTools(): readonly string[];
     /** Resolve a capability's id to a class; pass `kind` to disambiguate a bare name. */
-    classifyCapability(id: string, kind?: CapabilityKind): CapabilityClass;
+    classifyCapability(id: string, kind?: CapabilityKind, context?: PolicyContext): CapabilityClass;
     /** Rules resident for the registry/other consumers. */
     toolRules(): CompiledCapabilityRules;
     skillRules(): CompiledCapabilityRules;
     /** Current (resolved) policy config. */
+    getOverrides(preset: string): PolicyOverrides;
+    setOverrides(preset: string, changes: {
+        kind: 'tools' | 'skills' | 'servers';
+        id: string;
+        tier: CapabilityClass | null;
+    }[]): Promise<void>;
     getConfig(): Config;
     /** Replace a subset of the policy config and recompile rules immediately. */
     updateConfig(partial: Partial<Config>): Promise<void>;
@@ -187,7 +197,7 @@ export interface CapabilityPolicyService {
      * Classify every capability currently indexed by `ctx.capability` (the
      * registry sibling). Returns an empty array when the registry is not mounted.
      */
-    classifyAll(): readonly CapabilityClassification[];
+    classifyAll(context?: PolicyContext): readonly CapabilityClassification[];
     /** MCP servers declared in the patch file, in file order. */
     listLocations(): Promise<McpLocation[]>;
     /** Declare a new MCP server. Rejects a duplicate `serverName`. */
