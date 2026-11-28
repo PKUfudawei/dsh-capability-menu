@@ -243,8 +243,6 @@ export function apply(ctx: ClientContext): void {
     diagnosticUndocumented: '描述待补：{name}；摘要回退为「{summary}」',
     projectRootLabel: '项目根：{path}',
     skillBrowseUnavailable: '该技能没有可浏览的目录根，可能是非目录型技能来源。',
-    skillAvailableCount: '可更新：{count}',
-    skillWaiting: '已等待 {seconds} 秒，请稍候…',
   } satisfies Record<CapabilityKey, string>
   const en = {
     currentPreset: 'Current mode: {preset}',
@@ -446,8 +444,6 @@ export function apply(ctx: ClientContext): void {
     diagnosticUndocumented: 'Description needed: {name}; search summary falls back to “{summary}”.',
     projectRootLabel: 'Project root: {path}',
     skillBrowseUnavailable: 'This Skill has no browsable directory root; its provider may be non-filesystem based.',
-    skillAvailableCount: 'Updates available: {count}',
-    skillWaiting: 'Elapsed: {seconds} seconds. Please wait…',
   } satisfies Record<CapabilityKey, string>
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'capability-menu: dictionaries')

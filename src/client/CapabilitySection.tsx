@@ -80,8 +80,6 @@ export interface CapabilitySectionInjected {
 export type CapabilitySectionProps = CapabilitySectionInjected
 
 export type CapabilityKey =
-  | 'skillAvailableCount'
-  | 'skillWaiting'
   | 'currentPreset'
   | 'policySourceLabel'
   | 'waitingPreset'
@@ -1537,7 +1535,7 @@ function ReadyBody(props: {
             <p className="mc-empty">{needle === '' ? t('emptySkills') : t('filterNoMatch')}</p>
           ) : (
             <>
-              <SkillUpdatePanel remote={remote} active={activeTab === 'skills'} t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} />
+              <SkillUpdatePanel remote={remote} filteredSkills={needle === '' ? undefined : skills} t={t} onUpdated={onRefresh} onAvailableCount={setSkillUpdatesAvailable} tabs={
                 <div className="mc-tab-group" role="tablist" aria-label={t('skillsGroup')}>
                   <button
                     type="button"
@@ -1570,6 +1568,7 @@ function ReadyBody(props: {
                     {t('presetSkills')}
                   </button>
                 </div>
+              } />
               {skillTab === 'global' ? (
                 globalSkills.length > 0 ? (
                   <SkillList

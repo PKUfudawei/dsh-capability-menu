@@ -154,6 +154,9 @@ export interface SkillUpdateStatus {
   readonly name: string
   readonly entryDir: string
   readonly sourceUrl?: string
+  readonly latestCommitUrl?: string
+  readonly latestCommitRevision?: string
+  readonly latestCommitSubject?: string
   readonly installedRevision?: string
   readonly latestRevision?: string
   readonly changedFiles?: readonly string[]
@@ -209,6 +212,9 @@ const skillUpdateStatus$schema = z.object({
   name: z.string(),
   entryDir: z.string(),
   sourceUrl: z.string().optional(),
+  latestCommitUrl: z.string().optional(),
+  latestCommitRevision: z.string().optional(),
+  latestCommitSubject: z.string().optional(),
   installedRevision: z.string().optional(),
   latestRevision: z.string().optional(),
   changedFiles: z.array(z.string()).optional(),
